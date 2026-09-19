@@ -120,5 +120,19 @@ func get_install_snapshot() -> Dictionary:
 	var parsed: Variant = JSON.parse_string(str(_plugin.getInstallSnapshotJson()))
 	return parsed if parsed is Dictionary else {"state": "error", "message": "Invalid installer response."}
 
+func rename_instance(old_name: String, new_name: String) -> bool:
+	return _plugin != null and _plugin.has_method("renameInstance") and bool(_plugin.renameInstance(old_name, new_name))
+
+func remove_instance(instance_name: String) -> bool:
+	return _plugin != null and _plugin.has_method("removeInstance") and bool(_plugin.removeInstance(instance_name))
+
+func get_instance_mods(instance_name: String) -> Dictionary:
+	if _plugin == null or not _plugin.has_method("getInstanceModsJson"):
+		return {"available": false, "mods": [], "error": "Android runtime unavailable"}
+	var parsed: Variant = JSON.parse_string(str(_plugin.getInstanceModsJson(instance_name)))
+	if not parsed is Dictionary or not parsed.get("mods", null) is Array:
+		return {"available": true, "mods": [], "error": "Invalid mods response"}
+	return parsed
+
 func launch_minecraft_vr(instance_name: String) -> bool:
 	return _plugin != null and _plugin.has_method("launchMinecraftVr") and bool(_plugin.launchMinecraftVr(instance_name))
