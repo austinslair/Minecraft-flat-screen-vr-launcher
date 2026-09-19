@@ -1,0 +1,87 @@
+name: Import TGS flat-screen renderer source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".renderer-import/**"
+      - ".github/workflows/import-tgs-flat-screen-renderer.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Reconstruct TGS Renderer Quest 0.11 source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          UPSTREAM_COMMIT="fbc4e412e353302607ba36489b2dd573b5becb25"
+          TARGET="$GITHUB_WORKSPACE/flat_screen/renderer/TGS-Renderer-Quest-0.11-source"
+          SRC="$RUNNER_TEMP/tgs-renderer-source"
+          SEED="$RUNNER_TEMP/tgs-plugin.tar.xz"
+
+          cat "$GITHUB_WORKSPACE"/.renderer-import/part-* | base64 --decode > "$SEED"
+          echo "4c425466e1e6df5ffe71d6fee08abe7fc7bca02278fb44c12f178095f8fdbfa6  $SEED" | sha256sum --check
+
+          git clone --quiet https://github.com/MobileGL-Dev/MobileGlues.git "$SRC"
+          git -C "$SRC" checkout --quiet --detach "$UPSTREAM_COMMIT"
+
+          git -C "$SRC" submodule update --init \
+            MobileGlues-cpp/3rdparty/xxhash \
+            MobileGlues-cpp/3rdparty/glslang \
+            MobileGlues-cpp/3rdparty/SPIRV-Cross \
+            MobileGlues-cpp/include/ska
+
+          tar -xJf "$SEED" -C "$SRC"
+
+          for patch in \
+            core-change.patch \
+            quest06-changes.patch \
+            quest07-changes.patch \
+            quest08-changes.patch \
+            quest09-changes.patch \
+            quest010-changes.patch \
+            quest011-changes.patch; do
+            git -C "$SRC" apply --include='MobileGlues-cpp/**' "$SRC/tgs-plugin/$patch"
+          done
+
+          # The uploaded source archive contains ordinary editable dependency files,
+          # not nested Git repositories/submodules. Strip only Git metadata.
+          find "$SRC" -name .git -print0 | xargs -0 -r rm -rf
+
+          rm -rf "$TARGET"
+          mkdir -p "$(dirname "$TARGET")"
+          mv "$SRC" "$TARGET"
+
+          test -f "$TARGET/tgs-plugin/source-lock.json"
+          test -f "$TARGET/tgs-plugin/quest011-changes.patch"
+          test -f "$TARGET/MobileGlues-cpp/CMakeLists.txt"
+          grep -q 'fbc4e412e353302607ba36489b2dd573b5becb25' "$TARGET/tgs-plugin/source-lock.json"
+
+          FILE_COUNT="$(find "$TARGET" -type f | wc -l)"
+          if [ "$FILE_COUNT" -ne 8203 ]; then
+            echo "Unexpected reconstructed source file count: $FILE_COUNT (expected 8203)" >&2
+            exit 1
+          fi
+
+          rm -rf "$GITHUB_WORKSPACE/.renderer-import"
+          rm -f "$GITHUB_WORKSPACE/.github/workflows/import-tgs-flat-screen-renderer.yml"
+
+      - name: Commit renderer source to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add TGS 0.11 flat-screen renderer source"
+          git push origin HEAD:main
