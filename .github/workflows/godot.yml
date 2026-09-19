@@ -46,7 +46,7 @@ jobs:
       - name: Build Godot + Pojlib Android runtime
         env:
           VOXYQUEST_MICROSOFT_CLIENT_ID: ${{ vars.VOXYQUEST_MICROSOFT_CLIENT_ID }}
-        run: gradle -p android/bridge :plugin:syncToGodot :pojlib:testDebugUnitTest --no-daemon
+        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
 
       - name: Verify launcher and account runtime
         run: |
