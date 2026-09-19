@@ -2,11 +2,18 @@ package dev.voxyquest.bridge
 
 import android.content.Intent
 import android.net.Uri
+import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
+import pojlib.util.Constants
+import pojlib.util.GsonUtils
+import pojlib.util.json.MinecraftInstances
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
 import org.godotengine.godot.plugin.UsedByGodot
 import org.lwjgl.glfw.CallbackBridge
 import pojlib.PojlibRuntime
+import pojlib.install.VoxyQuestInstaller
 import pojlib.account.LoginHelper
 
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
@@ -93,9 +100,63 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     fun openMicrosoftLoginPage(): Boolean {
         val hostActivity = activity ?: return false
         val url = LoginHelper.getVerificationUri()
-        if (url.isBlank()) return false
+        val uri = Uri.parse(url)
+        val host = uri.host?.lowercase() ?: return false
+        if (uri.scheme != "https" || !(host == "microsoft.com" || host.endsWith(".microsoft.com") || host == "microsoftonline.com" || host.endsWith(".microsoftonline.com") || host == "live.com" || host.endsWith(".live.com"))) return false
         return runCatching {
-            hostActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            hostActivity.startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            true
+        }.getOrDefault(false)
+    }
+
+    /** Read registry metadata without creating or rewriting instances.json. */
+    @UsedByGodot
+    fun getInstancesSnapshotJson(): String {
+        val result = JSONObject().put("available", PojlibRuntime.isInitialized())
+            .put("instances", JSONArray()).put("error", "")
+        if (!PojlibRuntime.isInitialized()) return result.toString()
+        return runCatching {
+            val registry = File(Constants.USER_HOME, "instances.json")
+            if (registry.isFile) {
+                val saved = GsonUtils.jsonFileToObject(registry.path, MinecraftInstances::class.java)
+                    ?: error("Invalid instance registry")
+                val items = JSONArray()
+                for (instance in saved.toArray()) {
+                    items.put(JSONObject()
+                        .put("name", instance.instanceName ?: "Unnamed instance")
+                        .put("version", instance.versionName ?: "")
+                        .put("installed", VoxyQuestInstaller.isInstalled(instance)))
+                }
+                result.put("instances", items)
+            }
+            result.toString()
+        }.getOrElse {
+            result.put("error", "Could not read saved instances").toString()
+        }
+    }
+
+    @UsedByGodot
+    fun getInstallVersionsJson(): String = activity?.let { LauncherOperations.versions(it) } ?: "[]"
+
+    @UsedByGodot
+    fun installInstance(name: String, version: String): Boolean {
+        val host = activity ?: return false
+        if (!PojlibRuntime.isInitialized()) return false
+        return LauncherOperations.install(host, name, version)
+    }
+
+    @UsedByGodot
+    fun getInstallSnapshotJson(): String = LauncherOperations.snapshot()
+
+    @UsedByGodot
+    fun launchMinecraftVr(name: String): Boolean {
+        val host = activity ?: return false
+        if (!LoginHelper.isSignedIn() || LauncherOperations.isBusy() || MinecraftGameActivity.isRunning) return false
+        return runCatching {
+            val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+                ?: return false
+            if (!VoxyQuestInstaller.isInstalled(instance)) return false
+            host.startActivity(Intent(host, MinecraftGameActivity::class.java).putExtra("instance_name", name))
             true
         }.getOrDefault(false)
     }

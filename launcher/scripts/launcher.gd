@@ -1,10 +1,14 @@
 extends Control
 
+signal auth_changed(snapshot: Dictionary)
+
 const AUTH_POLL_INTERVAL := 0.5
 const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
 
-var runtime := VoxyQuestRuntimeBridge.new()
+var runtime: RefCounted = VoxyQuestRuntimeBridge.new()
 var _poll_elapsed := 0.0
+var _open_browser_when_ready := false
+var _browser_open_failed := false
 
 @onready var account_label: Label = $Page/Content/AccountLabel
 @onready var status_label: Label = $Page/Content/StatusLabel
@@ -40,26 +44,42 @@ func _set_auth_polling(enabled: bool) -> void:
 	set_process(enabled)
 
 func _on_sign_in_pressed() -> void:
-	runtime.start_microsoft_login()
+	_browser_open_failed = false
+	_open_browser_when_ready = runtime.start_microsoft_login()
 	_refresh_auth_ui()
 
 func _on_open_pressed() -> void:
-	if not runtime.open_microsoft_login_page():
+	_browser_open_failed = not runtime.open_microsoft_login_page()
+	if _browser_open_failed:
 		status_label.text = "Could not open the Microsoft verification page."
 
 func _on_copy_pressed() -> void:
-	var auth := runtime.get_microsoft_login_snapshot()
+	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
 	var code := str(auth.get("device_code", ""))
 	if not code.is_empty():
 		DisplayServer.clipboard_set(code)
 		status_label.text = "Microsoft sign-in code copied."
 
 func _on_cancel_pressed() -> void:
+	_open_browser_when_ready = false
+	_browser_open_failed = false
 	runtime.cancel_microsoft_login()
 	_refresh_auth_ui()
 
 func _refresh_auth_ui() -> void:
-	var auth := runtime.get_microsoft_login_snapshot()
+	_render_auth_ui()
+	var snapshot: Dictionary = runtime.get_microsoft_login_snapshot()
+	if _open_browser_when_ready and snapshot.get("state", "") == "waiting_for_user" and not str(snapshot.get("device_code", "")).is_empty():
+		_open_browser_when_ready = false
+		_on_open_pressed()
+	if snapshot.get("state", "") in ["error", "cancelled", "signed_in"]:
+		_open_browser_when_ready = false
+	if _browser_open_failed:
+		status_label.text = "Browser could not open. Use Open Microsoft to retry, or enter the displayed address in your browser."
+	auth_changed.emit(snapshot)
+
+func _render_auth_ui() -> void:
+	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
 	var configured := bool(auth.get("configured", false))
 	var state := str(auth.get("state", "unavailable"))
 	var message := str(auth.get("message", ""))
@@ -98,11 +118,11 @@ func _refresh_auth_ui() -> void:
 
 	sign_in_button.text = "Sign in with Microsoft"
 	sign_in_button.disabled = state in ACTIVE_AUTH_STATES
-	code_panel.visible = not code.is_empty()
+	code_panel.visible = state == "waiting_for_user" and not code.is_empty()
 	device_code_label.text = "Code: %s" % code
 	verification_label.text = "Open: %s" % verification_url
-	open_button.disabled = verification_url.is_empty()
-	copy_button.disabled = code.is_empty()
+	open_button.disabled = state != "waiting_for_user" or verification_url.is_empty()
+	copy_button.disabled = state != "waiting_for_user" or code.is_empty()
 	cancel_button.disabled = not (state in ACTIVE_AUTH_STATES)
 
 	if not error.is_empty():

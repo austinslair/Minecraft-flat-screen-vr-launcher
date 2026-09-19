@@ -16,57 +16,42 @@ import java.util.Objects;
 import javax.annotation.Nullable;
 
 public class DownloadUtils {
-    private static void download(URL url, OutputStream os, long size) throws IOException {
-        final int MAX_RETRIES = 3;
-        int attempts = 0;
-
-        while (true) {
-            try {
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestProperty("User-Agent", "QuestCraft");
-                conn.setConnectTimeout(10000);
-                conn.setDoInput(true);
-                conn.connect();
-
-                if (conn.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                    if(size == -1) {
-                        size = conn.getContentLengthLong();
-                    }
-
-                    try (InputStream is = new StreamDL(conn.getInputStream(), size)) {
-                        IOUtils.copy(is, os);
-                    }
-                    return;
-                }
-            } catch (IOException e) {
-                if (++attempts >= MAX_RETRIES || e instanceof SSLException) {
-                    throw new IOException("Unable to download from " + url, e);
-                }
-            }
-        }
-    }
-
     public static void downloadFile(String url, File out) throws IOException {
         downloadFile(url, out, -1);
     }
 
+    /** Retry into a fresh temporary file; never append retries or publish partial bytes. */
     public static void downloadFile(String url, File out, long size) throws IOException {
         Objects.requireNonNull(out.getParentFile()).mkdirs();
-        File tempOut = File.createTempFile(out.getName(), ".part", out.getParentFile());
-        try {
-            try (OutputStream bos2 = new BufferedOutputStream(Files.newOutputStream(tempOut.toPath()))) {
-                download(new URL(url), bos2, size);
-                tempOut.renameTo(out);
-                bos2.close();
-                if (tempOut.exists()) tempOut.delete();
-            } catch (IOException th2) {
-                if (tempOut.exists()) tempOut.delete();
-                throw th2;
+        IOException failure = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            File partial = File.createTempFile("download-", ".part", out.getParentFile());
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestProperty("User-Agent", "VoxyQuest");
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(30000);
+                if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("Download returned HTTP " + conn.getResponseCode());
+                }
+                long expected = size > 0 ? size : conn.getContentLengthLong();
+                try (InputStream input = new StreamDL(conn.getInputStream(), Math.max(0, expected));
+                     OutputStream output = new BufferedOutputStream(Files.newOutputStream(partial.toPath()))) {
+                    IOUtils.copy(input, output);
+                }
+                if (expected >= 0 && partial.length() != expected) throw new IOException("Incomplete download");
+                Files.move(partial.toPath(), out.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException e) {
+                failure = e;
+                if (e instanceof SSLException) throw e;
+            } finally {
+                if (conn != null) conn.disconnect();
+                Files.deleteIfExists(partial.toPath());
             }
-        } catch (IOException e) {
-            if (tempOut.exists()) tempOut.delete();
-            throw e;
         }
+        throw new IOException("Download failed after three attempts", failure);
     }
 
     public static boolean compareSHA1(File f, @Nullable String sourceSHA) {

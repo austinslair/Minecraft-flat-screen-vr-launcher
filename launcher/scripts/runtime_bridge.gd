@@ -95,3 +95,30 @@ func send_cursor_position(x: float, y: float) -> void:
 func send_scroll(x: float, y: float) -> void:
 	if _plugin != null:
 		_plugin.sendScroll(x, y)
+
+## Read-only metadata; tokens and filesystem paths stay on Android.
+func get_instance_snapshot() -> Dictionary:
+	if _plugin == null or not _plugin.has_method("getInstancesSnapshotJson"):
+		return {"available": false, "instances": [], "error": ""}
+	var parsed: Variant = JSON.parse_string(str(_plugin.getInstancesSnapshotJson()))
+	if not parsed is Dictionary or not parsed.get("instances", null) is Array:
+		return {"available": true, "instances": [], "error": "Invalid instance response"}
+	return parsed
+
+func get_install_versions() -> Array:
+	if _plugin == null or not _plugin.has_method("getInstallVersionsJson"):
+		return []
+	var parsed: Variant = JSON.parse_string(str(_plugin.getInstallVersionsJson()))
+	return parsed if parsed is Array else []
+
+func install_instance(instance_name: String, version: String) -> bool:
+	return _plugin != null and _plugin.has_method("installInstance") and bool(_plugin.installInstance(instance_name, version))
+
+func get_install_snapshot() -> Dictionary:
+	if _plugin == null or not _plugin.has_method("getInstallSnapshotJson"):
+		return {"state": "unavailable", "message": "Installation is available in the Android launcher."}
+	var parsed: Variant = JSON.parse_string(str(_plugin.getInstallSnapshotJson()))
+	return parsed if parsed is Dictionary else {"state": "error", "message": "Invalid installer response."}
+
+func launch_minecraft_vr(instance_name: String) -> bool:
+	return _plugin != null and _plugin.has_method("launchMinecraftVr") and bool(_plugin.launchMinecraftVr(instance_name))

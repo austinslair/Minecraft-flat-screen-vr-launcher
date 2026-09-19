@@ -71,3 +71,7 @@ The Godot launcher is deliberately a normal 2D Android/Quest application. It doe
 - show the signed-in Minecraft username and UUID.
 
 Minecraft VR/OpenXR startup belongs to the game runtime, not to the Godot launcher.
+
+Clicking the home account card now requests a device code and opens the system browser once that fresh code is available. On Quest, Android routes this to the headset's browser. The account window keeps the user code and address visible and has Copy Code and Open Microsoft buttons for manual entry or retry. Background authentication stays in Pojlib while the browser is open. Cancelling prevents a delayed automatic browser open.
+
+For GitHub Actions builds, set the repository Actions variable `VOXYQUEST_MICROSOFT_CLIENT_ID` to VoxyQuest's registered public client ID. The workflow forwards it to the bridge build. It must support Microsoft personal accounts and public client/device-code authentication. No client secret or QuestCraft application ID is used. Actual Microsoft/Xbox/Minecraft authorization still depends on this application's registration and service access; UI tests cannot certify a live login.

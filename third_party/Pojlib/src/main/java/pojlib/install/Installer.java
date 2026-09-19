@@ -31,25 +31,50 @@ import java.util.concurrent.TimeUnit;
 public class Installer {
 
     public static void installJVM(Activity activity) {
-        Logger.getInstance().appendToLog("Checking JRE");
-        File jre = new File(activity.getFilesDir(), "runtimes/JRE");
-        String jreURL = "https://github.com/QuestCraftPlusPlus/android-openjdk-build-multiarch/releases/latest/download/JRE.zip";
-
+        File runtimes = new File(activity.getFilesDir(), "runtimes");
+        File jre = new File(runtimes, "JRE");
+        if (new File(jre, "lib/server/libjvm.so").isFile() && new File(jre, "lib/libawt_xawt.so").isFile()) return;
         try {
-            if (!jre.exists()) {
-                Logger.getInstance().appendToLog("Installing JRE");
-                File jreZip = new File(activity.getFilesDir() + "/runtimes/JRE.zip");
-                DownloadUtils.downloadFile(jreURL, jreZip);
-                DownloadManager.reset();
-                FileUtil.unzipArchive(jreZip.getPath(), activity.getFilesDir() + "/runtimes/JRE");
-                Files.copy(Paths.get(activity.getApplicationInfo().nativeLibraryDir + "/libawt_xawt.so"), Paths.get(activity.getFilesDir() + "/runtimes/JRE/lib/libawt_xawt.so"));
-                jreZip.delete();
+            Files.createDirectories(runtimes.toPath());
+            File archive = new File(runtimes, "JRE.zip");
+            DownloadUtils.downloadFile("https://github.com/QuestCraftPlusPlus/android-openjdk-build-multiarch/releases/latest/download/JRE.zip", archive);
+            java.nio.file.Path staging = Files.createTempDirectory(runtimes.toPath(), "JRE-install-");
+            try {
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(archive)) {
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry entry = entries.nextElement();
+                        File target = FileUtil.newFile(staging.toFile(), entry);
+                        if (entry.isDirectory()) { Files.createDirectories(target.toPath()); continue; }
+                        Files.createDirectories(target.toPath().getParent());
+                        try (java.io.InputStream input = zip.getInputStream(entry)) {
+                            Files.copy(input, target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                }
+                if (!Files.isRegularFile(staging.resolve("lib/server/libjvm.so"))) throw new IOException("JRE archive is incomplete");
+                Files.copy(Paths.get(activity.getApplicationInfo().nativeLibraryDir, "libawt_xawt.so"), staging.resolve("lib/libawt_xawt.so"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                java.nio.file.Path backup = null;
+                if (jre.exists()) {
+                    backup = runtimes.toPath().resolve("JRE-backup-" + System.nanoTime());
+                    Files.move(jre.toPath(), backup);
+                }
+                try {
+                    Files.move(staging, jre.toPath());
+                } catch (IOException failure) {
+                    if (backup != null) Files.move(backup, jre.toPath());
+                    throw failure;
+                }
+                Files.deleteIfExists(archive.toPath());
+            } finally {
+                if (Files.exists(staging)) {
+                    try (java.util.stream.Stream<java.nio.file.Path> paths = Files.walk(staging)) {
+                        for (java.nio.file.Path path : (Iterable<java.nio.file.Path>) paths.sorted(java.util.Comparator.reverseOrder())::iterator) Files.deleteIfExists(path);
+                    }
+                }
             }
-
-            Logger.getInstance().appendToLog("JRE installed");
         } catch (IOException e) {
-            Logger.getInstance().appendToLog("Failed to install JRE: " + e.getMessage());
-            e.printStackTrace();
+            throw new java.util.concurrent.CompletionException("Java runtime installation failed", e);
         }
     }
 
@@ -68,7 +93,7 @@ public class Installer {
 
                     if (!clientFile.exists()) {
                         DownloadUtils.downloadFile(minecraftVersionInfo.downloads.client.url, clientFile);
-                    } else if (DownloadUtils.compareSHA1(clientFile, minecraftVersionInfo.downloads.client.sha1)) {
+                    } else if (!DownloadUtils.compareSHA1(clientFile, minecraftVersionInfo.downloads.client.sha1)) {
                         clientFile.delete();
                         DownloadUtils.downloadFile(minecraftVersionInfo.downloads.client.url, clientFile);
                     }
@@ -81,9 +106,9 @@ public class Installer {
                 }
             } catch (IOException e) {
                 Logger.getInstance().appendToLog("Failed to download client: " + e.getMessage());
-                e.printStackTrace();
+                throw new java.util.concurrent.CompletionException(e);
             }
-            return null;
+            throw new java.util.concurrent.CompletionException(new IOException("Client verification failed"));
         });
     }
 
@@ -95,6 +120,7 @@ public class Installer {
             StringJoiner classpath = new StringJoiner(File.pathSeparator);
 
             for (VersionInfo.Library library : versionInfo.libraries) {
+                if (!library.allowedOnAndroid() || (library.downloads != null && library.downloads.artifact == null)) continue;
                 if (library.name.contains("lwjgl") || (library.name.contains("org.ow2.asm")) & !versionInfo.id.contains("fabric")) {
                     continue;
                 }
@@ -128,6 +154,7 @@ public class Installer {
                             classpath.add(libraryFile.getAbsolutePath());
                             break;
                         }
+                        Files.deleteIfExists(libraryFile.toPath());
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -158,16 +185,22 @@ public class Installer {
 
             ThreadPoolExecutor tp = new ThreadPoolExecutor(8, 8, 100, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
 
+            java.util.List<Future<?>> downloads = new java.util.ArrayList<>();
             for (Map.Entry<String, JsonElement> entry : assets.getAsJsonObject("objects").entrySet()) {
                 AsyncDownload thread = new AsyncDownload(entry, gameDir);
-                tp.execute(thread);
+                downloads.add(tp.submit(thread));
             }
 
             tp.shutdown();
             try {
-                while (!tp.awaitTermination(100, TimeUnit.MILLISECONDS)) ;
+                for (Future<?> download : downloads) download.get();
             } catch (InterruptedException e) {
-                Logger.getInstance().appendToLog("Download thread interrupted" + e.getMessage());
+                Thread.currentThread().interrupt();
+                throw new java.util.concurrent.CompletionException(e);
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new java.util.concurrent.CompletionException(e.getCause());
+            } finally {
+                tp.shutdownNow();
             }
 
             File indexJson = new File(gameDir + "/assets/indexes/" + minecraftVersionInfo.assets + ".json");
@@ -175,7 +208,7 @@ public class Installer {
                 try {
                     DownloadUtils.downloadFile(minecraftVersionInfo.assetIndex.url, indexJson);
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    throw new java.util.concurrent.CompletionException(e);
                 }
             }
 
@@ -196,7 +229,7 @@ public class Installer {
             FileUtils.writeByteArrayToFile(new File(Constants.USER_HOME + "/hacks/ResConfHack.jar"), FileUtil.loadFromAssetToByte(activity, "hacks/ResConfHack.jar"));
             FileUtils.writeByteArrayToFile(new File(Constants.USER_HOME + "/hacks/resolv.conf"), FileUtil.loadFromAssetToByte(activity, "hacks/resolv.conf"));
         } catch (IOException e) {
-            e.printStackTrace();
+            throw e;
         }
     }
 
