@@ -2,7 +2,6 @@ package dev.voxyquest.bridge
 
 import android.app.Activity
 import java.io.File
-import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -184,10 +183,11 @@ object LauncherOperations {
         destination.parentFile?.mkdirs()
         val temp = File.createTempFile("instances-", ".json", destination.parentFile)
         try {
-            Files.write(
-                temp.toPath(),
-                GsonUtils.GLOBAL_GSON.toJson(registry).toByteArray(StandardCharsets.UTF_8),
-            )
+            GsonUtils.objectToJsonFile(temp.path, registry)
+            check(temp.length() > 0L) { "Could not serialize instance registry" }
+            check(GsonUtils.jsonFileToObject(temp.path, MinecraftInstances::class.java) != null) {
+                "Could not verify instance registry"
+            }
             try {
                 Files.move(
                     temp.toPath(), destination.toPath(),
