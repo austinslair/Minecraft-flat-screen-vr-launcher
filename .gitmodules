@@ -2,3 +2,7 @@
 	path = third_party/Pojlib
 	url = https://github.com/QuestCraftPlusPlus/Pojlib.git
 	branch = QuestCraft-6.0.0
+[submodule "third_party/QCXR-XR-Wrapper"]
+	path = third_party/QCXR-XR-Wrapper
+	url = https://github.com/QuestCraftPlusPlus/QCXR-XR-Wrapper.git
+	branch = master
