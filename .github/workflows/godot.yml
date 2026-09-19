@@ -84,6 +84,7 @@ jobs:
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
+          mkdir -p launcher/build
           GODOT="$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
           "$GODOT" --headless --path launcher --install-android-build-template --export-debug "Meta Quest" build/VoxyQuest-ci.apk
           test -f launcher/build/VoxyQuest-ci.apk
