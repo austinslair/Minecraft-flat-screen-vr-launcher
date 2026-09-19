@@ -22,6 +22,15 @@ android {
             path = file("src/main/jni/Android.mk")
         }
     }
+
+    // Godot owns the OpenXR runtime in the final Quest APK. Pojlib still
+    // links against its loader while compiling native code, but must not
+    // package a second libopenxr_loader.so into its AAR.
+    packaging {
+        jniLibs {
+            excludes += ["lib/**/libopenxr_loader.so"]
+        }
+    }
 }
 
 dependencies {
