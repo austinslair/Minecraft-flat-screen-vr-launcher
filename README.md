@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/voxyquest-banner.png" alt="VoxyQuest banner" width="100%">
+<img src="assets/voxyquest-banner.svg" alt="VoxyQuest banner" width="100%">
 
 # VoxyQuest
 
@@ -61,7 +61,7 @@ The standalone roadmap is also available in [`docs/ROADMAP.md`](docs/ROADMAP.md)
 │   ├── ISSUE_TEMPLATE/
 │   └── PULL_REQUEST_TEMPLATE.md
 ├── assets/
-│   └── voxyquest-banner.png
+│   └── voxyquest-banner.svg
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── ROADMAP.md
