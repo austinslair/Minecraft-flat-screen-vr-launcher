@@ -1,55 +1,58 @@
-# Architecture Notes
+# VoxyQuest Architecture Notes
 
-HorizonShelf should keep its core behavior independent from any single VR runtime or UI framework.
+VoxyQuest should keep its core launcher behavior separated from VR-specific, Flat Screen, input, instance, and mod-loader integrations so new compatibility work does not destabilize the rest of the project.
 
 ## Suggested boundaries
 
-### 1. App catalog
+### 1. Instance management
 
-Responsible for discovering, indexing, and describing launchable applications.
+Responsible for representing Minecraft instances and their settings.
 
 Typical responsibilities:
 
-- Application identity
-- Display name and metadata
-- Executable or launch target
-- Artwork/icon reference
-- Last-used information
-- User-defined organization
+- Minecraft version
+- Instance name and metadata
+- Launch arguments
+- Game directory
+- Java/runtime configuration
+- Per-instance settings
+- Selected mod loader
 
-### 2. Launcher service
+### 2. Launch service
 
-Responsible for turning a catalog entry into a launch request and reporting success or failure back to the UI.
+Responsible for turning an instance configuration into a launch request and reporting success or failure back to the UI.
 
-This layer should not own presentation logic.
+VR and Flat Screen launch differences should be handled through clear launch options rather than duplicated launcher flows.
 
-### 3. Persistence
+### 3. VR / Flat Screen mode adapter
 
-Stores user-facing state such as favorites, collections, preferences, and recent history.
+Owns mode-specific behavior such as VR runtime integration, Flat Screen startup options, input mode selection, and mode-specific compatibility handling.
 
-Keep the format versioned so future builds can migrate old data safely.
+### 4. Mod-loader integration
 
-### 4. VR/runtime adapter
+Keeps Forge and future mod-loader support behind dedicated adapters where possible.
 
-Contains runtime-specific behavior such as overlays, focus rules, input translation, window/surface handling, or headset lifecycle events.
+The rest of the launcher should not need to know loader-specific implementation details just to display or launch an instance.
 
-The rest of the application should communicate with this layer through a narrow interface.
+### 5. Input
 
-### 5. Presentation
+Keeps controller, headset, keyboard, and mouse handling separate from launcher state so Flat Screen keyboard and mouse support can evolve without breaking VR controls.
 
-Owns library browsing, search, categories, launch feedback, settings, and empty/error states.
+### 6. Presentation
 
-Avoid coupling UI components directly to platform APIs.
+Owns instance browsing, launch feedback, settings, compatibility messages, loading states, and errors.
+
+Avoid coupling UI components directly to runtime- or loader-specific APIs.
 
 ## Performance rules
 
-- Do expensive scanning outside the render/update hot path.
-- Cache metadata and artwork where safe.
-- Avoid repeatedly probing unchanged applications.
-- Load large artwork lazily.
-- Keep per-frame allocations low.
-- Prefer event-driven updates over constant polling when the platform allows it.
+- Keep expensive scanning and discovery work outside render/update hot paths.
+- Cache instance and mod metadata where safe.
+- Avoid repeatedly probing unchanged files or installations.
+- Keep per-frame allocations low in VR-sensitive code.
+- Prefer event-driven updates over constant polling when possible.
+- Profile before and after optimization work.
 
 ## Failure handling
 
-The launcher should treat missing apps, broken metadata, unavailable runtimes, and launch failures as recoverable states. One bad catalog entry should not prevent the rest of the library from loading.
+A broken instance, unsupported mod loader, failed VR runtime, or bad mod should be treated as a recoverable error. One bad configuration should not stop other VoxyQuest instances from loading or launching.
