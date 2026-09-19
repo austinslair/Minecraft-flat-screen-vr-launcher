@@ -1,0 +1,881 @@
+--- a/MobileGlues-cpp/egl/egl.cpp
++++ b/MobileGlues-cpp/egl/egl.cpp
+@@ -12,6 +12,7 @@
+ #include "../gl/log.h"
+ #include "../gl/mg.h"
+ #include "../gl/tgs_opaque.h"
++#include "../gl/tgs_frame_stats.h"
+ #include <algorithm>
+ #include <cstdlib>
+ #include <cstring>
+@@ -434,17 +435,30 @@
+         tgs::opaque_default_framebuffer(GLES);
+     }
+ 
++    EGLBoolean record_present(EGLDisplay dpy,EGLSurface surface,EGLBoolean result){
++        static const bool enabled=[] {const char* v=std::getenv("TGS_FRAME_STATS");return v&&std::strcmp(v,"1")==0;}();
++        if(enabled && result==EGL_TRUE){
++            static thread_local tgs::FrameStats stats;tgs::FrameReport report{};
++            if(stats.frame(reinterpret_cast<uintptr_t>(dpy),reinterpret_cast<uintptr_t>(surface),report))
++                LOG_V("TGS_FRAME fps=%.2f mean_ms=%.3f p95_ms=%.3f worst_ms=%.3f mapped=%llu fallback=%llu reference=%llu upload_bytes=%llu",
++                  report.fps,report.mean_ms,report.p95_ms,report.worst_ms,
++                  (unsigned long long)report.uploads.mapped,(unsigned long long)report.uploads.fallback,
++                  (unsigned long long)report.uploads.reference,(unsigned long long)report.uploads.bytes);
++        }
++        return result;
++    }
++
+     EGLBoolean presentSurface(EGLDisplay dpy, EGLSurface surface) {
+         LOAD_EGL(eglSwapBuffers)
+         if (global_settings.fsr1_setting == FSR1_Quality_Preset::Disabled) {
+             prepare_opaque_window(dpy, surface);
+-            return egl_eglSwapBuffers(dpy, surface);
++            return record_present(dpy,surface,egl_eglSwapBuffers(dpy, surface));
+         }
+         ApplyFSR();
+         prepare_opaque_window(dpy, surface);
+         const EGLBoolean result = egl_eglSwapBuffers(dpy, surface);
+         CheckResolutionChange(dpy, surface);
+-        return result;
++        return record_present(dpy,surface,result);
+     }
+ 
+     // The damage rectangles are dropped whenever FSR1 is on, and that is the point
+@@ -458,7 +472,7 @@
+                                         SwapWithDamageFn backend) {
+         const bool fsr_on = global_settings.fsr1_setting != FSR1_Quality_Preset::Disabled;
+         if (backend != nullptr && !fsr_on && !opaque_window_enabled()) {
+-            return backend(dpy, surface, rects, n_rects);
++            return record_present(dpy,surface,backend(dpy, surface, rects, n_rects));
+         }
+         // Once, not once a frame: a damage swap runs every frame the host presents
+         // one, and this would otherwise be the loudest line in the whole trace for
+--- a/MobileGlues-cpp/gl/gl_native.cpp
++++ b/MobileGlues-cpp/gl/gl_native.cpp
+@@ -12,6 +12,8 @@
+ #include "../gles/loader.h"
+ #include "mg.h"
+ #include <GLES3/gl32.h>
++
++#include "tgs_matrix.h"
+ 
+ #define DEBUG 0
+ 
+@@ -141,9 +143,15 @@
+ NATIVE_FUNCTION_HEAD(void, glUniform4fv, GLint location, GLsizei count, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniform4fv, location,count,value)
+ NATIVE_FUNCTION_HEAD(void, glUniform4i, GLint location, GLint v0, GLint v1, GLint v2, GLint v3) NATIVE_FUNCTION_END_NO_RETURN(void, glUniform4i, location,v0,v1,v2,v3)
+ NATIVE_FUNCTION_HEAD(void, glUniform4iv, GLint location, GLsizei count, const GLint *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniform4iv, location,count,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix2fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix2fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix3fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix3fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix4fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix4fv, location,count,transpose,value)
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix2fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix3fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix4fv(location,count,tr,v);});
++}
+ //NATIVE_FUNCTION_HEAD(void, glUseProgram, GLuint program) NATIVE_FUNCTION_END_NO_RETURN(void, glUseProgram, program)
+ NATIVE_FUNCTION_HEAD(void, glValidateProgram, GLuint program) NATIVE_FUNCTION_END_NO_RETURN(void, glValidateProgram, program)
+ NATIVE_FUNCTION_HEAD(void, glVertexAttrib1f, GLuint index, GLfloat x) NATIVE_FUNCTION_END_NO_RETURN(void, glVertexAttrib1f, index,x)
+@@ -173,12 +181,24 @@
+ //NATIVE_FUNCTION_HEAD(GLboolean, glUnmapBuffer, GLenum target) NATIVE_FUNCTION_END(GLboolean, glUnmapBuffer, target)
+ NATIVE_FUNCTION_HEAD(void, glGetBufferPointerv, GLenum target, GLenum pname, void **params) NATIVE_FUNCTION_END_NO_RETURN(void, glGetBufferPointerv, target,pname,params)
+ //NATIVE_FUNCTION_HEAD(void, glDrawBuffers, GLsizei n, const GLenum *bufs) NATIVE_FUNCTION_END_NO_RETURN(void, glDrawBuffers, n,bufs)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix2x3fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix2x3fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix3x2fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix3x2fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix2x4fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix2x4fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix4x2fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix4x2fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix3x4fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix3x4fv, location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glUniformMatrix4x3fv, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glUniformMatrix4x3fv, location,count,transpose,value)
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix2x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix2x3fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix3x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix3x2fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix2x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix2x4fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix4x2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix4x2fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix3x4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix3x4fv(location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glUniformMatrix4x3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glUniformMatrix4x3fv(location,count,tr,v);});
++}
+ // NATIVE_FUNCTION_HEAD(void, glBlitFramebuffer, GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) NATIVE_FUNCTION_END_NO_RETURN(void, glBlitFramebuffer, srcX0,srcY0,srcX1,srcY1,dstX0,dstY0,dstX1,dstY1,mask,filter)   // implemented in gl/framebuffer.cpp
+ //NATIVE_FUNCTION_HEAD(void, glRenderbufferStorageMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height) NATIVE_FUNCTION_END_NO_RETURN(void, glRenderbufferStorageMultisample, target,samples,internalformat,width,height)
+ // NATIVE_FUNCTION_HEAD(void, glFramebufferTextureLayer, GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) NATIVE_FUNCTION_END_NO_RETURN(void, glFramebufferTextureLayer, target,attachment,texture,level,layer)   // implemented in gl/framebuffer.cpp
+@@ -301,15 +321,33 @@
+ NATIVE_FUNCTION_HEAD(void, glProgramUniform2fv, GLuint program, GLint location, GLsizei count, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniform2fv, program,location,count,value)
+ NATIVE_FUNCTION_HEAD(void, glProgramUniform3fv, GLuint program, GLint location, GLsizei count, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniform3fv, program,location,count,value)
+ NATIVE_FUNCTION_HEAD(void, glProgramUniform4fv, GLuint program, GLint location, GLsizei count, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniform4fv, program,location,count,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix2fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix2fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix3fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix3fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix4fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix4fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix2x3fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix2x3fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix3x2fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix3x2fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix2x4fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix2x4fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix4x2fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix4x2fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix3x4fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix3x4fv, program,location,count,transpose,value)
+-NATIVE_FUNCTION_HEAD(void, glProgramUniformMatrix4x3fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) NATIVE_FUNCTION_END_NO_RETURN(void, glProgramUniformMatrix4x3fv, program,location,count,transpose,value)
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix2fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix3fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix4fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix2x3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix2x3fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix3x2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix3x2fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix2x4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<2,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix2x4fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix4x2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,2>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix4x2fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix3x4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<3,4>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix3x4fv(program,location,count,tr,v);});
++}
++extern "C" GLAPI GLAPIENTRY void glProgramUniformMatrix4x3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
++    tgs::matrix_upload<4,3>(location,count,transpose,value,[&](GLboolean tr,const GLfloat* v){GLES.glProgramUniformMatrix4x3fv(program,location,count,tr,v);});
++}
+ NATIVE_FUNCTION_HEAD(void, glValidateProgramPipeline, GLuint pipeline) NATIVE_FUNCTION_END_NO_RETURN(void, glValidateProgramPipeline, pipeline)
+ NATIVE_FUNCTION_HEAD(void, glGetProgramPipelineInfoLog, GLuint pipeline, GLsizei bufSize, GLsizei *length, GLchar *infoLog) NATIVE_FUNCTION_END_NO_RETURN(void, glGetProgramPipelineInfoLog, pipeline,bufSize,length,infoLog)
+ //NATIVE_FUNCTION_HEAD(void, glBindImageTexture, GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format) NATIVE_FUNCTION_END_NO_RETURN(void, glBindImageTexture, unit,texture,level,layered,layer,access,format)
+--- a/MobileGlues-cpp/gl/multidraw.cpp
++++ b/MobileGlues-cpp/gl/multidraw.cpp
+@@ -11,6 +11,7 @@
+ #include "enable.h"
+ #include "restart.h"
+ #include "tgs_indexed.h"
++#include "tgs_stream.h"
+ #include "../egl/context.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -712,23 +713,8 @@
+         g_cmdbufsize = static_cast<GLsizei>(sz);
+     }
+ 
+-    // Built on the CPU and uploaded whole, rather than written through a
+-    // GL_MAP_INVALIDATE_BUFFER_BIT mapping. The mapping says "all of this is
+-    // about to be overwritten" more precisely, and on a driver that honours it
+-    // there is nothing to choose between the two. What it costs is two ways to
+-    // fail on every single draw call: a map that returns null, and an unmap that
+-    // reports the contents lost. Both used to abandon the backend for the rest of
+-    // the process, and falling back to unrolled draws forever is far more
+-    // expensive than the upload that was being avoided -- a driver refusing to
+-    // hand out a pointer for a buffer it is still reading is a perfectly ordinary
+-    // thing, not a reason to give up on indirect drawing.
+-    //
+-    // thread_local for the same reason as mg_zero_basevertex: nothing in this
+-    // file takes a lock, and two threads can each have a current context.
+-    static thread_local std::vector<draw_elements_indirect_command_t> staged;
+-    if (staged.size() < static_cast<size_t>(primcount)) staged.resize(static_cast<size_t>(primcount));
+-    draw_elements_indirect_command_t* pcmds = staged.data();
+-
++    tgs::upload_commands<draw_elements_indirect_command_t>(GLES,static_cast<size_t>(primcount),
++        tgs::stream_uploads_enabled(),[&](draw_elements_indirect_command_t* pcmds){
+     for (GLsizei i = 0; i < primcount; ++i) {
+         const uintptr_t byteOffset = reinterpret_cast<uintptr_t>(indices[i]);
+         // A negative count assigned straight into the unsigned command field used
+@@ -743,8 +729,7 @@
+         pcmds[i].reservedMustBeZero = 0;
+     }
+ 
+-    GLES.glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0,
+-                         static_cast<GLsizeiptr>(primcount * sizeof(draw_elements_indirect_command_t)), pcmds);
++    });
+     return true;
+ }
+ 
+@@ -1815,15 +1800,8 @@
+         g_arrays_cmdbufsize = static_cast<GLsizei>(sz);
+     }
+ 
+-    auto* cmds = static_cast<draw_arrays_indirect_command_t*>(GLES.glMapBufferRange(
+-        GL_DRAW_INDIRECT_BUFFER, 0, static_cast<GLsizeiptr>(drawcount * sizeof(draw_arrays_indirect_command_t)),
+-        GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT));
+-    if (!cmds) {
+-        MD_WARN_ONCE("multidraw arrays: failed to map the indirect command buffer");
+-        GLES.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev);
+-        return false;
+-    }
+-
++    tgs::upload_commands<draw_arrays_indirect_command_t>(GLES,static_cast<size_t>(drawcount),
++        tgs::stream_uploads_enabled(),[&](draw_arrays_indirect_command_t* cmds){
+     for (GLsizei i = 0; i < drawcount; ++i) {
+         cmds[i].count = static_cast<GLuint>(count[i] > 0 ? count[i] : 0);
+         cmds[i].instanceCount = 1;
+@@ -1831,11 +1809,7 @@
+         cmds[i].baseInstanceOrReserved = 0;
+     }
+ 
+-    if (GLES.glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER) == GL_FALSE) {
+-        MD_WARN_ONCE("multidraw arrays: indirect command buffer contents lost on unmap");
+-        GLES.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, prev);
+-        return false;
+-    }
++    });
+     return true;
+ }
+ 
+--- a/MobileGlues-cpp/gl/tgs_frame_stats.h
++++ b/MobileGlues-cpp/gl/tgs_frame_stats.h
+@@ -0,0 +1,25 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include "tgs_stream.h"
++#include <chrono>
++#include <array>
++#include <algorithm>
++namespace tgs {
++struct FrameReport{double fps,mean_ms,p95_ms,worst_ms;StreamTotals uploads;};
++class FrameStats {
++ using Clock=std::chrono::steady_clock;
++ Clock::time_point last{};uintptr_t display=0,surface=0;
++ std::array<double,300> samples{};size_t count=0;StreamTotals before{};
++public:
++ bool frame(uintptr_t d,uintptr_t s,FrameReport& report){
++  const auto now=Clock::now();
++  if(last==Clock::time_point{} || display!=d || surface!=s){display=d;surface=s;count=0;last=now;before=stream_totals;return false;}
++  samples[count++]=std::chrono::duration<double,std::milli>(now-last).count();last=now;
++  if(count<samples.size())return false;
++  double sum=0;for(double ms:samples)sum+=ms;std::sort(samples.begin(),samples.end());
++  report={sum>0?300000.0/sum:0,sum/300.0,samples[284],samples[299],
++    {stream_totals.mapped-before.mapped,stream_totals.fallback-before.fallback,stream_totals.reference-before.reference,stream_totals.bytes-before.bytes}};
++  before=stream_totals;count=0;return true;
++ }
++};
++}
+--- a/MobileGlues-cpp/gl/tgs_matrix.h
++++ b/MobileGlues-cpp/gl/tgs_matrix.h
+@@ -0,0 +1,24 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++#include <vector>
++#include <cstring>
++namespace tgs {
++// GLES only accepts transpose=false. Desktop row-major input is transposed on
++// CPU, preserving each float's bits, including rectangular matrices and arrays.
++template<int Columns,int Rows,class Submit> void matrix_upload(GLint location,GLsizei count,
++    GLboolean transpose,const GLfloat* value,Submit submit){
++    if(location==-1){submit(GL_FALSE,value);return;}
++    if(!transpose || count<=0 || !value){submit(transpose,value);return;}
++    constexpr size_t elements=Columns*Rows;
++    static thread_local std::vector<GLfloat> scratch;
++    const size_t size=static_cast<size_t>(count)*elements;
++    if(scratch.size()<size)scratch.resize(size);
++    for(GLsizei n=0;n<count;++n)for(int c=0;c<Columns;++c)for(int r=0;r<Rows;++r)
++        std::memcpy(&scratch[static_cast<size_t>(n)*elements+c*Rows+r],
++                    &value[static_cast<size_t>(n)*elements+r*Columns+c],sizeof(GLfloat));
++    submit(GL_FALSE,scratch.data());
++    // Matrix arrays can be user-controlled. Do not retain arbitrarily large temporaries.
++    if(scratch.capacity()>262144)std::vector<GLfloat>().swap(scratch);
++}
++}
+--- a/MobileGlues-cpp/gl/tgs_stream.h
++++ b/MobileGlues-cpp/gl/tgs_stream.h
+@@ -0,0 +1,33 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++#include <vector>
++#include <cstdint>
++#include <cstdlib>
++#include <cstring>
++namespace tgs {
++struct StreamTotals { uint64_t mapped=0, fallback=0, reference=0, bytes=0; };
++inline thread_local StreamTotals stream_totals;
++inline bool stream_uploads_enabled(){static const bool yes=[] {const char* v=std::getenv("TGS_STREAM_UPLOADS");return v&&std::strcmp(v,"1")==0;}();return yes;}
++// Only for OUR mutable scratch command buffer. The caller has already allocated
++// and bound sufficient storage. Never applied to a mod's buffer or a partial update.
++// INVALIDATE lets the driver rename a busy allocation; no UNSYNCHRONIZED flag.
++template<class Command,class Driver,class Fill> void upload_commands(Driver& d, size_t count,bool enabled,Fill fill){
++    const GLsizeiptr bytes=static_cast<GLsizeiptr>(count*sizeof(Command));
++    stream_totals.bytes+=bytes;
++    if(enabled && d.glMapBufferRange && d.glUnmapBuffer){
++        auto* mapped=static_cast<Command*>(d.glMapBufferRange(GL_DRAW_INDIRECT_BUFFER,0,bytes,
++            GL_MAP_WRITE_BIT|GL_MAP_INVALIDATE_BUFFER_BIT));
++        if(mapped){
++            fill(mapped);
++            if(d.glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER)==GL_TRUE){++stream_totals.mapped;return;}
++        }
++    }
++    // Retain the backend after a transient map/unmap failure; rewrite the entire
++    // used range before drawing, even if the driver reported its contents lost.
++    static thread_local std::vector<Command> scratch;
++    if(scratch.size()<count)scratch.resize(count);
++    fill(scratch.data());d.glBufferSubData(GL_DRAW_INDIRECT_BUFFER,0,bytes,scratch.data());
++    if(enabled)++stream_totals.fallback;else ++stream_totals.reference;
++}
++}
+--- a/MobileGlues-cpp/main.cpp
++++ b/MobileGlues-cpp/main.cpp
+@@ -35,7 +35,7 @@
+ }
+ 
+ void show_license() {
+-    LOG_V("TGS_BUILD=0.7-quest; GPU-resident indexed fallback and reusable command staging");
++    LOG_V("TGS_BUILD=0.8-quest; command streaming, matrix compatibility, frame statistics");
+     LOG_V("The Open Source License of MobileGlues: ");
+     LOG_V("  %s", license);
+ }
+--- a/tgs-plugin/README.md
++++ b/tgs-plugin/README.md
+@@ -1,92 +1,62 @@
+-# TGS Quest Renderer 0.7
++# TGS Quest 0.8 — command streaming and compatibility test
+ 
+-Minecraft Java 1.21.1, Java 21, ARM64 Quest 3S flat-window rendering in ZalithLauncher 2 or DroidBridge.
+-This is a renderer plugin, not a launcher or immersive VR application.
++Install the fast APK and select **TGS Quest 0.8 Streaming** after restarting
++ZalithLauncher 2 or DroidBridge. Keep 0.7 installed. The separate Reference APK
++uses the same rendering fixes, but stages indirect commands through BufferSubData
++instead of mapping fresh storage. Reference is an A/B control, not identical to 0.7.
++Neither profile lowers resolution, render distance, texture quality or frame limits.
+ 
+-Install TGS-Renderer-Quest-0.7-arm64.apk, restart the launcher and select
+-**TGS Quest 0.7 (MobileGlues fork)**. Keep the working 0.5 plugin installed;
+-0.7 uses a separate package and can coexist. Keep the same visual settings.
++## Performance change
+ 
+-## Restored fixes
++Element and array indirect command buffers are mutable renderer-owned scratch
++buffers. Streaming maps the complete used range with WRITE and INVALIDATE_BUFFER,
++then writes commands directly. The driver can rename busy storage instead of waiting
++for previous draws to finish. No UNSYNCHRONIZED flag, no geometry changes, no modification
++of mod-owned buffer storage. Map failure or lost contents on unmap triggers a complete
++CPU-staged re-upload; the backend is not permanently disabled after a transient failure.
+ 
+-Reconstructed from the supplied 0.1 source, the working 0.5 APK's embedded
+-notes and the recorded edits. This is not a byte-identical recovery of 0.5.
++This helps only workloads using those paths, and some drivers may be slower with
++mapping. No headset FPS gain is established. The reference profile and counters make
++this testable rather than implying that every removed CPU operation improves FPS.
+ 
+-- Preserve legacy GLSL attribute binding and name-based varyings by removing
+-  automatically generated SPIR-V input/output locations for GLSL <=150, except
+-  sources mentioning explicit locations or separate shader objects. Preserve
+-  fragment output attachment numbers and built-ins. Cache keys include stage and revision.
+-- Submit the merged/translated glShaderSource string with count 1, preventing
+-  reads beyond its single-pointer array.
+-- Force alpha opaque only on the current, known EGL window surface; preserve
+-  RGB, offscreen targets, indexed masks, scissor, discard and framebuffer state.
+-  All window creation entry points are tracked; destroy/terminate remove records.
+-- Ignore invalid or zero-sized surface resize queries before recreating FSR targets.
+-- Retain Quest environment/config directory fallback and resizable plugin metadata.
+-- Restore native split-source/slot-5/reordered-varying diagnostic plus original texture check.
++Every 300 successful presentation intervals, `TGS_FRAME` in the renderer log reports
++FPS, mean/p95/worst frame interval, mapped/fallback/reference upload counts and bytes.
++These are presentation intervals including pacing/compositor waits, NOT GPU execution
++times. Different surfaces start a new window of samples. A zero mapped count means
++the new path was not used during that measurement. No frame cap is changed.
++Set TGS_FRAME_STATS=0 to disable reporting; TGS_STREAM_UPLOADS=0 selects reference uploads.
+ 
+-## New in 0.7
++Compare the same stationary scene, world, resolution, chunks and mods after equal
++warm-up. Repeat both orders to limit thermal bias. Lower p95 frame time is better;
++world generation, Java GC, simulation and compositor caps can dominate either profile.
+ 
+-The indexed base-vertex fallback uses the driver directly when an index buffer
+-is bound, GLES 3.2 or the base-vertex extension is supported, and the primitive
+-restart mode needs no index rewrite. This avoids per-sub-draw GPU readback,
+-CPU index widening and scratch-buffer uploads. Zero-base batches can use plain
+-indexed drawing even without base-vertex support. Unsupported batches are rejected
+-before any draw so fallback cannot draw an earlier sub-batch twice. This change
+-helps calls reaching that fallback; existing native multidraw paths stay intact.
++## Mod and version compatibility
+ 
+-Indirect command staging keeps its initialized high-water size instead of shrinking
+-and then zero-filling memory that is overwritten by the next larger command batch.
++This native plugin does not discriminate between Forge, Fabric and NeoForge. It
++cannot guarantee every version or modpack: each may require GL features the core
++lacks. Newly implemented compatibility: all nine square/rectangular float matrix
++shapes, including arrays, support desktop transpose=true in both glUniformMatrix*
++and glProgramUniformMatrix*. GLES receives equivalent column-major data with false.
++Ordinary transpose=false uploads pass through unchanged. Previous Quest shader,
++opaque-alpha, resize, upload and indexed-draw fixes remain.
+ 
+-All 0.6 Quest and upload/presentation fixes remain. High chunk counts also increase
+-world-generation, simulation, Java heap and GPU load. This renderer cannot guarantee
+-zero lag with large modpacks; actual frame-time improvements need device measurements.
++**Universal Minecraft support is NOT implemented.** glBegin/glMatrixMode and other
++legacy APIs remain stubs; several advanced GL entry points are also unimplemented.
++Launcher metadata retains the prior 1.17–1.21.1 range, which is a selection range,
++not evidence every version inside it or every loader/mod combination was tested.
++The user reported 0.5 working on Quest; no 0.8 Minecraft/modpack device tests were
++performed here. Broadening metadata alone would not add API implementations.
+ 
+-## Earlier optimizations
++## Build and validation
+ 
+-- Reuse initialized upload scratch storage without shrinking/re-zeroing between
+-  alternating small and large uploads. Existing large-buffer release policy stays.
+-- Only change pixel-store settings that differ. Retain original alignment when
+-  tight rows satisfy it. Ordinary RGBA uploads avoid all 12 temporary state calls.
+-- Use masked glClearBufferfv for final alpha without reading/modifying clear color;
+-  skip redundant framebuffer/mask writes. Common path: 7 GL calls instead of 12.
+-  Fall back to 0.5's glClear sequence if glClearBufferfv is unavailable.
+-- Preserve ARM64 NEON conversion, rendering quality, resolution and draw distance.
++Full corresponding source and dependencies are included. Requires Android NDK r27d,
++CMake 3.22.1/Ninja, build-tools 35.0.0, platform 35 and JDK 17. Paths under toolchain:
++android-ndk-r27d/, cmake/bin/, build-tools/android-15/, platforms/android-35/.
++Run tgs-plugin/build.py --toolchain PATH --java-home PATH --output PATH --native-build PATH.
++It produces two APKs using a local test signing key and ARM64/static C++/16 KiB ELF alignment.
++Tests and limitations are recorded in VERIFICATION.txt. Run renderer check in either
++APK for the native split-shader, named-varying, texture and indirect upload test.
+ 
+-0.5 was reported working by the user. 0.7 has not been tested on a physical Quest
+-here. Operation-count savings do not establish a Minecraft FPS improvement.
+-See VERIFICATION.txt for actual checks completed on this reconstruction.
+-
+-## Rebuild
+-
+-Requires Android NDK r27d, CMake 3.22.1 with Ninja, build-tools 35.0.0,
+-Android platform 35 and JDK 17. Toolchain layout:
+-android-ndk-r27d/, cmake/bin/, build-tools/android-15/, platforms/android-35/.
+-
+-```
+-python3 tgs-plugin/build.py --toolchain /absolute/path/to/toolchain \
+-  --java-home /absolute/path/to/jdk-17 --output /absolute/path/to/output \
+-  --native-build /absolute/path/to/native-build
+-```
+-
+-The builder uses a local debug signing key. New keys cannot update an existing
+-installation signed with another key. This does not affect the separate 0.5 package.
+-Native libraries use static C++ and 16 KiB page alignment.
+-
+-MobileGlues and TGS modifications: LGPL-2.1-only, see LICENSE.
+-Complete dependency source and licenses are included. Third-party notices are
+-also included in the APK. Upstream: https://github.com/MobileGL-Dev/MobileGlues
+-Not an official MobileGlues, Mojang, Microsoft or launcher release.
+-
+-## Tests for 0.7
+-
+-576 dispatch cases cover supported/unsupported hardware, null pointers, signed and
+-large base vertices, restart routing, zero-count sub-draws and all-or-nothing fallback.
+-Real Mesa GLES 3.2 tests compare 18 indexed draws against a CPU-widened reference,
+-covering three index widths, three base offsets and restart on/off. The 256 Quest
+-presentation pixel/state cases still pass. These are correctness tests, not Quest
+-FPS measurements. Tests are in tgs-plugin/tests; see VERIFICATION.txt.
+-
+-The optimization is scoped to an existing fallback. Modpacks already using a native
+-multidraw backend may see little or no change from it. It does not change Minecraft's
+-world generation, simulation, heap limits, chunk distance or graphics quality.
++MobileGlues and TGS additions: LGPL-2.1-only (LICENSE). Third-party licenses accompany
++source and APK assets. https://github.com/MobileGL-Dev/MobileGlues
++This is not an official MobileGlues, launcher, Mojang or Microsoft release.
+--- a/tgs-plugin/VERIFICATION.txt
++++ b/tgs-plugin/VERIFICATION.txt
+@@ -1,30 +1,14 @@
+-TGS Quest 0.7 — 2026-09-13
+-PASS: Android ARM64 core rebuild, including integrated native indexed fallback.
+-PASS: 576 dispatch combinations; no partial draws before unsupported fallback;
+-      original byte offsets/index types/base vertices and restart state retained.
+-PASS: 18 real Mesa GLES 3.2 indexed output comparisons to CPU-widened references:
+-      byte/short/int index formats, bases 0/65536/-3, restart off/on.
+-PASS: 256 real Mesa GLES 3.2 presentation state/pixel combinations rerun.
+-NOT MEASURED: Quest FPS/frametime, heavy-modpack behavior or high-distance world generation.
+-PASS: APK v2/v3 signature, ZIP integrity, matching embedded README/native libraries,
+-      separate Quest package/environment flags, AArch64 and 16 KiB ELF LOAD alignment.
+-
+-Earlier unchanged-component validation:
+-TGS Quest 0.6 reconstruction — 2026-09-13
+-PASS: Complete ARM64 core build from supplied 0.1 source plus restored fixes/optimizations.
+-PASS: Native JNI diagnostics and Java UI build; APK v2/v3 signature.
+-PASS: APK ZIP integrity; embedded README and native libraries match current output.
+-PASS: ARM64 ELF, 16 KiB LOAD alignment, static C++ runtime, required exports.
+-PASS: Quest/resizable/launcher metadata and distinct 0.6 package; no requested permissions.
+-PASS: Actual SPIRV-Cross compiler: removes generated vertex/fragment input locations,
+-      retains fragment attachment locations and explicit/newer shader exclusions.
+-PASS: 16,640 upload-state layouts, default RGBA temporary state calls 12 -> 0,
+-      scratch reuse without regrowth zero-fill.
+-PASS: 4,128 host swizzle size/alignment cases, guard pages, alpha and format gates.
+-PASS: 256 real GLES 3.2 presentation combinations on Mesa llvmpipe:
+-      RGB/offscreen contents/clear color/masks/scissor/discard/framebuffer preserved,
+-      final alpha opaque, old clear fallback works, no GL errors.
+-NOT RUN: Native ARM64 diagnostics or Minecraft/Quest compositor on a physical headset.
+-NOT MEASURED: FPS, frame-time or thermal improvement on Quest.
+-The user confirmed 0.5 works. 0.6 is a source reconstruction with optimizations,
+-not a bit-identical recovery of the old binary. Keep 0.5 installed for fallback.
++TGS Quest 0.8 — 2026-09-13
++PASS: Complete Android ARM64 renderer build, JNI diagnostics and Java plugin build.
++PASS: 48 streaming/failure cases and nine matrix shapes with arrays, unchanged direct uploads.
++PASS: Mesa llvmpipe GLES 3.2: 12,800 indirect draws, streaming/reference identical pixels, no GL errors.
++PASS: All 18 regular/direct matrix forms checked against actual GLES uniform values.
++PASS: 18 indexed pixel comparisons: three index widths, negative/large bases, restart on/off.
++PASS: 256 presentation combinations: exact RGB/alpha, state restoration and fallback.
++PASS: APK v2/v3 signatures, ZIP integrity, matching embedded README and native libraries.
++PASS: ARM64, 16 KiB ELF LOAD alignment, static C++ runtime, 18 exported matrix entry points.
++NOT RUN: Quest hardware diagnostics, Minecraft versions or Forge/Fabric/NeoForge modpacks.
++NOT MEASURED: Quest FPS gains, frame-time improvement or sustained thermal performance.
++Compatibility remains incomplete; legacy fixed-function APIs are still stubs.
++Declared launcher version range remains 1.17–1.21.1; this is not a test coverage claim.
++Both variants retain full resolution and visual settings. Reference disables command streaming only.
+--- a/tgs-plugin/build-results.json
++++ b/tgs-plugin/build-results.json
+@@ -1,8 +1,16 @@
+ [
+   {
+-    "file": "TGS-Renderer-Quest-0.7-arm64.apk",
+-    "package": "dev.tgs.renderer.mobileglues.quest7.fast",
++    "file": "TGS-Renderer-Quest-0.8-fast-arm64.apk",
++    "package": "dev.tgs.renderer.mobileglues.quest8.fast",
+     "fast_uploads": "1",
+-    "sha256": "a6f2294c523f2aa30e4048c1d9a5edd6f215f0194967f85e65c482f0a87e2b26"
++    "stream_uploads": "1",
++    "sha256": "f787a1f37affd30023976326adb0b664bfeebc44578b849bd1ac368c5b7849f8"
++  },
++  {
++    "file": "TGS-Renderer-Quest-0.8-reference-arm64.apk",
++    "package": "dev.tgs.renderer.mobileglues.quest8.reference",
++    "fast_uploads": "1",
++    "stream_uploads": "0",
++    "sha256": "173178fadfa59c1a07dab6f156a5b08745519572a7ea8e527047a519bae5b707"
+   }
+ ]
+--- a/tgs-plugin/build.py
++++ b/tgs-plugin/build.py
+@@ -50,19 +50,19 @@
+     for name in ['libmobileglues.so','libtgscheck.so']:
+         dest=work/name;shutil.copyfile(native/name,dest);run([llvm/'llvm-strip','--strip-unneeded',dest]);libraries[name]=dest
+     results=[]
+-    for mode,value in [('fast','1')]:
+-        label='TGS Quest 0.7 (MobileGlues fork)'
+-        package='dev.tgs.renderer.mobileglues.quest7.'+mode
++    for mode,value in [('fast','1'),('reference','0')]:
++        label='TGS Quest 0.8 '+('Streaming' if mode=='fast' else 'Reference')
++        package='dev.tgs.renderer.mobileglues.quest8.'+mode
+         manifest=work/(mode+'-manifest.xml')
+-        shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS='+value
++        shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS=1;TGS_FRAME_STATS=1;TGS_STREAM_UPLOADS='+value
+         metadata={'renderer_id':'opengles3','renderer_name':label,
+           'renderer_description':'Quest rendering fixes with reduced presentation and upload overhead',
+           'renderer_library':'libmobileglues.so','renderer_egl':'libmobileglues.so','renderer_env':shared_env,
+           'renderer':label+':libmobileglues.so:libmobileglues.so','des':label,
+-          'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS='+value,
++          'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS=1:TGS_FRAME_STATS=1:TGS_STREAM_UPLOADS='+value,
+           'minMCVer':'1.17','maxMCVer':'1.21.1'}
+         metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
+-        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="7" android:versionName="0.7-quest-restored">
++        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="8" android:versionName="0.8-quest-restored">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+ <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+ <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+@@ -87,11 +87,11 @@
+                     if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
+                         z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
+         run([bt/'zipalign','-f','-p','4',unsigned,aligned])
+-        apk=output/('TGS-Renderer-Quest-0.7-arm64.apk')
++        apk=output/('TGS-Renderer-Quest-0.8-'+mode+'-arm64.apk')
+         run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
+                '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
+         run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
+-        results.append({'file':apk.name,'package':package,'fast_uploads':value,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()})
++        results.append({'file':apk.name,'package':package,'fast_uploads':'1','stream_uploads':value,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()})
+     (output/'build-results.json').write_text(json.dumps(results,indent=2)+'\n')
+     print(json.dumps(results,indent=2))
+ if __name__=='__main__':main()
+--- a/tgs-plugin/native/check.cpp
++++ b/tgs-plugin/native/check.cpp
+@@ -1,7 +1,8 @@
+ // TGS experimental additions, 2026. SPDX-License-Identifier: LGPL-2.1-only
+ #include <jni.h>
+ #include <EGL/egl.h>
+-#include <GLES3/gl3.h>
++#include <GLES3/gl32.h>
++#include "../../MobileGlues-cpp/gl/tgs_stream.h"
+ #include <dlfcn.h>
+ #include <stdexcept>
+ #include <string>
+@@ -88,10 +89,18 @@
+         if(glGetAttribLocation(p2,"Tint")!=5)throw std::runtime_error("Vertex slot 5 not preserved");
+         glUseProgram(p2);glVertexAttrib4f(5,.2f,.6f,.8f,1);glDrawArrays(GL_TRIANGLES,0,3);glReadPixels(8,8,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel);
+         if(std::abs(int(pixel[0])-77)>2||std::abs(int(pixel[1])-128)>2||std::abs(int(pixel[2])-179)>2||pixel[3]<253)throw std::runtime_error("Named varying pixel mismatch");
++        LOAD(glGenBuffers);LOAD(glBindBuffer);LOAD(glBufferData);LOAD(glBufferSubData);
++        LOAD(glMapBufferRange);LOAD(glUnmapBuffer);LOAD(glDrawArraysIndirect);
++        struct Command{GLuint count,instances,first,reserved;};
++        struct UploadDriver{decltype(glMapBufferRange) glMapBufferRange;decltype(glUnmapBuffer) glUnmapBuffer;decltype(glBufferSubData) glBufferSubData;};
++        UploadDriver driver{glMapBufferRange,glUnmapBuffer,glBufferSubData};GLuint commands;glGenBuffers(1,&commands);glBindBuffer(GL_DRAW_INDIRECT_BUFFER,commands);glBufferData(GL_DRAW_INDIRECT_BUFFER,sizeof(Command),nullptr,GL_STREAM_DRAW);
++        tgs::upload_commands<Command>(driver,1,tgs::stream_uploads_enabled(),[](Command* c){*c={3,1,0,0};});
++        glClearColor(0,0,0,1);glClear(GL_COLOR_BUFFER_BIT);glDrawArraysIndirect(GL_TRIANGLES,nullptr);glReadPixels(8,8,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel);
++        if(std::abs(int(pixel[0])-77)>2||std::abs(int(pixel[1])-128)>2||std::abs(int(pixel[2])-179)>2)throw std::runtime_error("Indirect streaming draw mismatch");
+         GLenum error=glGetError();if(error!=GL_NO_ERROR)throw std::runtime_error("GL error: "+std::to_string(error));
+         const char* renderer=reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+         const char* version=reinterpret_cast<const char*>(glGetString(GL_VERSION));
+-        std::string result="PASS: ARM64 conversion checks\nPASS: EGL desktop context\nPASS: GLSL 150 split sources, vertex slot 5 and named varyings\nPASS: BGRA upload, textured draw and pixel readback\n\nRenderer: "+std::string(renderer?renderer:"unknown")+"\nGL: "+std::string(version?version:"unknown");
++        std::string result="PASS: ARM64 conversion checks\nPASS: EGL desktop context\nPASS: GLSL 150 split sources, vertex slot 5 and named varyings\nPASS: BGRA upload, textured draw, indirect streaming and pixel readback\n\nRenderer: "+std::string(renderer?renderer:"unknown")+"\nGL: "+std::string(version?version:"unknown");
+         cleanup(); return result;
+     } catch(...) {cleanup();throw;}
+ }
+--- a/tgs-plugin/source-lock.json
++++ b/tgs-plugin/source-lock.json
+@@ -7,5 +7,5 @@
+     "3rdparty/SPIRV-Cross": "a0fba56c34a6700f1724bf9b751da5b488a3775c",
+     "include/ska": "21c1cec95abee1beef827e4a7c95f692875d9594"
+   },
+-  "tgs_version": "0.7-quest"
++  "tgs_version": "0.8-quest"
+ }
+--- a/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
+@@ -25,13 +25,14 @@
+                 File dir=new File(getFilesDir(),"renderer-check");
+                 if(!dir.isDirectory()&&!dir.mkdirs()) throw new IllegalStateException("Cannot create diagnostic directory");
+                 Os.setenv("MG_DIR_PATH",dir.getAbsolutePath(),true);
+-                Os.setenv("TGS_FAST_UPLOADS",getPackageName().endsWith(".fast")?"1":"0",true);
++                Os.setenv("TGS_FAST_UPLOADS","1",true);
+                 Os.setenv("TGS_QUEST","1",true);
+                 Os.setenv("TGS_OPAQUE_WINDOW","1",true);
++                Os.setenv("TGS_STREAM_UPLOADS",getPackageName().endsWith(".fast")?"1":"0",true);
+                 System.loadLibrary("tgscheck");
+                 result=check(getApplicationInfo().nativeLibraryDir);
+             } catch(Throwable error) { result="FAIL: "+error; }
+-            final String text="TGS Quest 0.7 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
++            final String text="TGS Quest 0.8 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
+                 +"\n\nThis is a smoke test, not Minecraft compatibility or an FPS benchmark.";
+             runOnUiThread(()->{report.setText(text);copy.setEnabled(true);});
+         },"tgs-check").start();
+--- a/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
+@@ -17,19 +17,19 @@
+         column.setOrientation(LinearLayout.VERTICAL); column.setPadding(28,40,28,24);
+         column.setBackgroundColor(Color.rgb(18,24,32));
+         TextView title=new TextView(this);
+-        title.setText("TGS Quest 0.7\nFast uploads");
++        title.setText("TGS Quest 0.8\n"+(fast?"Streaming":"Reference")+"");
+         title.setTextColor(Color.WHITE); title.setTextSize(29); column.addView(title);
+         TextView body=new TextView(this);
+-        body.setText("Experimental 0.7 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
+-            +"Quest fixes plus GPU-resident indexed drawing and reusable command staging. "
++        body.setText("Experimental 0.8 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
++            +"Quest fixes plus streaming command uploads and desktop matrix compatibility. "
+             +"It is not yet proven faster in Minecraft.\n\n"
+             +"1. Run the renderer check below.\n"
+             +"2. Restart ZalithLauncher 2 or DroidBridge.\n"
+-            +"3. Select TGS Quest 0.7 (MobileGlues fork).\n"
++            +"3. Select TGS Quest 0.8 Streaming or Reference.\n"
+             +"4. Launch 1.21.1 using Java 21, with your current working settings.\n\n"
+             +"Compare the same world, resolution and render distance. Restart the game between renderers. "
+             +"Keep TGS Quest 0.5 installed for comparison and fallback.\n\n"
+-            +"This APK is a renderer plugin; Minecraft and a launcher are not bundled.");
++            +"Both profiles retain resolution and graphics quality. Compare the same scene after warming up. TGS_FRAME log lines report FPS, p95 frame time and streaming use.\n\nForge, Fabric and NeoForge are not blocked by loader name. Compatibility still depends on Minecraft and mod versions; legacy fixed-function rendering is not implemented.");
+         body.setTextColor(Color.rgb(204,214,225)); body.setTextSize(16); body.setPadding(0,22,0,20); column.addView(body);
+         Button check=new Button(this); check.setText("Run renderer check");
+         check.setOnClickListener(v->startActivity(new Intent(this,DiagnosticActivity.class))); column.addView(check);
+--- a/tgs-plugin/tests/gles_test.cpp
++++ b/tgs-plugin/tests/gles_test.cpp
+@@ -6,10 +6,14 @@
+ #include <cassert>
+ #include <cstdio>
+ #include <array>
++#include <string>
++#include "../../MobileGlues-cpp/gl/tgs_stream.h"
++#include "../../MobileGlues-cpp/gl/tgs_matrix.h"
+ #include <vector>
+ #include "../../MobileGlues-cpp/gl/tgs_indexed.h"
+ #define FN(name) decltype(&::name) name
+ struct Driver {
++ FN(glMapBufferRange);FN(glUnmapBuffer);FN(glBufferSubData);FN(glDrawArraysIndirect);FN(glGetUniformLocation);FN(glGetUniformfv);FN(glUniformMatrix2fv);FN(glProgramUniformMatrix2fv);FN(glUniformMatrix3fv);FN(glProgramUniformMatrix3fv);FN(glUniformMatrix4fv);FN(glProgramUniformMatrix4fv);FN(glUniformMatrix2x3fv);FN(glProgramUniformMatrix2x3fv);FN(glUniformMatrix3x2fv);FN(glProgramUniformMatrix3x2fv);FN(glUniformMatrix2x4fv);FN(glProgramUniformMatrix2x4fv);FN(glUniformMatrix4x2fv);FN(glProgramUniformMatrix4x2fv);FN(glUniformMatrix3x4fv);FN(glProgramUniformMatrix3x4fv);FN(glUniformMatrix4x3fv);FN(glProgramUniformMatrix4x3fv);
+  FN(glGenBuffers);FN(glBindBuffer);FN(glBufferData);FN(glCreateShader);FN(glShaderSource);FN(glCompileShader);FN(glGetShaderiv);FN(glCreateProgram);FN(glAttachShader);FN(glLinkProgram);FN(glGetProgramiv);FN(glUseProgram);FN(glGenVertexArrays);FN(glBindVertexArray);FN(glDrawElements);FN(glDrawElementsBaseVertex);FN(glViewport);
+  FN(glColorMaski);FN(glGetBooleani_v);FN(glGetIntegerv);FN(glGetFloatv);FN(glIsEnabled);
+  FN(glBindFramebuffer);FN(glDisable);FN(glEnable);FN(glClearColor);FN(glClear);FN(glClearBufferfv);
+@@ -29,6 +33,7 @@
+  #define L(name) d.name=reinterpret_cast<decltype(d.name)>(eglGetProcAddress(#name));assert(d.name)
+  L(glColorMaski);L(glGetBooleani_v);L(glGetIntegerv);L(glGetFloatv);L(glIsEnabled);L(glBindFramebuffer);L(glDisable);L(glEnable);L(glClearColor);L(glClear);L(glClearBufferfv);L(glReadPixels);L(glGetError);L(glGetString);L(glScissor);L(glGenFramebuffers);L(glGenTextures);L(glBindTexture);L(glTexImage2D);L(glFramebufferTexture2D);L(glCheckFramebufferStatus);
+  L(glGenBuffers);L(glBindBuffer);L(glBufferData);L(glCreateShader);L(glShaderSource);L(glCompileShader);L(glGetShaderiv);L(glCreateProgram);L(glAttachShader);L(glLinkProgram);L(glGetProgramiv);L(glUseProgram);L(glGenVertexArrays);L(glBindVertexArray);L(glDrawElements);L(glDrawElementsBaseVertex);L(glViewport);
++ L(glMapBufferRange);L(glUnmapBuffer);L(glBufferSubData);L(glDrawArraysIndirect);L(glGetUniformLocation);L(glGetUniformfv);L(glUniformMatrix2fv);L(glProgramUniformMatrix2fv);L(glUniformMatrix3fv);L(glProgramUniformMatrix3fv);L(glUniformMatrix4fv);L(glProgramUniformMatrix4fv);L(glUniformMatrix2x3fv);L(glProgramUniformMatrix2x3fv);L(glUniformMatrix3x2fv);L(glProgramUniformMatrix3x2fv);L(glUniformMatrix2x4fv);L(glProgramUniformMatrix2x4fv);L(glUniformMatrix4x2fv);L(glProgramUniformMatrix4x2fv);L(glUniformMatrix3x4fv);L(glProgramUniformMatrix3x4fv);L(glUniformMatrix4x3fv);L(glProgramUniformMatrix4x3fv);
+  printf("Driver: %s / %s\n",d.glGetString(GL_RENDERER),d.glGetString(GL_VERSION));
+  GLuint fbo,tex;d.glGenFramebuffers(1,&fbo);d.glGenTextures(1,&tex);d.glBindTexture(GL_TEXTURE_2D,tex);d.glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,16,16,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);d.glBindFramebuffer(GL_FRAMEBUFFER,fbo);d.glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,tex,0);assert(d.glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
+  auto clearBuffer=d.glClearBufferfv;int cases=0;
+@@ -76,6 +81,146 @@
+   ++indexed_cases;
+  }
+  printf("PASS: %d real GLES indexed pixel comparisons against widened CPU reference (3 index widths, negative/large bases, restart on/off)\n",indexed_cases);
++
++ struct Command{GLuint count,instances,first,reserved;};
++ GLuint commandBuffer;d.glGenBuffers(1,&commandBuffer);d.glBindBuffer(GL_DRAW_INDIRECT_BUFFER,commandBuffer);d.glBufferData(GL_DRAW_INDIRECT_BUFFER,64*sizeof(Command),nullptr,GL_STREAM_DRAW);
++ std::array<unsigned char,1024> reference08,stream08;
++ for(bool enabled:{false,true}){
++  for(int frame=0;frame<100;++frame){
++   tgs::upload_commands<Command>(d,64,enabled,[&](Command* out){for(unsigned i=0;i<64;++i)out[i]={3,1,(frame%2)?65536u:0u,0};});
++   for(size_t i=0;i<64;++i)d.glDrawArraysIndirect(GL_TRIANGLES,reinterpret_cast<void*>(i*sizeof(Command)));
++  }
++  d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,enabled?stream08.data():reference08.data());assert(d.glGetError()==GL_NO_ERROR);
++ }
++ assert(stream08==reference08&&stream08[0]==255);
++ puts("PASS: 12800 indirect draws, streaming/reference pixels identical; no GL errors");
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat2 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][1][0]+m[0][1][1]+m[1][0][0]+m[1][0][1]+m[1][1][0]+m[1][1][1])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,8> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<2,2>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix2fv(pm,loc,2,tr,v);else d.glUniformMatrix2fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[4];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<2;++c)for(int r=0;r<2;++r)assert(actual[c*2+r]==values[n*4+r*2+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat3 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[0][2][0]+m[0][2][1]+m[0][2][2]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][1][0]+m[1][1][1]+m[1][1][2]+m[1][2][0]+m[1][2][1]+m[1][2][2])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,18> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<3,3>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix3fv(pm,loc,2,tr,v);else d.glUniformMatrix3fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[9];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<3;++c)for(int r=0;r<3;++r)assert(actual[c*3+r]==values[n*9+r*3+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat4 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][0][3]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[0][1][3]+m[0][2][0]+m[0][2][1]+m[0][2][2]+m[0][2][3]+m[0][3][0]+m[0][3][1]+m[0][3][2]+m[0][3][3]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][0][3]+m[1][1][0]+m[1][1][1]+m[1][1][2]+m[1][1][3]+m[1][2][0]+m[1][2][1]+m[1][2][2]+m[1][2][3]+m[1][3][0]+m[1][3][1]+m[1][3][2]+m[1][3][3])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,32> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<4,4>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix4fv(pm,loc,2,tr,v);else d.glUniformMatrix4fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[16];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<4;++c)for(int r=0;r<4;++r)assert(actual[c*4+r]==values[n*16+r*4+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat2x3 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][1][0]+m[1][1][1]+m[1][1][2])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,12> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<2,3>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix2x3fv(pm,loc,2,tr,v);else d.glUniformMatrix2x3fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[6];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<2;++c)for(int r=0;r<3;++r)assert(actual[c*3+r]==values[n*6+r*2+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat3x2 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][1][0]+m[0][1][1]+m[0][2][0]+m[0][2][1]+m[1][0][0]+m[1][0][1]+m[1][1][0]+m[1][1][1]+m[1][2][0]+m[1][2][1])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,12> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<3,2>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix3x2fv(pm,loc,2,tr,v);else d.glUniformMatrix3x2fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[6];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<3;++c)for(int r=0;r<2;++r)assert(actual[c*2+r]==values[n*6+r*3+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat2x4 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][0][3]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[0][1][3]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][0][3]+m[1][1][0]+m[1][1][1]+m[1][1][2]+m[1][1][3])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,16> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<2,4>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix2x4fv(pm,loc,2,tr,v);else d.glUniformMatrix2x4fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[8];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<2;++c)for(int r=0;r<4;++r)assert(actual[c*4+r]==values[n*8+r*2+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat4x2 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][1][0]+m[0][1][1]+m[0][2][0]+m[0][2][1]+m[0][3][0]+m[0][3][1]+m[1][0][0]+m[1][0][1]+m[1][1][0]+m[1][1][1]+m[1][2][0]+m[1][2][1]+m[1][3][0]+m[1][3][1])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,16> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<4,2>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix4x2fv(pm,loc,2,tr,v);else d.glUniformMatrix4x2fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[8];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<4;++c)for(int r=0;r<2;++r)assert(actual[c*2+r]==values[n*8+r*4+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat3x4 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][0][3]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[0][1][3]+m[0][2][0]+m[0][2][1]+m[0][2][2]+m[0][2][3]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][0][3]+m[1][1][0]+m[1][1][1]+m[1][1][2]+m[1][1][3]+m[1][2][0]+m[1][2][1]+m[1][2][2]+m[1][2][3])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,24> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<3,4>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix3x4fv(pm,loc,2,tr,v);else d.glUniformMatrix3x4fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[12];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<3;++c)for(int r=0;r<4;++r)assert(actual[c*4+r]==values[n*12+r*3+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++
++ {
++ GLuint vm=compile(GL_VERTEX_SHADER,"#version 320 es\nuniform mat4x3 m[2];void main(){gl_Position=vec4((m[0][0][0]+m[0][0][1]+m[0][0][2]+m[0][1][0]+m[0][1][1]+m[0][1][2]+m[0][2][0]+m[0][2][1]+m[0][2][2]+m[0][3][0]+m[0][3][1]+m[0][3][2]+m[1][0][0]+m[1][0][1]+m[1][0][2]+m[1][1][0]+m[1][1][1]+m[1][1][2]+m[1][2][0]+m[1][2][1]+m[1][2][2]+m[1][3][0]+m[1][3][1]+m[1][3][2])*0.0001,0,0,1);}");
++ GLuint fm=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;out vec4 color;void main(){color=vec4(1);}");
++ GLuint pm=d.glCreateProgram();d.glAttachShader(pm,vm);d.glAttachShader(pm,fm);d.glLinkProgram(pm);d.glGetProgramiv(pm,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(pm);
++ std::array<float,24> values;for(size_t i=0;i<values.size();++i)values[i]=float(i)+.25f;
++ GLint loc=d.glGetUniformLocation(pm,"m[0]");assert(loc>=0);
++ for(bool direct:{false,true}){
++  tgs::matrix_upload<4,3>(loc,2,GL_TRUE,values.data(),[&](GLboolean tr,const float* v){if(direct)d.glProgramUniformMatrix4x3fv(pm,loc,2,tr,v);else d.glUniformMatrix4x3fv(loc,2,tr,v);});
++  for(int n=0;n<2;++n){float actual[12];auto name="m["+std::to_string(n)+"]";d.glGetUniformfv(pm,d.glGetUniformLocation(pm,name.c_str()),actual);
++   for(int c=0;c<4;++c)for(int r=0;r<3;++r)assert(actual[c*3+r]==values[n*12+r*4+c]);}
++  assert(d.glGetError()==GL_NO_ERROR);
++ }
++ }
++ puts("PASS: all 18 regular/direct matrix upload forms verified against actual GLES uniform values");
+  d.glColorMaski=nullptr;assert(!tgs::opaque_default_framebuffer(d));
+  assert(eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT));assert(eglDestroySurface(display,surface));assert(eglDestroyContext(display,ctx));assert(eglTerminate(display));
+  printf("PASS: %d real GLES presentation combinations; exact RGB/alpha, state restoration, fallback and no GL errors\n",cases);
+--- a/tgs-plugin/tests/stream_test.cpp
++++ b/tgs-plugin/tests/stream_test.cpp
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/tgs_stream.h"
++#include "../../MobileGlues-cpp/gl/tgs_matrix.h"
++#include <cassert>
++#include <cstdio>
++#include <array>
++static std::array<unsigned,8192> memory;
++static bool map_ok,unmap_ok;static int maps,unmaps,submits;
++struct Driver{
++ void* (*glMapBufferRange)(GLenum,GLintptr,GLsizeiptr,GLbitfield)=[](GLenum t,GLintptr o,GLsizeiptr n,GLbitfield flags)->void*{assert(t==GL_DRAW_INDIRECT_BUFFER&&o==0&&n<=GLsizeiptr(memory.size()*4)&&flags==(GL_MAP_WRITE_BIT|GL_MAP_INVALIDATE_BUFFER_BIT));++maps;memory.fill(0xdeadbeef);return map_ok?memory.data():nullptr;};
++ GLboolean (*glUnmapBuffer)(GLenum)=[](GLenum t)->GLboolean{assert(t==GL_DRAW_INDIRECT_BUFFER);++unmaps;if(!unmap_ok)memory.fill(0xdeadbeef);return unmap_ok;};
++ void glBufferSubData(GLenum t,GLintptr o,GLsizeiptr n,const void* p){assert(t==GL_DRAW_INDIRECT_BUFFER&&o==0);++submits;std::memcpy(memory.data(),p,n);}
++};
++template<int C,int R> void matrix(){
++ std::array<float,C*R*3> input;for(size_t i=0;i<input.size();++i)input[i]=float(i)+.25f;
++ tgs::matrix_upload<C,R>(4,3,GL_TRUE,input.data(),[&](GLboolean tr,const float* out){assert(!tr);for(int n=0;n<3;++n)for(int c=0;c<C;++c)for(int r=0;r<R;++r)assert(out[n*C*R+c*R+r]==input[n*C*R+r*C+c]);});
++ tgs::matrix_upload<C,R>(4,3,GL_FALSE,input.data(),[&](GLboolean tr,const float* out){assert(!tr&&out==input.data());});
++}
++int main(){int cases=0;
++ for(bool enabled:{false,true})for(bool missing:{false,true})for(bool map:{false,true})for(bool unmap:{false,true})for(size_t n:{1,16,4096}){
++  Driver d;if(missing)d.glMapBufferRange=nullptr;maps=unmaps=submits=0;map_ok=map;unmap_ok=unmap;
++  tgs::upload_commands<unsigned>(d,n,enabled,[&](unsigned* out){for(size_t i=0;i<n;++i)out[i]=unsigned(i*71+n);});
++  for(size_t i=0;i<n;++i)assert(memory[i]==unsigned(i*71+n));
++  bool direct=enabled&&!missing&&map&&unmap;assert(submits==(direct?0:1));assert(unmaps==(enabled&&!missing&&map?1:0));++cases;
++ }
++ matrix<2,2>();matrix<3,3>();matrix<4,4>();matrix<2,3>();matrix<3,2>();matrix<2,4>();matrix<4,2>();matrix<3,4>();matrix<4,3>();
++ printf("PASS: %d streaming/failure cases, nine matrix shapes with arrays and unchanged direct uploads\n",cases);
++}

@@ -1,0 +1,12 @@
+{
+  "upstream": "https://github.com/MobileGL-Dev/MobileGlues",
+  "commit": "fbc4e412e353302607ba36489b2dd573b5becb25",
+  "dependencies": {
+    "3rdparty/xxhash": "c2866db364b6ea3a11933e62235ddc166ba18565",
+    "3rdparty/glslang": "f5f664dee8146676b04a332a7233959fc3ce9681",
+    "3rdparty/SPIRV-Cross": "a0fba56c34a6700f1724bf9b751da5b488a3775c",
+    "include/ska": "21c1cec95abee1beef827e4a7c95f692875d9594"
+  },
+  "tgs_version": "0.11-quest",
+  "native_core": "0.10-quest plus adaptive large BufferSubData staging"
+}

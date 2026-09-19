@@ -1,0 +1,54 @@
+TGS Quest 0.11 — 2026-09-14
+PASS: ARM64 core/native diagnostic/Java UI build; one signed renderer APK.
+PASS: Same signing certificate/package as 0.10; versionCode 11.
+PASS: 18 real GLES full-byte/guard/state comparisons across vertex/index/copy-write buffers.
+PASS: Mapped/immutable/invalid/missing-entry/allocation-failure bypasses.
+PASS: 1152 upload/draw iterations produce identical pixels. All GL errors checked.
+PASS: Direct-first route, 0.5 ms threshold, 4-trial limit and slow/failure return to direct.
+PASS: Prior 18 indexed, 12800 indirect-draw, 18 matrix-form and 256 presentation tests rerun.
+PASS: ZIP/embedded libraries/README, ARM64/16 KiB/static C++, signing and manifest flags.
+HOST TIMINGS: Direct 10.449/2.648 ms; staged 10.365/6.840 ms (256 calls per sample).
+Software-driver timings vary; they do not demonstrate consistent improvement or Quest FPS.
+NOT RUN: Quest/Adreno Minecraft, modpacks or reproduction of the new-chunk hitch.
+No settings/geometry/quality reductions. Staging is a performance candidate, not a proven cure.
+See README for routing limits, temporary memory costs and per-thread counters.
+Earlier verification below is historical except checks explicitly rerun above.
+
+TGS Quest 0.10 — 2026-09-14
+PASS: Complete ARM64 renderer rebuild, native diagnostics and Java UI build.
+PASS: Actual Cache implementation: 1024 immediate hits and identical values after teardown/reload.
+PASS: Save-policy boundaries, five-second deadline, quarter-size rounding and size_t overflow boundary.
+OBSERVED: 1024-entry host burst wrote 18,210,920 bytes in 14 saves including final flush.
+COMPARISON: Old fixed-16 policy would write 137,646,592 bytes for that burst (modeled).
+This measures serialized cache bytes, not hardware disk traffic or Quest FPS.
+PASS: One APK/launcher entry, 1.20.1 minimum with no maximum, retained Quest and streaming flags.
+PASS: APK signature, ZIP integrity, matching embedded README/native libraries, ARM64/16 KiB/static C++.
+SIGNING: New test key; uninstall old TGS plugin if Android rejects update. Launcher/game not replaced.
+NOT RUN: Minecraft on Quest; early-FPS symptom is not reproduced or proven resolved.
+Only cache persistence scheduling and release UI/metadata changed from attached 0.9.
+Earlier test results below are historical; unchanged graphics tests were not rerun.
+
+TGS Quest 0.9 — 2026-09-13
+PASS: One APK produced, one Android launcher entry; unified UI and diagnostics.
+PASS: Same package and signing certificate as 0.8 Streaming, versionCode increased 8 to 9.
+PASS: Compiled manifest: minMCVer=1.20.1, maxMCVer absent, all streaming/Quest flags retained.
+PASS: APK ZIP integrity, v2/v3 signatures and embedded README match.
+PASS: libmobileglues.so is byte-identical to the tested 0.8 Streaming binary.
+The native renderer code has not changed; prior 0.8 core checks below are retained evidence, not rerun.
+NOT RUN: Minecraft/Quest or Forge/Fabric/NeoForge pack testing; universal version support is not proven.
+No Vulkan backend implemented. Version metadata broadening only removes a launcher selection cutoff.
+
+TGS Quest 0.8 — 2026-09-13
+PASS: Complete Android ARM64 renderer build, JNI diagnostics and Java plugin build.
+PASS: 48 streaming/failure cases and nine matrix shapes with arrays, unchanged direct uploads.
+PASS: Mesa llvmpipe GLES 3.2: 12,800 indirect draws, streaming/reference identical pixels, no GL errors.
+PASS: All 18 regular/direct matrix forms checked against actual GLES uniform values.
+PASS: 18 indexed pixel comparisons: three index widths, negative/large bases, restart on/off.
+PASS: 256 presentation combinations: exact RGB/alpha, state restoration and fallback.
+PASS: APK v2/v3 signatures, ZIP integrity, matching embedded README and native libraries.
+PASS: ARM64, 16 KiB ELF LOAD alignment, static C++ runtime, 18 exported matrix entry points.
+NOT RUN: Quest hardware diagnostics, Minecraft versions or Forge/Fabric/NeoForge modpacks.
+NOT MEASURED: Quest FPS gains, frame-time improvement or sustained thermal performance.
+Compatibility remains incomplete; legacy fixed-function APIs are still stubs.
+Declared launcher version range remains 1.17–1.21.1; this is not a test coverage claim.
+Both variants retain full resolution and visual settings. Reference disables command streaming only.

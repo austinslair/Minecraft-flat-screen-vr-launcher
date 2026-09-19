@@ -1,0 +1,631 @@
+--- a/MobileGlues-cpp/main.cpp
++++ b/MobileGlues-cpp/main.cpp
+@@ -35,6 +35,7 @@
+ }
+ 
+ void show_license() {
++    LOG_V("TGS_BUILD=0.6-quest; restored Quest fixes and reduced upload/presentation overhead");
+     LOG_V("The Open Source License of MobileGlues: ");
+     LOG_V("  %s", license);
+ }
+--- a/tgs-plugin/build.py
++++ b/tgs-plugin/build.py
+@@ -50,26 +50,29 @@
+     for name in ['libmobileglues.so','libtgscheck.so']:
+         dest=work/name;shutil.copyfile(native/name,dest);run([llvm/'llvm-strip','--strip-unneeded',dest]);libraries[name]=dest
+     results=[]
+-    for mode,value in [('fast','1'),('baseline','0')]:
+-        label='TGS '+mode.title()+' (MobileGlues fork)'
+-        package='dev.tgs.renderer.mobileglues.'+mode
++    for mode,value in [('fast','1')]:
++        label='TGS Quest 0.6 (MobileGlues fork)'
++        package='dev.tgs.renderer.mobileglues.quest6.'+mode
+         manifest=work/(mode+'-manifest.xml')
+-        shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_FAST_UPLOADS='+value
++        shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS='+value
+         metadata={'renderer_id':'opengles3','renderer_name':label,
+-          'renderer_description':'Experimental ARM64 texture upload A/B build for Minecraft Java 1.21.1',
++          'renderer_description':'Quest rendering fixes with reduced presentation and upload overhead',
+           'renderer_library':'libmobileglues.so','renderer_egl':'libmobileglues.so','renderer_env':shared_env,
+           'renderer':label+':libmobileglues.so:libmobileglues.so','des':label,
+-          'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_FAST_UPLOADS='+value,
++          'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS='+value,
+           'minMCVer':'1.17','maxMCVer':'1.21.1'}
+         metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
+-        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="1" android:versionName="0.1-experimental">
++        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="6" android:versionName="0.6-quest-restored">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+ <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+-<queries><package android:name="ca.dnamobile.droidbridgelauncher" /></queries>
+-<application android:label="'''+label+'''" android:allowBackup="false" android:extractNativeLibs="true" android:theme="@android:style/Theme.Material.NoActionBar">
++<uses-feature android:name="android.hardware.touchscreen" android:required="false" />
++<queries><package android:name="ca.dnamobile.droidbridgelauncher" /><package android:name="com.movtery.zalithlauncher.v2" /><package android:name="com.movtery.zalithlauncher" /></queries>
++<application android:label="'''+label+'''" android:resizeableActivity="true" android:allowBackup="false" android:extractNativeLibs="true" android:theme="@android:style/Theme.Material.NoActionBar">
+ <meta-data android:name="fclPlugin" android:value="true" />
++<meta-data android:name="zalithRendererPlugin" android:value="true" />
++<meta-data android:name="com.oculus.supportedDevices" android:value="quest3|quest3s" />
+ '''+metas+'''
+-<activity android:name="dev.tgs.renderer.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
++<activity android:name="dev.tgs.renderer.MainActivity" android:exported="true"><layout android:defaultWidth="1024dp" android:defaultHeight="640dp" /><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+ <activity android:name="dev.tgs.renderer.DiagnosticActivity" android:exported="false" android:process=":diagnostics" />
+ </application></manifest>''')
+         unsigned=work/(mode+'-unsigned.apk');aligned=work/(mode+'-aligned.apk')
+@@ -84,7 +87,7 @@
+                     if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
+                         z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
+         run([bt/'zipalign','-f','-p','4',unsigned,aligned])
+-        apk=output/('TGS-Renderer-'+mode.title()+'-0.1-arm64.apk')
++        apk=output/('TGS-Renderer-Quest-0.6-arm64.apk')
+         run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
+                '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
+         run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
+--- a/MobileGlues-cpp/gl/transfer.h
++++ b/MobileGlues-cpp/gl/transfer.h
+@@ -97,6 +97,7 @@
+     void release_source(void* mapped);
+     GLint prev_align_ = 4, prev_row_len_ = 0, prev_skip_rows_ = 0, prev_skip_px_ = 0;
+     GLint prev_img_h_ = 0, prev_skip_img_ = 0;
++    GLint tight_align_ = 1;
+ };
+ 
+ // The same predicate mg_upload_fix_t::has_data() answers, asked before the
+--- a/MobileGlues-cpp/gl/tgs_upload.h
++++ b/MobileGlues-cpp/gl/tgs_upload.h
+@@ -0,0 +1,23 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++#include <array>
++#include <cstddef>
++namespace tgs {
++template<class Buffer> void grow_upload_scratch(Buffer& buffer, size_t bytes) {
++    if (buffer.size() < bytes) buffer.resize(bytes);
++}
++inline GLint tight_upload_alignment(GLint previous, size_t row_bytes) {
++    return (previous == 1 || previous == 2 || previous == 4 || previous == 8) &&
++           row_bytes % static_cast<size_t>(previous) == 0 ? previous : 1;
++}
++// Use already-captured state; no persistent state cache or driver queries.
++template<class Driver> void tight_upload_state(Driver& d, const std::array<GLint,6>& previous,
++                                               GLint alignment, bool restore) {
++    constexpr GLenum names[] = {GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH,
++        GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_PIXELS, GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_IMAGES};
++    const GLint tight[] = {alignment, 0, 0, 0, 0, 0};
++    for (size_t i=0; i<6; ++i)
++        if (previous[i] != tight[i]) d.glPixelStorei(names[i], restore ? previous[i] : tight[i]);
++}
++}
+--- a/MobileGlues-cpp/gl/shader.cpp
++++ b/MobileGlues-cpp/gl/shader.cpp
+@@ -99,7 +99,7 @@
+         shaderInfo.id = shader;
+         shaderInfo.converted = essl_src;
+         const char* s[] = {essl_src.c_str()};
+-        GLES.glShaderSource(shader, count, s, nullptr);
++        GLES.glShaderSource(shader, 1, s, nullptr);
+         if (hardware->emulate_texture_buffer)
+             shader_map_is_sampler_buffer_emulated[shader] = is_sampler_buffer_emulated;
+     } else
+--- a/MobileGlues-cpp/gl/transfer.cpp
++++ b/MobileGlues-cpp/gl/transfer.cpp
+@@ -16,6 +16,7 @@
+ #include <vector>
+ #include <cstdlib>
+ #include "tgs_swizzle.h"
++#include "tgs_upload.h"
+ 
+ #define DEBUG 0
+ 
+@@ -415,7 +416,7 @@
+         dropped_ = true;
+         return;
+     }
+-    scratch().resize(need);
++    tgs::grow_upload_scratch(scratch(), need);
+     converted_bytes_ = need;
+     uint8_t* out = scratch().data();
+ 
+@@ -469,13 +470,8 @@
+ 
+     release_source(mapped);
+ 
+-    // The converted stream is tight and the skips are already applied.
+-    GLES.glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-    GLES.glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+-    GLES.glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+-    GLES.glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+-    GLES.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
+-    GLES.glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
++    tight_align_ = tgs::tight_upload_alignment(prev_align_, static_cast<size_t>(width)*out_channels);
++    tgs::tight_upload_state(GLES,{prev_align_,prev_row_len_,prev_skip_rows_,prev_skip_px_,prev_img_h_,prev_skip_img_},tight_align_,false);
+     converted_ = true;
+     pixels = scratch().data();
+ }
+@@ -498,12 +494,7 @@
+ 
+ mg_upload_fix_t::~mg_upload_fix_t() {
+     if (converted_) {
+-        GLES.glPixelStorei(GL_UNPACK_ALIGNMENT, prev_align_);
+-        GLES.glPixelStorei(GL_UNPACK_ROW_LENGTH, prev_row_len_);
+-        GLES.glPixelStorei(GL_UNPACK_SKIP_ROWS, prev_skip_rows_);
+-        GLES.glPixelStorei(GL_UNPACK_SKIP_PIXELS, prev_skip_px_);
+-        GLES.glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, prev_img_h_);
+-        GLES.glPixelStorei(GL_UNPACK_SKIP_IMAGES, prev_skip_img_);
++        tgs::tight_upload_state(GLES,{prev_align_,prev_row_len_,prev_skip_rows_,prev_skip_px_,prev_img_h_,prev_skip_img_},tight_align_,true);
+     }
+     if (pbo_unbound_) {
+         GLES.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(prev_pbo_));
+--- a/MobileGlues-cpp/gl/tgs_opaque.h
++++ b/MobileGlues-cpp/gl/tgs_opaque.h
+@@ -0,0 +1,33 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++namespace tgs {
++template<class Driver> bool opaque_default_framebuffer(Driver& d) {
++    if(!d.glColorMaski || !d.glGetBooleani_v) return false;
++    GLint draw=0; GLboolean mask[4];
++    d.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&draw);
++    d.glGetBooleani_v(GL_COLOR_WRITEMASK,0,mask);
++    const bool scissor=d.glIsEnabled(GL_SCISSOR_TEST);
++    const bool discard=d.glIsEnabled(GL_RASTERIZER_DISCARD);
++    if(draw != 0)d.glBindFramebuffer(GL_DRAW_FRAMEBUFFER,0);
++    if(scissor)d.glDisable(GL_SCISSOR_TEST);
++    if(discard)d.glDisable(GL_RASTERIZER_DISCARD);
++    const bool change_mask=mask[0] || mask[1] || mask[2] || !mask[3];
++    if(change_mask)d.glColorMaski(0,GL_FALSE,GL_FALSE,GL_FALSE,GL_TRUE);
++    if(d.glClearBufferfv) {
++        const GLfloat opaque[4]={0,0,0,1};
++        d.glClearBufferfv(GL_COLOR,0,opaque);
++    } else {
++        // Preserve the working 0.5 path when the entry point is unavailable.
++        GLfloat clear[4]; d.glGetFloatv(GL_COLOR_CLEAR_VALUE,clear);
++        d.glClearColor(0,0,0,1);
++        d.glClear(GL_COLOR_BUFFER_BIT);
++        d.glClearColor(clear[0],clear[1],clear[2],clear[3]);
++    }
++    if(change_mask)d.glColorMaski(0,mask[0],mask[1],mask[2],mask[3]);
++    if(discard)d.glEnable(GL_RASTERIZER_DISCARD);
++    if(scissor)d.glEnable(GL_SCISSOR_TEST);
++    if(draw != 0)d.glBindFramebuffer(GL_DRAW_FRAMEBUFFER,draw);
++    return true;
++}
++}
+--- a/MobileGlues-cpp/egl/egl.cpp
++++ b/MobileGlues-cpp/egl/egl.cpp
+@@ -11,6 +11,10 @@
+ #include "../gl/FSR1/FSR1.h"
+ #include "../gl/log.h"
+ #include "../gl/mg.h"
++#include "../gl/tgs_opaque.h"
++#include <algorithm>
++#include <cstdlib>
++#include <cstring>
+ #include "../gles/loader.h"
+ #include "../glx/lookup.h"
+ #include "loader.h"
+@@ -405,12 +409,39 @@
+     // ApplyFSR upscales into the surface, the swap presents it, the resolution
+     // check reacts to a surface that has changed size. The three belong together,
+     // and every path that presents a frame has to go through here.
++    std::mutex window_mutex;
++    std::vector<std::pair<EGLDisplay,EGLSurface>> windows;
++    bool opaque_window_enabled() {
++        static const bool enabled=[] { const char* v=std::getenv("TGS_OPAQUE_WINDOW"); return v && std::strcmp(v,"1")==0; }();
++        return enabled;
++    }
++    EGLSurface remember_window(EGLDisplay dpy, EGLSurface surface) {
++        if(surface!=EGL_NO_SURFACE){std::lock_guard<std::mutex> lock(window_mutex);windows.emplace_back(dpy,surface);}
++        return surface;
++    }
++    void forget_window(EGLDisplay dpy,EGLSurface surface,bool all=false){
++        std::lock_guard<std::mutex> lock(window_mutex);
++        windows.erase(std::remove_if(windows.begin(),windows.end(),[&](const auto& w){return w.first==dpy&&(all||w.second==surface);}),windows.end());
++    }
++    void prepare_opaque_window(EGLDisplay dpy,EGLSurface surface){
++        if(!opaque_window_enabled() || !hardware || hardware->es_version<320)return;
++        LOAD_EGL(eglGetCurrentContext)
++        LOAD_EGL(eglGetCurrentDisplay)
++        LOAD_EGL(eglGetCurrentSurface)
++        if(egl_eglGetCurrentContext()==EGL_NO_CONTEXT || egl_eglGetCurrentDisplay()!=dpy || egl_eglGetCurrentSurface(EGL_DRAW)!=surface)return;
++        {std::lock_guard<std::mutex> lock(window_mutex);
++         if(std::find(windows.begin(),windows.end(),std::make_pair(dpy,surface))==windows.end())return;}
++        tgs::opaque_default_framebuffer(GLES);
++    }
++
+     EGLBoolean presentSurface(EGLDisplay dpy, EGLSurface surface) {
+         LOAD_EGL(eglSwapBuffers)
+         if (global_settings.fsr1_setting == FSR1_Quality_Preset::Disabled) {
++            prepare_opaque_window(dpy, surface);
+             return egl_eglSwapBuffers(dpy, surface);
+         }
+         ApplyFSR();
++        prepare_opaque_window(dpy, surface);
+         const EGLBoolean result = egl_eglSwapBuffers(dpy, surface);
+         CheckResolutionChange(dpy, surface);
+         return result;
+@@ -426,7 +457,7 @@
+     EGLBoolean presentSurfaceWithDamage(EGLDisplay dpy, EGLSurface surface, EGLint* rects, EGLint n_rects,
+                                         SwapWithDamageFn backend) {
+         const bool fsr_on = global_settings.fsr1_setting != FSR1_Quality_Preset::Disabled;
+-        if (backend != nullptr && !fsr_on) {
++        if (backend != nullptr && !fsr_on && !opaque_window_enabled()) {
+             return backend(dpy, surface, rects, n_rects);
+         }
+         // Once, not once a frame: a damage swap runs every frame the host presents
+@@ -552,6 +583,7 @@
+         }
+         ETRACE("eglTerminate(%p): last holder, terminating for real", dpy);
+         const EGLBoolean result = egl_eglTerminate(dpy);
++        if(result==EGL_TRUE)forget_window(dpy,EGL_NO_SURFACE,true);
+         if (result == EGL_TRUE) {
+             mg_context_forget_display(dpy);
+             // EGL's contract is that the extension string lives as long as the
+@@ -612,7 +644,7 @@
+                                               const EGLint* attrib_list) {
+         LOG_D("eglCreateWindowSurface, dpy: %p, config: %p, win: %p, attrib_list: %p", dpy, config, win, attrib_list);
+         LOAD_EGL(eglCreateWindowSurface)
+-        return egl_eglCreateWindowSurface(dpy, config, win, attrib_list);
++        return remember_window(dpy, egl_eglCreateWindowSurface(dpy, config, win, attrib_list));
+     }
+ 
+     EGL_API EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
+@@ -633,7 +665,9 @@
+     EGL_API EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface surface) {
+         LOG_D("eglDestroySurface, dpy: %p, surface: %p", dpy, surface);
+         LOAD_EGL(eglDestroySurface)
+-        return egl_eglDestroySurface(dpy, surface);
++        const EGLBoolean result=egl_eglDestroySurface(dpy, surface);
++        if(result==EGL_TRUE)forget_window(dpy,surface);
++        return result;
+     }
+ 
+     EGL_API EGLBoolean eglQuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint* value) {
+@@ -898,7 +932,7 @@
+         LOG_D("eglCreatePlatformWindowSurface, dpy: %p, config: %p, native_window: %p, attrib_list: %p", dpy, config,
+               native_window, attrib_list);
+         LOAD_EGL_OR(eglCreatePlatformWindowSurface, setFrontendError(EGL_BAD_PARAMETER), EGL_NO_SURFACE)
+-        return egl_eglCreatePlatformWindowSurface(dpy, config, native_window, attrib_list);
++        return remember_window(dpy, egl_eglCreatePlatformWindowSurface(dpy, config, native_window, attrib_list));
+     }
+ 
+     EGL_API EGLSurface eglCreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+@@ -921,7 +955,7 @@
+         LOG_D("eglCreatePlatformWindowSurfaceEXT, dpy: %p, config: %p, native_window: %p, attrib_list: %p", dpy, config,
+               native_window, attrib_list);
+         LOAD_EGL_OR(eglCreatePlatformWindowSurfaceEXT, setFrontendError(EGL_BAD_PARAMETER), EGL_NO_SURFACE)
+-        return egl_eglCreatePlatformWindowSurfaceEXT(dpy, config, native_window, attrib_list);
++        return remember_window(dpy, egl_eglCreatePlatformWindowSurfaceEXT(dpy, config, native_window, attrib_list));
+     }
+ 
+     EGL_API EGLSurface eglCreatePlatformPixmapSurfaceEXT(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+--- a/MobileGlues-cpp/config/config.cpp
++++ b/MobileGlues-cpp/config/config.cpp
+@@ -41,6 +41,13 @@
+ int check_path() {
+     if (!mg_directory_path) {
+         char* var = getenv("MG_DIR_PATH");
++        const char* quest=getenv("TGS_QUEST"); const char* tmp=getenv("TMPDIR");
++        if((!var || !*var) && quest && strcmp(quest,"1")==0 && tmp && tmp[0]=='/') {
++            const std::string path=std::string(tmp)+"/tgs-quest5"; struct stat st{};
++            if((mkdir(path.c_str(),0755)==0 || errno==EEXIST) && stat(path.c_str(),&st)==0 && S_ISDIR(st.st_mode)){
++                mg_directory_path=strdup(path.c_str()); var=mg_directory_path;
++            }
++        }
+         is_custom_mg_dir = var ? true : false;
+         mg_directory_path = var ? strdup(var) : DEFAULT_MG_DIRECTORY_PATH;
+     }
+--- a/MobileGlues-cpp/gl/FSR1/FSR1.cpp
++++ b/MobileGlues-cpp/gl/FSR1/FSR1.cpp
+@@ -494,8 +494,9 @@
+     // application never draws full-bleed into. They are also EGL calls, reading
+     // attributes the surface record already holds, not GL commands that have to
+     // reach the driver's command stream.
+-    egl_eglQuerySurface(display, surface, EGL_WIDTH, &width);
+-    egl_eglQuerySurface(display, surface, EGL_HEIGHT, &height);
++    if(display==EGL_NO_DISPLAY || surface==EGL_NO_SURFACE ||
++       !egl_eglQuerySurface(display, surface, EGL_WIDTH, &width) ||
++       !egl_eglQuerySurface(display, surface, EGL_HEIGHT, &height) || width<=0 || height<=0)return;
+     OnResize(width, height);
+ 
+     if (FSR1_Context::g_resolutionChanged) {
+@@ -518,6 +519,7 @@
+ }
+ 
+ void OnResize(int width, int height) {
++    if(width<=0 || height<=0)return;
+     if (FSR1_Context::g_renderWidth == width && FSR1_Context::g_renderHeight == height) return;
+ 
+     FSR1_Context::g_pendingWidth = width;
+--- a/MobileGlues-cpp/gl/glsl/tgs_interface.h
++++ b/MobileGlues-cpp/gl/glsl/tgs_interface.h
+@@ -0,0 +1,23 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <spirv_cross/spirv_cross_c.h>
++#include <cstring>
++namespace tgs {
++inline bool legacy_named_interface(const char* original, int version) {
++    return version <= 150 && !std::strstr(original,"location") && !std::strstr(original,"separate_shader_objects");
++}
++inline bool restore_named_interface(spvc_compiler compiler, bool vertex) {
++    spvc_resources resources=nullptr;
++    if(spvc_compiler_create_shader_resources(compiler,&resources)!=SPVC_SUCCESS)return false;
++    const spvc_resource_type types[]={SPVC_RESOURCE_TYPE_STAGE_INPUT,SPVC_RESOURCE_TYPE_STAGE_OUTPUT};
++    for(int stage=0;stage<(vertex?2:1);++stage){
++        const spvc_reflected_resource* list=nullptr; size_t count=0;
++        if(spvc_resources_get_resource_list_for_type(resources,types[stage],&list,&count)!=SPVC_SUCCESS)return false;
++        for(size_t i=0;i<count;++i){
++            spvc_compiler_unset_decoration(compiler,list[i].id,SpvDecorationLocation);
++            spvc_compiler_unset_decoration(compiler,list[i].id,SpvDecorationComponent);
++        }
++    }
++    return true;
++}
++}
+--- a/MobileGlues-cpp/gl/glsl/glsl_for_es.cpp
++++ b/MobileGlues-cpp/gl/glsl/glsl_for_es.cpp
+@@ -20,6 +20,7 @@
+ #include <algorithm>
+ #include <sstream>
+ #include "cache.h"
++#include "tgs_interface.h"
+ #include "../../version.h"
+ 
+ #define DEBUG 0
+@@ -350,7 +351,7 @@
+                          int& return_code) {
+     std::string sha256_string(glsl_code);
+     sha256_string += "\n//" + std::to_string(MAJOR) + "." + std::to_string(MINOR) + "." + std::to_string(REVISION) +
+-                     "|" + std::to_string(essl_version);
++                     "|" + std::to_string(essl_version) + "//TGS-named-interface-v1|" + std::to_string(glsl_type);
+     const char* cachedESSL = Cache::get_instance().get(sha256_string.c_str());
+     if (cachedESSL) {
+         LOG_D("GLSL Hit Cache:\n%s\n-->\n%s", glsl_code, cachedESSL)
+@@ -774,7 +775,7 @@
+     return false;
+ }
+ 
+-std::string spirv_to_essl(std::vector<unsigned int> spirv, uint essl_version, int& errc) {
++std::string spirv_to_essl(std::vector<unsigned int> spirv, uint essl_version, int& errc, bool named_interface = false, bool vertex = false) {
+     spvc_parsed_ir ir = nullptr;
+     spvc_compiler compiler_glsl = nullptr;
+     spvc_compiler_options options = nullptr;
+@@ -808,6 +809,7 @@
+         errc = -1;
+         return "";
+     }
++    if (named_interface && !tgs::restore_named_interface(compiler_glsl, vertex)) { errc=-1; return ""; }
+     if (!spvc_ok(context, spvc_compiler_create_compiler_options(compiler_glsl, &options),
+                  "spvc_compiler_create_compiler_options") ||
+         !options) {
+@@ -840,6 +842,8 @@
+ 
+ static bool glslang_inited = false;
+ std::string GLSLtoGLSLES_2(const char* glsl_code, GLenum glsl_type, uint essl_version, int& return_code) {
++    const bool named_interface = (glsl_type == GL_VERTEX_SHADER || glsl_type == GL_FRAGMENT_SHADER) &&
++        tgs::legacy_named_interface(glsl_code, getGLSLVersion(glsl_code));
+     std::string correct_glsl_str = preprocess_glsl(glsl_code, glsl_type);
+     LOG_D("Firstly converted GLSL:\n%s", correct_glsl_str.c_str())
+     int glsl_version = get_or_add_glsl_version(correct_glsl_str);
+@@ -856,7 +860,7 @@
+         return "";
+     }
+     errc = 0;
+-    std::string essl = spirv_to_essl(spirv_code, essl_version, errc);
++    std::string essl = spirv_to_essl(spirv_code, essl_version, errc, named_interface, glsl_type == GL_VERTEX_SHADER);
+     if (errc != 0) {
+         return_code = -2;
+         return "";
+--- a/tgs-plugin/native/check.cpp
++++ b/tgs-plugin/native/check.cpp
+@@ -7,6 +7,7 @@
+ #include <string>
+ #include <vector>
+ #include <cstdlib>
++#include <cstring>
+ #include "../../MobileGlues-cpp/gl/tgs_swizzle.h"
+ 
+ template<class T> T symbol(void* lib,const char* name) {
+@@ -57,7 +58,10 @@
+         LOAD(glGenTextures); LOAD(glBindTexture); LOAD(glTexParameteri); LOAD(glPixelStorei); LOAD(glTexImage2D);
+         LOAD(glDrawArrays); LOAD(glReadPixels); LOAD(glGetError);
+         auto compile=[&](GLenum type,const char* source){
+-            GLuint s=glCreateShader(type); glShaderSource(s,1,&source,nullptr); glCompileShader(s);
++            GLuint s=glCreateShader(type); const char* newline=std::strchr(source,'\n');
++            const GLint prefix=newline ? GLint(newline-source+1) : GLint(std::strlen(source));
++            const char* parts[]={source,source+prefix}; const GLint lengths[]={prefix,-1};
++            glShaderSource(s,2,parts,lengths); glCompileShader(s);
+             GLint ok=0;glGetShaderiv(s,GL_COMPILE_STATUS,&ok);
+             if(!ok){char log[2048]={}; glGetShaderInfoLog(s,sizeof(log),nullptr,log);throw std::runtime_error(std::string("Shader: ")+log);}return s;};
+         GLuint vertex=compile(GL_VERTEX_SHADER,"#version 150\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);}");
+@@ -76,10 +80,18 @@
+         uint8_t pixel[4]={};glReadPixels(8,8,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel);
+         if(std::abs(int(pixel[0])-51)>2||std::abs(int(pixel[1])-153)>2||std::abs(int(pixel[2])-204)>2||pixel[3]<253)
+             throw std::runtime_error("Texture draw mismatch: "+std::to_string(pixel[0])+","+std::to_string(pixel[1])+","+std::to_string(pixel[2])+","+std::to_string(pixel[3]));
++        LOAD(glBindAttribLocation);LOAD(glGetAttribLocation);LOAD(glVertexAttrib4f);
++        GLuint v2=compile(GL_VERTEX_SHADER,"#version 150\nin vec4 Tint;out vec4 first;out vec4 second;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.0-1.0,0.0,1.0);first=Tint;second=vec4(0.6,0.2,0.4,1.0);}");
++        GLuint f2=compile(GL_FRAGMENT_SHADER,"#version 150\nin vec4 second;in vec4 first;out vec4 color;void main(){color=first*0.75+second*0.25;}");
++        GLuint p2=glCreateProgram();glAttachShader(p2,v2);glAttachShader(p2,f2);glBindAttribLocation(p2,5,"Tint");glLinkProgram(p2);
++        glGetProgramiv(p2,GL_LINK_STATUS,&ok);if(!ok)throw std::runtime_error("Named interface link failed");
++        if(glGetAttribLocation(p2,"Tint")!=5)throw std::runtime_error("Vertex slot 5 not preserved");
++        glUseProgram(p2);glVertexAttrib4f(5,.2f,.6f,.8f,1);glDrawArrays(GL_TRIANGLES,0,3);glReadPixels(8,8,1,1,GL_RGBA,GL_UNSIGNED_BYTE,pixel);
++        if(std::abs(int(pixel[0])-77)>2||std::abs(int(pixel[1])-128)>2||std::abs(int(pixel[2])-179)>2||pixel[3]<253)throw std::runtime_error("Named varying pixel mismatch");
+         GLenum error=glGetError();if(error!=GL_NO_ERROR)throw std::runtime_error("GL error: "+std::to_string(error));
+         const char* renderer=reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+         const char* version=reinterpret_cast<const char*>(glGetString(GL_VERSION));
+-        std::string result="PASS: ARM64 conversion checks\nPASS: EGL desktop context\nPASS: GLSL 150 shaders\nPASS: BGRA upload, textured draw and pixel readback\n\nRenderer: "+std::string(renderer?renderer:"unknown")+"\nGL: "+std::string(version?version:"unknown");
++        std::string result="PASS: ARM64 conversion checks\nPASS: EGL desktop context\nPASS: GLSL 150 split sources, vertex slot 5 and named varyings\nPASS: BGRA upload, textured draw and pixel readback\n\nRenderer: "+std::string(renderer?renderer:"unknown")+"\nGL: "+std::string(version?version:"unknown");
+         cleanup(); return result;
+     } catch(...) {cleanup();throw;}
+ }
+--- a/tgs-plugin/tests/gles_test.cpp
++++ b/tgs-plugin/tests/gles_test.cpp
+@@ -0,0 +1,49 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/tgs_opaque.h"
++#include <EGL/egl.h>
++#include <EGL/eglext.h>
++#include <dlfcn.h>
++#include <cassert>
++#include <cstdio>
++#include <array>
++#define FN(name) decltype(&::name) name
++struct Driver {
++ FN(glColorMaski);FN(glGetBooleani_v);FN(glGetIntegerv);FN(glGetFloatv);FN(glIsEnabled);
++ FN(glBindFramebuffer);FN(glDisable);FN(glEnable);FN(glClearColor);FN(glClear);FN(glClearBufferfv);
++ FN(glReadPixels);FN(glGetError);FN(glGetString);FN(glScissor);FN(glGenFramebuffers);
++ FN(glGenTextures);FN(glBindTexture);FN(glTexImage2D);FN(glFramebufferTexture2D);FN(glCheckFramebufferStatus);
++};
++int main(){
++ void* lib=dlopen("libEGL.so.1",RTLD_NOW|RTLD_LOCAL);assert(lib);
++ #define E(name) auto name=reinterpret_cast<decltype(&::name)>(dlsym(lib,#name));assert(name)
++ E(eglGetProcAddress);E(eglInitialize);E(eglBindAPI);E(eglChooseConfig);E(eglCreateContext);E(eglCreatePbufferSurface);E(eglMakeCurrent);E(eglDestroySurface);E(eglDestroyContext);E(eglTerminate);
++ auto platform=reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT"));assert(platform);
++ EGLDisplay display=platform(EGL_PLATFORM_SURFACELESS_MESA,nullptr,nullptr);assert(eglInitialize(display,nullptr,nullptr));assert(eglBindAPI(EGL_OPENGL_ES_API));
++ EGLint ca[]={EGL_SURFACE_TYPE,EGL_PBUFFER_BIT,EGL_RENDERABLE_TYPE,EGL_OPENGL_ES3_BIT,EGL_RED_SIZE,8,EGL_GREEN_SIZE,8,EGL_BLUE_SIZE,8,EGL_ALPHA_SIZE,8,EGL_NONE};EGLConfig config;EGLint count;assert(eglChooseConfig(display,ca,&config,1,&count)&&count==1);
++ EGLint ctxa[]={EGL_CONTEXT_MAJOR_VERSION,3,EGL_CONTEXT_MINOR_VERSION,2,EGL_NONE};auto ctx=eglCreateContext(display,config,EGL_NO_CONTEXT,ctxa);assert(ctx!=EGL_NO_CONTEXT);
++ EGLint sa[]={EGL_WIDTH,16,EGL_HEIGHT,16,EGL_NONE};auto surface=eglCreatePbufferSurface(display,config,sa);assert(surface!=EGL_NO_SURFACE);assert(eglMakeCurrent(display,surface,surface,ctx));
++ Driver d{};
++ #define L(name) d.name=reinterpret_cast<decltype(d.name)>(eglGetProcAddress(#name));assert(d.name)
++ L(glColorMaski);L(glGetBooleani_v);L(glGetIntegerv);L(glGetFloatv);L(glIsEnabled);L(glBindFramebuffer);L(glDisable);L(glEnable);L(glClearColor);L(glClear);L(glClearBufferfv);L(glReadPixels);L(glGetError);L(glGetString);L(glScissor);L(glGenFramebuffers);L(glGenTextures);L(glBindTexture);L(glTexImage2D);L(glFramebufferTexture2D);L(glCheckFramebufferStatus);
++ printf("Driver: %s / %s\n",d.glGetString(GL_RENDERER),d.glGetString(GL_VERSION));
++ GLuint fbo,tex;d.glGenFramebuffers(1,&fbo);d.glGenTextures(1,&tex);d.glBindTexture(GL_TEXTURE_2D,tex);d.glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,16,16,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);d.glBindFramebuffer(GL_FRAMEBUFFER,fbo);d.glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,tex,0);assert(d.glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
++ auto clearBuffer=d.glClearBufferfv;int cases=0;
++ for(bool fallback:{false,true})for(bool bound:{false,true})for(bool scissor:{false,true})for(bool discard:{false,true})for(int bits=0;bits<16;++bits){
++  d.glClearBufferfv=clearBuffer;d.glDisable(GL_SCISSOR_TEST);d.glDisable(GL_RASTERIZER_DISCARD);d.glColorMaski(0,1,1,1,1);
++  std::array<unsigned char,1024> beforeOff,afterOff,before,after;
++  d.glBindFramebuffer(GL_FRAMEBUFFER,fbo);d.glClearColor(.8f,.1f,.3f,.2f);d.glClear(GL_COLOR_BUFFER_BIT);d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,beforeOff.data());
++  d.glBindFramebuffer(GL_FRAMEBUFFER,0);d.glClearColor(.2f,.6f,.8f,.25f);d.glClear(GL_COLOR_BUFFER_BIT);d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,before.data());
++  d.glBindFramebuffer(GL_DRAW_FRAMEBUFFER,bound?fbo:0);std::array<GLboolean,4> mask;for(int i=0;i<4;++i)mask[i]=(bits>>i)&1;
++  d.glColorMaski(0,mask[0],mask[1],mask[2],mask[3]);d.glColorMaski(1,0,1,0,1);d.glClearColor(.3f,.4f,.5f,.6f);d.glScissor(1,1,2,2);
++  if(scissor)d.glEnable(GL_SCISSOR_TEST);if(discard)d.glEnable(GL_RASTERIZER_DISCARD);if(fallback)d.glClearBufferfv=nullptr;
++  assert(tgs::opaque_default_framebuffer(d));assert(d.glGetError()==GL_NO_ERROR);
++  GLint draw;d.glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&draw);assert(draw==GLint(bound?fbo:0));
++  std::array<GLboolean,4> actual;d.glGetBooleani_v(GL_COLOR_WRITEMASK,0,actual.data());assert(actual==mask);d.glGetBooleani_v(GL_COLOR_WRITEMASK,1,actual.data());assert((actual==std::array<GLboolean,4>{0,1,0,1}));
++  GLfloat color[4];d.glGetFloatv(GL_COLOR_CLEAR_VALUE,color);assert(color[0]==.3f&&color[1]==.4f&&color[2]==.5f&&color[3]==.6f);assert(bool(d.glIsEnabled(GL_SCISSOR_TEST))==scissor&&bool(d.glIsEnabled(GL_RASTERIZER_DISCARD))==discard);
++  d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,after.data());for(size_t i=0;i<after.size();++i)assert(after[i]==(i%4==3?255:before[i]));
++  d.glBindFramebuffer(GL_READ_FRAMEBUFFER,fbo);d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,afterOff.data());assert(beforeOff==afterOff);++cases;
++ }
++ d.glColorMaski=nullptr;assert(!tgs::opaque_default_framebuffer(d));
++ assert(eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT));assert(eglDestroySurface(display,surface));assert(eglDestroyContext(display,ctx));assert(eglTerminate(display));
++ printf("PASS: %d real GLES presentation combinations; exact RGB/alpha, state restoration, fallback and no GL errors\n",cases);
++}
+--- a/tgs-plugin/tests/upload_test.cpp
++++ b/tgs-plugin/tests/upload_test.cpp
+@@ -0,0 +1,24 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/tgs_upload.h"
++#include <cassert>
++#include <cstdio>
++#include <vector>
++struct Driver {
++ std::array<GLint,6> state;int calls=0;
++ void glPixelStorei(GLenum name,GLint value){
++  constexpr GLenum names[]={GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,GL_UNPACK_SKIP_ROWS,GL_UNPACK_SKIP_PIXELS,GL_UNPACK_IMAGE_HEIGHT,GL_UNPACK_SKIP_IMAGES};
++  for(int i=0;i<6;++i)if(names[i]==name){state[i]=value;++calls;return;}assert(false);
++ }
++};
++int main(){int cases=0;
++ for(int align:{1,2,4,8})for(int width=1;width<=65;++width)for(int channels:{3,4})for(int bits=0;bits<32;++bits){
++  std::array<GLint,6> old={align,0,0,0,0,0};for(int i=1;i<6;++i)if(bits&(1<<(i-1)))old[i]=i*3;
++  Driver d{old};size_t row=width*channels;int tight=tgs::tight_upload_alignment(align,row);tgs::tight_upload_state(d,old,tight,false);
++  size_t stride=(row+d.state[0]-1)/d.state[0]*d.state[0];assert(stride==row);
++  for(int i=1;i<6;++i)assert(d.state[i]==0);
++  tgs::tight_upload_state(d,old,tight,true);assert(d.state==old);if(align==4&&channels==4&&bits==0)assert(d.calls==0);++cases;
++ }
++ std::vector<unsigned char> bytes;tgs::grow_upload_scratch(bytes,1048576);auto* address=bytes.data();bytes.back()=71;
++ for(int i=0;i<100;++i){tgs::grow_upload_scratch(bytes,1024);tgs::grow_upload_scratch(bytes,1048576);assert(bytes.data()==address&&bytes.back()==71);}
++ printf("PASS: %d unpack layouts, 12 -> 0 default RGBA state calls, scratch reused without re-zeroing\n",cases);
++}
+--- a/tgs-plugin/tests/interface_test.cpp
++++ b/tgs-plugin/tests/interface_test.cpp
+@@ -0,0 +1,35 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/glsl/tgs_interface.h"
++#include <vector>
++#include <cassert>
++#include <cstdio>
++#include <string>
++static std::vector<unsigned> module(bool vertex){
++ std::vector<unsigned> v={0x07230203,0x00010000,0,30,0};
++ auto op=[&](unsigned code,std::initializer_list<unsigned> words){v.push_back(((words.size()+1)<<16)|code);v.insert(v.end(),words);};
++ op(17,{1});op(14,{0,1});op(15,{vertex?0u:4u,10,0x6e69616d,0,6,7});if(!vertex)op(16,{10,7});
++ op(5,{6,0x7475706e,0});op(5,{7,0x7074756f,0x7475});
++ op(71,{6,30,5});op(71,{7,30,3});
++ op(19,{1});op(33,{2,1});op(22,{3,32});op(23,{4,3,4});
++ op(32,{5,1,4});op(32,{8,3,4});op(59,{5,6,1});op(59,{8,7,3});
++ op(54,{1,10,0,2});op(248,{11});op(61,{4,12,6});op(62,{7,12});op(253,{});op(56,{});return v;
++}
++int main(){
++ assert(tgs::legacy_named_interface("#version 150\nin vec4 Tint;",150));
++ assert(!tgs::legacy_named_interface("layout(location=3) in vec4 Tint;",150));
++ assert(!tgs::legacy_named_interface("#extension GL_ARB_separate_shader_objects : enable",150));
++ assert(!tgs::legacy_named_interface("in vec4 Tint;",330));
++ for(bool vertex:{false,true}){
++  auto words=module(vertex);spvc_context ctx;assert(spvc_context_create(&ctx)==SPVC_SUCCESS);spvc_parsed_ir ir;assert(spvc_context_parse_spirv(ctx,words.data(),words.size(),&ir)==SPVC_SUCCESS);
++  spvc_compiler compiler;assert(spvc_context_create_compiler(ctx,SPVC_BACKEND_GLSL,ir,SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,&compiler)==SPVC_SUCCESS);
++  spvc_compiler_options options;assert(spvc_compiler_create_compiler_options(compiler,&options)==SPVC_SUCCESS);
++  assert(spvc_compiler_options_set_uint(options,SPVC_COMPILER_OPTION_GLSL_VERSION,320)==SPVC_SUCCESS);assert(spvc_compiler_options_set_bool(options,SPVC_COMPILER_OPTION_GLSL_ES,SPVC_TRUE)==SPVC_SUCCESS);assert(spvc_compiler_install_compiler_options(compiler,options)==SPVC_SUCCESS);
++  const char* text;assert(spvc_compiler_compile(compiler,&text)==SPVC_SUCCESS);assert(std::string(text).find("location = 5")!=std::string::npos);
++  assert(tgs::restore_named_interface(compiler,vertex));assert(!spvc_compiler_has_decoration(compiler,6,SpvDecorationLocation));
++  assert(bool(spvc_compiler_has_decoration(compiler,7,SpvDecorationLocation))==!vertex);
++  assert(spvc_compiler_compile(compiler,&text)==SPVC_SUCCESS);assert(std::string(text).find("location = 5")==std::string::npos);
++  if(!vertex)assert(std::string(text).find("location = 3")!=std::string::npos);
++  spvc_context_destroy(ctx);
++ }
++ puts("PASS: real SPIRV-Cross generated interface locations removed; fragment outputs and explicit/newer shader exclusions preserved");
++}
+--- a/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
+@@ -17,18 +17,18 @@
+         column.setOrientation(LinearLayout.VERTICAL); column.setPadding(28,40,28,24);
+         column.setBackgroundColor(Color.rgb(18,24,32));
+         TextView title=new TextView(this);
+-        title.setText("TGS Renderer\n"+(fast?"Fast uploads":"Baseline"));
++        title.setText("TGS Quest 0.6\nFast uploads");
+         title.setTextColor(Color.WHITE); title.setTextSize(29); column.addView(title);
+         TextView body=new TextView(this);
+-        body.setText("Experimental 0.1 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
+-            +"Based on MobileGlues. This build tests a vectorized texture-upload conversion. "
++        body.setText("Experimental 0.6 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
++            +"Restored Quest fixes with reduced texture-upload and presentation overhead. "
+             +"It is not yet proven faster in Minecraft.\n\n"
+             +"1. Run the renderer check below.\n"
+-            +"2. Open DroidBridge and refresh its renderer list.\n"
+-            +"3. Select TGS "+(fast?"Fast":"Baseline")+" (MobileGlues fork).\n"
+-            +"4. Launch 1.21.1 using Java 21, initially without mods or shaders.\n\n"
++            +"2. Restart ZalithLauncher 2 or DroidBridge.\n"
++            +"3. Select TGS Quest 0.6 (MobileGlues fork).\n"
++            +"4. Launch 1.21.1 using Java 21, with your current working settings.\n\n"
+             +"Compare the same world, resolution and render distance. Restart the game between renderers. "
+-            +"Keep the original MobileGlues installed for comparison and fallback.\n\n"
++            +"Keep TGS Quest 0.5 installed for comparison and fallback.\n\n"
+             +"This APK is a renderer plugin; Minecraft and a launcher are not bundled.");
+         body.setTextColor(Color.rgb(204,214,225)); body.setTextSize(16); body.setPadding(0,22,0,20); column.addView(body);
+         Button check=new Button(this); check.setText("Run renderer check");
+@@ -39,6 +39,8 @@
+             if(launch!=null) startActivity(launch);
+             else Toast.makeText(this,"Open your installed launcher manually.",Toast.LENGTH_LONG).show();
+         }); column.addView(open);
++        Button zalith=new Button(this);zalith.setText("Open ZalithLauncher 2");
++        zalith.setOnClickListener(v->{Intent launch=getPackageManager().getLaunchIntentForPackage("com.movtery.zalithlauncher.v2");if(launch!=null)startActivity(launch);else Toast.makeText(this,"Open your launcher manually.",Toast.LENGTH_SHORT).show();});column.addView(zalith);
+         Button license=new Button(this); license.setText("Credits and license");
+         license.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+             .setTitle("TGS experimental renderer")
+--- a/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
+@@ -26,10 +26,12 @@
+                 if(!dir.isDirectory()&&!dir.mkdirs()) throw new IllegalStateException("Cannot create diagnostic directory");
+                 Os.setenv("MG_DIR_PATH",dir.getAbsolutePath(),true);
+                 Os.setenv("TGS_FAST_UPLOADS",getPackageName().endsWith(".fast")?"1":"0",true);
++                Os.setenv("TGS_QUEST","1",true);
++                Os.setenv("TGS_OPAQUE_WINDOW","1",true);
+                 System.loadLibrary("tgscheck");
+                 result=check(getApplicationInfo().nativeLibraryDir);
+             } catch(Throwable error) { result="FAIL: "+error; }
+-            final String text="TGS 0.1 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
++            final String text="TGS Quest 0.6 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
+                 +"\n\nThis is a smoke test, not Minecraft compatibility or an FPS benchmark.";
+             runOnUiThread(()->{report.setText(text);copy.setEnabled(true);});
+         },"tgs-check").start();

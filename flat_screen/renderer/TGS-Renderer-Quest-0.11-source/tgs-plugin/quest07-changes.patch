@@ -1,0 +1,307 @@
+--- a/MobileGlues-cpp/main.cpp
++++ b/MobileGlues-cpp/main.cpp
+@@ -35,7 +35,7 @@
+ }
+ 
+ void show_license() {
+-    LOG_V("TGS_BUILD=0.6-quest; restored Quest fixes and reduced upload/presentation overhead");
++    LOG_V("TGS_BUILD=0.7-quest; GPU-resident indexed fallback and reusable command staging");
+     LOG_V("The Open Source License of MobileGlues: ");
+     LOG_V("  %s", license);
+ }
+--- a/tgs-plugin/README.md
++++ b/tgs-plugin/README.md
+@@ -1,11 +1,11 @@
+-# TGS Quest Renderer 0.6
++# TGS Quest Renderer 0.7
+ 
+ Minecraft Java 1.21.1, Java 21, ARM64 Quest 3S flat-window rendering in ZalithLauncher 2 or DroidBridge.
+ This is a renderer plugin, not a launcher or immersive VR application.
+ 
+-Install TGS-Renderer-Quest-0.6-arm64.apk, restart the launcher and select
+-**TGS Quest 0.6 (MobileGlues fork)**. Keep the working 0.5 plugin installed;
+-0.6 uses a separate package and can coexist. Keep the same visual settings.
++Install TGS-Renderer-Quest-0.7-arm64.apk, restart the launcher and select
++**TGS Quest 0.7 (MobileGlues fork)**. Keep the working 0.5 plugin installed;
++0.7 uses a separate package and can coexist. Keep the same visual settings.
+ 
+ ## Restored fixes
+ 
+@@ -25,7 +25,24 @@
+ - Retain Quest environment/config directory fallback and resizable plugin metadata.
+ - Restore native split-source/slot-5/reordered-varying diagnostic plus original texture check.
+ 
+-## Optimizations
++## New in 0.7
++
++The indexed base-vertex fallback uses the driver directly when an index buffer
++is bound, GLES 3.2 or the base-vertex extension is supported, and the primitive
++restart mode needs no index rewrite. This avoids per-sub-draw GPU readback,
++CPU index widening and scratch-buffer uploads. Zero-base batches can use plain
++indexed drawing even without base-vertex support. Unsupported batches are rejected
++before any draw so fallback cannot draw an earlier sub-batch twice. This change
++helps calls reaching that fallback; existing native multidraw paths stay intact.
++
++Indirect command staging keeps its initialized high-water size instead of shrinking
++and then zero-filling memory that is overwritten by the next larger command batch.
++
++All 0.6 Quest and upload/presentation fixes remain. High chunk counts also increase
++world-generation, simulation, Java heap and GPU load. This renderer cannot guarantee
++zero lag with large modpacks; actual frame-time improvements need device measurements.
++
++## Earlier optimizations
+ 
+ - Reuse initialized upload scratch storage without shrinking/re-zeroing between
+   alternating small and large uploads. Existing large-buffer release policy stays.
+@@ -36,7 +53,7 @@
+   Fall back to 0.5's glClear sequence if glClearBufferfv is unavailable.
+ - Preserve ARM64 NEON conversion, rendering quality, resolution and draw distance.
+ 
+-0.5 was reported working by the user. 0.6 has not been tested on a physical Quest
++0.5 was reported working by the user. 0.7 has not been tested on a physical Quest
+ here. Operation-count savings do not establish a Minecraft FPS improvement.
+ See VERIFICATION.txt for actual checks completed on this reconstruction.
+ 
+@@ -60,3 +77,16 @@
+ Complete dependency source and licenses are included. Third-party notices are
+ also included in the APK. Upstream: https://github.com/MobileGL-Dev/MobileGlues
+ Not an official MobileGlues, Mojang, Microsoft or launcher release.
++
++## Tests for 0.7
++
++576 dispatch cases cover supported/unsupported hardware, null pointers, signed and
++large base vertices, restart routing, zero-count sub-draws and all-or-nothing fallback.
++Real Mesa GLES 3.2 tests compare 18 indexed draws against a CPU-widened reference,
++covering three index widths, three base offsets and restart on/off. The 256 Quest
++presentation pixel/state cases still pass. These are correctness tests, not Quest
++FPS measurements. Tests are in tgs-plugin/tests; see VERIFICATION.txt.
++
++The optimization is scoped to an existing fallback. Modpacks already using a native
++multidraw backend may see little or no change from it. It does not change Minecraft's
++world generation, simulation, heap limits, chunk distance or graphics quality.
+--- a/tgs-plugin/build.py
++++ b/tgs-plugin/build.py
+@@ -51,8 +51,8 @@
+         dest=work/name;shutil.copyfile(native/name,dest);run([llvm/'llvm-strip','--strip-unneeded',dest]);libraries[name]=dest
+     results=[]
+     for mode,value in [('fast','1')]:
+-        label='TGS Quest 0.6 (MobileGlues fork)'
+-        package='dev.tgs.renderer.mobileglues.quest6.'+mode
++        label='TGS Quest 0.7 (MobileGlues fork)'
++        package='dev.tgs.renderer.mobileglues.quest7.'+mode
+         manifest=work/(mode+'-manifest.xml')
+         shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS='+value
+         metadata={'renderer_id':'opengles3','renderer_name':label,
+@@ -62,7 +62,7 @@
+           'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS='+value,
+           'minMCVer':'1.17','maxMCVer':'1.21.1'}
+         metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
+-        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="6" android:versionName="0.6-quest-restored">
++        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="7" android:versionName="0.7-quest-restored">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+ <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+ <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+@@ -87,7 +87,7 @@
+                     if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
+                         z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
+         run([bt/'zipalign','-f','-p','4',unsigned,aligned])
+-        apk=output/('TGS-Renderer-Quest-0.6-arm64.apk')
++        apk=output/('TGS-Renderer-Quest-0.7-arm64.apk')
+         run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
+                '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
+         run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
+--- a/MobileGlues-cpp/gl/multidraw.cpp
++++ b/MobileGlues-cpp/gl/multidraw.cpp
+@@ -10,6 +10,7 @@
+ #include "buffer.h"
+ #include "enable.h"
+ #include "restart.h"
++#include "tgs_indexed.h"
+ #include "../egl/context.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -725,7 +726,7 @@
+     // thread_local for the same reason as mg_zero_basevertex: nothing in this
+     // file takes a lock, and two threads can each have a current context.
+     static thread_local std::vector<draw_elements_indirect_command_t> staged;
+-    staged.resize(static_cast<size_t>(primcount));
++    if (staged.size() < static_cast<size_t>(primcount)) staged.resize(static_cast<size_t>(primcount));
+     draw_elements_indirect_command_t* pcmds = staged.data();
+ 
+     for (GLsizei i = 0; i < primcount; ++i) {
+@@ -763,6 +764,17 @@
+     const GLsizei indexSize = mg_index_size(type);
+ 
+     prepareForDraw();
++
++    // Keep already-resident geometry on the GPU when the native operation is
++    // available. This fallback previously mapped, widened, and uploaded every
++    // index even on GLES 3.2. The rewrite path below still handles custom restart
++    // values, client arrays and unsupported base-vertex hardware.
++    const bool base_supported = hardware && (hardware->es_version >= 320 ||
++        g_gles_caps.GL_EXT_draw_elements_base_vertex || g_gles_caps.GL_OES_draw_elements_base_vertex);
++    if (tgs::native_indexed_batch(GLES, mg_driver_bound_buffer(GL_ELEMENT_ARRAY_BUFFER),
++            base_supported, mg_restart_needs_rewrite(type), mg_restart_needs_driver_fixed(type),
++            mode, counts, type, indices, primcount, basevertex)) return;
++
+ 
+     // Queried once per multi-draw rather than per sub-draw: it decides whether the
+     // sentinel value is special or an ordinary vertex index.
+--- a/MobileGlues-cpp/gl/tgs_indexed.h
++++ b/MobileGlues-cpp/gl/tgs_indexed.h
+@@ -0,0 +1,30 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++namespace tgs {
++// Called after frontend validation and prepareForDraw. Never borrow a buffer or
++// retain GL state across calls. A custom restart index still needs CPU rewriting.
++template<class Driver> bool native_indexed_batch(Driver& d, GLuint bound_ibo,
++    bool base_supported, bool rewrite_restart, bool force_fixed,
++    GLenum mode, const GLsizei* counts, GLenum type, const void* const* indices,
++    GLsizei drawcount, const GLint* bases) {
++    if (!bound_ibo || rewrite_restart || !d.glDrawElements || drawcount<=0 || !counts || !indices)
++        return false;
++    const bool native_base=base_supported && d.glDrawElementsBaseVertex;
++    // Reject the entire batch before submitting any draws if any sub-draw needs
++    // unsupported base vertex. Otherwise falling back would draw earlier entries twice.
++    for(GLsizei i=0;i<drawcount;++i) {
++        if(counts[i]<0)return false;
++        if(counts[i]>0 && bases && bases[i]!=0 && !native_base)return false;
++    }
++    if(force_fixed)d.glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
++    for(GLsizei i=0;i<drawcount;++i) {
++        if(counts[i]==0)continue;
++        const GLint base=bases ? bases[i] : 0;
++        if(base)d.glDrawElementsBaseVertex(mode,counts[i],type,indices[i],base);
++        else d.glDrawElements(mode,counts[i],type,indices[i]);
++    }
++    if(force_fixed)d.glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
++    return true;
++}
++}
+--- a/tgs-plugin/tests/gles_test.cpp
++++ b/tgs-plugin/tests/gles_test.cpp
+@@ -6,8 +6,11 @@
+ #include <cassert>
+ #include <cstdio>
+ #include <array>
++#include <vector>
++#include "../../MobileGlues-cpp/gl/tgs_indexed.h"
+ #define FN(name) decltype(&::name) name
+ struct Driver {
++ FN(glGenBuffers);FN(glBindBuffer);FN(glBufferData);FN(glCreateShader);FN(glShaderSource);FN(glCompileShader);FN(glGetShaderiv);FN(glCreateProgram);FN(glAttachShader);FN(glLinkProgram);FN(glGetProgramiv);FN(glUseProgram);FN(glGenVertexArrays);FN(glBindVertexArray);FN(glDrawElements);FN(glDrawElementsBaseVertex);FN(glViewport);
+  FN(glColorMaski);FN(glGetBooleani_v);FN(glGetIntegerv);FN(glGetFloatv);FN(glIsEnabled);
+  FN(glBindFramebuffer);FN(glDisable);FN(glEnable);FN(glClearColor);FN(glClear);FN(glClearBufferfv);
+  FN(glReadPixels);FN(glGetError);FN(glGetString);FN(glScissor);FN(glGenFramebuffers);
+@@ -25,6 +28,7 @@
+  Driver d{};
+  #define L(name) d.name=reinterpret_cast<decltype(d.name)>(eglGetProcAddress(#name));assert(d.name)
+  L(glColorMaski);L(glGetBooleani_v);L(glGetIntegerv);L(glGetFloatv);L(glIsEnabled);L(glBindFramebuffer);L(glDisable);L(glEnable);L(glClearColor);L(glClear);L(glClearBufferfv);L(glReadPixels);L(glGetError);L(glGetString);L(glScissor);L(glGenFramebuffers);L(glGenTextures);L(glBindTexture);L(glTexImage2D);L(glFramebufferTexture2D);L(glCheckFramebufferStatus);
++ L(glGenBuffers);L(glBindBuffer);L(glBufferData);L(glCreateShader);L(glShaderSource);L(glCompileShader);L(glGetShaderiv);L(glCreateProgram);L(glAttachShader);L(glLinkProgram);L(glGetProgramiv);L(glUseProgram);L(glGenVertexArrays);L(glBindVertexArray);L(glDrawElements);L(glDrawElementsBaseVertex);L(glViewport);
+  printf("Driver: %s / %s\n",d.glGetString(GL_RENDERER),d.glGetString(GL_VERSION));
+  GLuint fbo,tex;d.glGenFramebuffers(1,&fbo);d.glGenTextures(1,&tex);d.glBindTexture(GL_TEXTURE_2D,tex);d.glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,16,16,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);d.glBindFramebuffer(GL_FRAMEBUFFER,fbo);d.glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,tex,0);assert(d.glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
+  auto clearBuffer=d.glClearBufferfv;int cases=0;
+@@ -43,6 +47,35 @@
+   d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,after.data());for(size_t i=0;i<after.size();++i)assert(after[i]==(i%4==3?255:before[i]));
+   d.glBindFramebuffer(GL_READ_FRAMEBUFFER,fbo);d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,afterOff.data());assert(beforeOff==afterOff);++cases;
+  }
++ d.glBindFramebuffer(GL_FRAMEBUFFER,0);d.glDisable(GL_SCISSOR_TEST);d.glDisable(GL_RASTERIZER_DISCARD);d.glColorMaski(0,1,1,1,1);d.glViewport(0,0,16,16);
++ auto compile=[&](GLenum type,const char* code){GLuint shader=d.glCreateShader(type);d.glShaderSource(shader,1,&code,nullptr);d.glCompileShader(shader);GLint ok;d.glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);assert(ok);return shader;};
++ GLuint vs=compile(GL_VERTEX_SHADER,"#version 320 es\nflat out vec4 tint;void main(){int k=gl_VertexID%3;vec2 p=k==0?vec2(-1,-1):k==1?vec2(3,-1):vec2(-1,3);gl_Position=vec4(p,0,1);tint=gl_VertexID>=65536?vec4(1,0,0,1):vec4(0,1,0,1);}");
++ GLuint fs=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;flat in vec4 tint;out vec4 color;void main(){color=tint;}");
++ GLuint program=d.glCreateProgram();d.glAttachShader(program,vs);d.glAttachShader(program,fs);d.glLinkProgram(program);GLint linked;d.glGetProgramiv(program,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(program);
++ GLuint vao,ibo;d.glGenVertexArrays(1,&vao);d.glBindVertexArray(vao);d.glGenBuffers(1,&ibo);d.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
++ int indexed_cases=0;
++ for(GLenum type:{GL_UNSIGNED_BYTE,GL_UNSIGNED_SHORT,GL_UNSIGNED_INT})for(GLint base:{0,65536,-3})for(bool fixed:{false,true}){
++  const int size=type==GL_UNSIGNED_BYTE?1:type==GL_UNSIGNED_SHORT?2:4;
++  const GLuint sentinel=size==1?255:size==2?65535:0xffffffffu;
++  const GLuint start=base<0?3:0;
++  const std::vector<GLuint> raw={start,start+1,start+2,sentinel,start,start+1,start+2};
++  std::vector<GLuint> widened;for(GLuint i:raw)widened.push_back(i==sentinel?0xffffffffu:i+base);
++  std::array<unsigned char,1024> reference,output;
++  const GLsizei count=fixed?7:3;
++  d.glBufferData(GL_ELEMENT_ARRAY_BUFFER,widened.size()*4,widened.data(),GL_STATIC_DRAW);
++  d.glClearColor(0,0,0,1);d.glClear(GL_COLOR_BUFFER_BIT);if(fixed)d.glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
++  d.glDrawElements(GL_TRIANGLE_STRIP,count,GL_UNSIGNED_INT,nullptr);if(fixed)d.glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
++  d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,reference.data());
++  assert(reference[base>=65536?0:1]==255);
++  std::vector<unsigned char> packed;for(GLuint v:raw)for(int j=0;j<size;++j)packed.push_back((v>>(j*8))&255);
++  d.glBufferData(GL_ELEMENT_ARRAY_BUFFER,packed.size(),packed.data(),GL_STATIC_DRAW);d.glClear(GL_COLOR_BUFFER_BIT);
++  const GLsizei counts[]={count,0};const void* offsets[]={nullptr,nullptr};const GLint bases[]={base,999};
++  assert(tgs::native_indexed_batch(d,ibo,true,false,fixed,GL_TRIANGLE_STRIP,counts,type,offsets,2,bases));
++  assert(!d.glIsEnabled(GL_PRIMITIVE_RESTART_FIXED_INDEX));
++  d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,output.data());assert(output==reference);assert(d.glGetError()==GL_NO_ERROR);
++  ++indexed_cases;
++ }
++ printf("PASS: %d real GLES indexed pixel comparisons against widened CPU reference (3 index widths, negative/large bases, restart on/off)\n",indexed_cases);
+  d.glColorMaski=nullptr;assert(!tgs::opaque_default_framebuffer(d));
+  assert(eglMakeCurrent(display,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT));assert(eglDestroySurface(display,surface));assert(eglDestroyContext(display,ctx));assert(eglTerminate(display));
+  printf("PASS: %d real GLES presentation combinations; exact RGB/alpha, state restoration, fallback and no GL errors\n",cases);
+--- a/tgs-plugin/tests/indexed_test.cpp
++++ b/tgs-plugin/tests/indexed_test.cpp
+@@ -0,0 +1,31 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/tgs_indexed.h"
++#include <cassert>
++#include <cstdio>
++#include <vector>
++#include <array>
++struct Draw{GLsizei count;GLenum type;const void* offset;GLint base;};
++static std::vector<Draw> draws;static bool restart=false;static int toggles=0;
++struct Driver{
++ void (*glDrawElements)(GLenum,GLsizei,GLenum,const void*)=[](GLenum,GLsizei c,GLenum t,const void* o){draws.push_back({c,t,o,0});};
++ void (*glDrawElementsBaseVertex)(GLenum,GLsizei,GLenum,const void*,GLint)=[](GLenum,GLsizei c,GLenum t,const void* o,GLint b){draws.push_back({c,t,o,b});};
++ void glEnable(GLenum e){assert(e==GL_PRIMITIVE_RESTART_FIXED_INDEX);restart=true;++toggles;}
++ void glDisable(GLenum e){assert(e==GL_PRIMITIVE_RESTART_FIXED_INDEX);restart=false;++toggles;}
++};
++int main(){
++ int cases=0;
++ for(bool bound:{false,true})for(bool caps:{false,true})for(bool pointer:{false,true})for(bool rewrite:{false,true})for(bool force:{false,true})for(bool basesPresent:{false,true})for(int base:{0,65536,-3})for(GLenum type:{GL_UNSIGNED_BYTE,GL_UNSIGNED_SHORT,GL_UNSIGNED_INT}){
++  Driver d;if(!pointer)d.glDrawElementsBaseVertex=nullptr;
++  const GLsizei counts[]={3,0,6};const void* offsets[]={nullptr,reinterpret_cast<void*>(4),reinterpret_cast<void*>(12)};const GLint bases[]={0,777,base};
++  draws.clear();restart=false;toggles=0;
++  const bool expected=bound&&!rewrite&&(!basesPresent||base==0||(caps&&pointer));
++  assert(tgs::native_indexed_batch(d,bound?7:0,caps,rewrite,force,GL_TRIANGLES,counts,type,offsets,3,basesPresent?bases:nullptr)==expected);
++  assert(!restart);assert(toggles==(expected&&force?2:0));
++  assert(draws.size()==(expected?2:0));
++  if(expected){assert(draws[0].count==3&&draws[0].base==0&&draws[0].offset==nullptr);assert(draws[1].count==6&&draws[1].offset==offsets[2]&&draws[1].base==(basesPresent?base:0)&&draws[1].type==type);}
++  ++cases;
++ }
++ Driver d;const GLsizei bad[]={3,-1};const void* offsets[]={nullptr,nullptr};draws.clear();
++ assert(!tgs::native_indexed_batch(d,7,true,false,false,GL_TRIANGLES,bad,GL_UNSIGNED_SHORT,offsets,2,nullptr));assert(draws.empty());
++ printf("PASS: %d indexed dispatch combinations, restart restoration, no partial draws on fallback, offsets and signed/large bases preserved\n",cases);
++}
+--- a/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
+@@ -17,15 +17,15 @@
+         column.setOrientation(LinearLayout.VERTICAL); column.setPadding(28,40,28,24);
+         column.setBackgroundColor(Color.rgb(18,24,32));
+         TextView title=new TextView(this);
+-        title.setText("TGS Quest 0.6\nFast uploads");
++        title.setText("TGS Quest 0.7\nFast uploads");
+         title.setTextColor(Color.WHITE); title.setTextSize(29); column.addView(title);
+         TextView body=new TextView(this);
+-        body.setText("Experimental 0.6 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
+-            +"Restored Quest fixes with reduced texture-upload and presentation overhead. "
++        body.setText("Experimental 0.7 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
++            +"Quest fixes plus GPU-resident indexed drawing and reusable command staging. "
+             +"It is not yet proven faster in Minecraft.\n\n"
+             +"1. Run the renderer check below.\n"
+             +"2. Restart ZalithLauncher 2 or DroidBridge.\n"
+-            +"3. Select TGS Quest 0.6 (MobileGlues fork).\n"
++            +"3. Select TGS Quest 0.7 (MobileGlues fork).\n"
+             +"4. Launch 1.21.1 using Java 21, with your current working settings.\n\n"
+             +"Compare the same world, resolution and render distance. Restart the game between renderers. "
+             +"Keep TGS Quest 0.5 installed for comparison and fallback.\n\n"
+--- a/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
+@@ -31,7 +31,7 @@
+                 System.loadLibrary("tgscheck");
+                 result=check(getApplicationInfo().nativeLibraryDir);
+             } catch(Throwable error) { result="FAIL: "+error; }
+-            final String text="TGS Quest 0.6 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
++            final String text="TGS Quest 0.7 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
+                 +"\n\nThis is a smoke test, not Minecraft compatibility or an FPS benchmark.";
+             runOnUiThread(()->{report.setText(text);copy.setEnabled(true);});
+         },"tgs-check").start();

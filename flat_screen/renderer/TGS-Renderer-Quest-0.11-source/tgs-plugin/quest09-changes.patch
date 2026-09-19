@@ -1,0 +1,262 @@
+--- a/tgs-plugin/README.md
++++ b/tgs-plugin/README.md
+@@ -1,10 +1,16 @@
+-# TGS Quest 0.8 — command streaming and compatibility test
++# TGS Quest 0.9 — single renderer app
+ 
+-Install the fast APK and select **TGS Quest 0.8 Streaming** after restarting
+-ZalithLauncher 2 or DroidBridge. Keep 0.7 installed. The separate Reference APK
+-uses the same rendering fixes, but stages indirect commands through BufferSubData
+-instead of mapping fresh storage. Reference is an A/B control, not identical to 0.7.
+-Neither profile lowers resolution, render distance, texture quality or frame limits.
++Install TGS-Renderer-Quest-0.9-arm64.apk, restart your launcher and select **TGS Quest 0.9**.
++This updates the 0.8 Streaming package with the same signing key; no second variant is built.
++If the separate 0.8 Reference app is installed, uninstall it manually. Android does not
++let this update silently remove a separately installed app.
++
++Minecraft selection starts at **1.20.1**, inclusive, with no maximum metadata version.
++This removes the old launcher cutoff; it does not certify every newer game or modpack.
++Use the Java runtime required by the game version. Only OpenGL rendering is handled.
++
++The 0.8 native core is unchanged, retaining streaming with automatic upload fallback,
++matrix compatibility and all prior Quest fixes. No resolution, quality or frame limit changes.
+ 
+ ## Performance change
+ 
+@@ -16,8 +22,7 @@
+ CPU-staged re-upload; the backend is not permanently disabled after a transient failure.
+ 
+ This helps only workloads using those paths, and some drivers may be slower with
+-mapping. No headset FPS gain is established. The reference profile and counters make
+-this testable rather than implying that every removed CPU operation improves FPS.
++mapping. No headset FPS gain is established. The upload counters indicate whether a workload uses this path.
+ 
+ Every 300 successful presentation intervals, `TGS_FRAME` in the renderer log reports
+ FPS, mean/p95/worst frame interval, mapped/fallback/reference upload counts and bytes.
+@@ -28,7 +33,7 @@
+ 
+ Compare the same stationary scene, world, resolution, chunks and mods after equal
+ warm-up. Repeat both orders to limit thermal bias. Lower p95 frame time is better;
+-world generation, Java GC, simulation and compositor caps can dominate either profile.
++world generation, Java GC, simulation and compositor caps can dominate either upload path.
+ 
+ ## Mod and version compatibility
+ 
+@@ -40,12 +45,17 @@
+ Ordinary transpose=false uploads pass through unchanged. Previous Quest shader,
+ opaque-alpha, resize, upload and indexed-draw fixes remain.
+ 
+-**Universal Minecraft support is NOT implemented.** glBegin/glMatrixMode and other
+-legacy APIs remain stubs; several advanced GL entry points are also unimplemented.
+-Launcher metadata retains the prior 1.17–1.21.1 range, which is a selection range,
+-not evidence every version inside it or every loader/mod combination was tested.
+-The user reported 0.5 working on Quest; no 0.8 Minecraft/modpack device tests were
+-performed here. Broadening metadata alone would not add API implementations.
++**Every-version compatibility is not verified.** Some advanced GL entry points remain
++unimplemented. Native core tests are not Minecraft or modpack tests. Forge, Fabric and
++NeoForge are not blocked by loader name, but mods must use supported graphics features.
++The plugin has no Vulkan backend. Mojang has announced a transition toward Vulkan:
++https://www.minecraft.net/en-us/article/another-step-towards-vibrant-visuals-for-java-edition
++
++Zalith's RendererPlugin and RendererPluginManager accept nullable version bounds;
++maxMCVer is omitted rather than replaced with an invented upper version:
++https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPlugin.kt
++https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPluginManager.kt
++Other launchers may apply their own additional filters.
+ 
+ ## Build and validation
+ 
+@@ -53,9 +63,9 @@
+ CMake 3.22.1/Ninja, build-tools 35.0.0, platform 35 and JDK 17. Paths under toolchain:
+ android-ndk-r27d/, cmake/bin/, build-tools/android-15/, platforms/android-35/.
+ Run tgs-plugin/build.py --toolchain PATH --java-home PATH --output PATH --native-build PATH.
+-It produces two APKs using a local test signing key and ARM64/static C++/16 KiB ELF alignment.
+-Tests and limitations are recorded in VERIFICATION.txt. Run renderer check in either
+-APK for the native split-shader, named-varying, texture and indirect upload test.
++It produces one APK using a local test signing key and ARM64/static C++/16 KiB ELF alignment.
++Tests and limitations are recorded in VERIFICATION.txt. Run renderer check in the
++app for the native split-shader, named-varying, texture and indirect upload test.
+ 
+ MobileGlues and TGS additions: LGPL-2.1-only (LICENSE). Third-party licenses accompany
+ source and APK assets. https://github.com/MobileGL-Dev/MobileGlues
+--- a/tgs-plugin/VERIFICATION.txt
++++ b/tgs-plugin/VERIFICATION.txt
+@@ -1,3 +1,13 @@
++TGS Quest 0.9 — 2026-09-13
++PASS: One APK produced, one Android launcher entry; unified UI and diagnostics.
++PASS: Same package and signing certificate as 0.8 Streaming, versionCode increased 8 to 9.
++PASS: Compiled manifest: minMCVer=1.20.1, maxMCVer absent, all streaming/Quest flags retained.
++PASS: APK ZIP integrity, v2/v3 signatures and embedded README match.
++PASS: libmobileglues.so is byte-identical to the tested 0.8 Streaming binary.
++The native renderer code has not changed; prior 0.8 core checks below are retained evidence, not rerun.
++NOT RUN: Minecraft/Quest or Forge/Fabric/NeoForge pack testing; universal version support is not proven.
++No Vulkan backend implemented. Version metadata broadening only removes a launcher selection cutoff.
++
+ TGS Quest 0.8 — 2026-09-13
+ PASS: Complete Android ARM64 renderer build, JNI diagnostics and Java plugin build.
+ PASS: 48 streaming/failure cases and nine matrix shapes with arrays, unchanged direct uploads.
+--- a/tgs-plugin/build-results.json
++++ b/tgs-plugin/build-results.json
+@@ -1,16 +1,9 @@
+ [
+   {
+-    "file": "TGS-Renderer-Quest-0.8-fast-arm64.apk",
++    "file": "TGS-Renderer-Quest-0.9-arm64.apk",
+     "package": "dev.tgs.renderer.mobileglues.quest8.fast",
+     "fast_uploads": "1",
+     "stream_uploads": "1",
+-    "sha256": "f787a1f37affd30023976326adb0b664bfeebc44578b849bd1ac368c5b7849f8"
+-  },
+-  {
+-    "file": "TGS-Renderer-Quest-0.8-reference-arm64.apk",
+-    "package": "dev.tgs.renderer.mobileglues.quest8.reference",
+-    "fast_uploads": "1",
+-    "stream_uploads": "0",
+-    "sha256": "173178fadfa59c1a07dab6f156a5b08745519572a7ea8e527047a519bae5b707"
++    "sha256": "1d154f3c2bb7ae9f11ad50d7aed3a90402ddb80a9a8d07c58a4706617fc426e9"
+   }
+ ]
+--- a/tgs-plugin/build.py
++++ b/tgs-plugin/build.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Build the native fork and two signed, installable test plugins without Gradle.
++"""Build the native fork and one signed, installable renderer plugin without Gradle.
+ 
+ Requires Android NDK r27d, CMake+Ninja, build-tools 35, android-35 and JDK 17.
+ See README.md. Uses a local debug signing key, never a production key.
+@@ -50,19 +50,19 @@
+     for name in ['libmobileglues.so','libtgscheck.so']:
+         dest=work/name;shutil.copyfile(native/name,dest);run([llvm/'llvm-strip','--strip-unneeded',dest]);libraries[name]=dest
+     results=[]
+-    for mode,value in [('fast','1'),('reference','0')]:
+-        label='TGS Quest 0.8 '+('Streaming' if mode=='fast' else 'Reference')
+-        package='dev.tgs.renderer.mobileglues.quest8.'+mode
+-        manifest=work/(mode+'-manifest.xml')
+-        shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS=1;TGS_FRAME_STATS=1;TGS_STREAM_UPLOADS='+value
+-        metadata={'renderer_id':'opengles3','renderer_name':label,
+-          'renderer_description':'Quest rendering fixes with reduced presentation and upload overhead',
+-          'renderer_library':'libmobileglues.so','renderer_egl':'libmobileglues.so','renderer_env':shared_env,
+-          'renderer':label+':libmobileglues.so:libmobileglues.so','des':label,
+-          'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS=1:TGS_FRAME_STATS=1:TGS_STREAM_UPLOADS='+value,
+-          'minMCVer':'1.17','maxMCVer':'1.21.1'}
+-        metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
+-        manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="8" android:versionName="0.8-quest-restored">
++    label='TGS Quest 0.9'
++    # Retain the 0.8 Streaming identity so this installs as an update.
++    package='dev.tgs.renderer.mobileglues.quest8.fast'
++    manifest=work/'manifest.xml'
++    shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS=1;TGS_FRAME_STATS=1;TGS_STREAM_UPLOADS=1'
++    metadata={'renderer_id':'opengles3','renderer_name':label,
++      'renderer_description':'Quest rendering fixes with reduced presentation and upload overhead',
++      'renderer_library':'libmobileglues.so','renderer_egl':'libmobileglues.so','renderer_env':shared_env,
++      'renderer':label+':libmobileglues.so:libmobileglues.so','des':label,
++      'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS=1:TGS_FRAME_STATS=1:TGS_STREAM_UPLOADS=1',
++      'minMCVer':'1.20.1'}
++    metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
++    manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="9" android:versionName="0.9-quest">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+ <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+ <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+@@ -75,23 +75,23 @@
+ <activity android:name="dev.tgs.renderer.MainActivity" android:exported="true"><layout android:defaultWidth="1024dp" android:defaultHeight="640dp" /><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+ <activity android:name="dev.tgs.renderer.DiagnosticActivity" android:exported="false" android:process=":diagnostics" />
+ </application></manifest>''')
+-        unsigned=work/(mode+'-unsigned.apk');aligned=work/(mode+'-aligned.apk')
+-        run([bt/'aapt2','link','-I',platform,'--manifest',manifest,'-o',unsigned])
+-        with zipfile.ZipFile(unsigned,'a',compression=zipfile.ZIP_DEFLATED) as z:
+-            z.write(dex/'classes.dex','classes.dex')
+-            for name,lib in libraries.items():z.write(lib,'lib/arm64-v8a/'+name)
+-            z.write(root/'LICENSE','assets/LICENSE-MobileGlues.txt')
+-            z.write(plugin/'README.md','assets/TGS-README.md')
+-            for base in [root/'MobileGlues-cpp/3rdparty',root/'MobileGlues-cpp/include/ska']:
+-                for license_file in sorted(base.rglob('*')):
+-                    if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
+-                        z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
+-        run([bt/'zipalign','-f','-p','4',unsigned,aligned])
+-        apk=output/('TGS-Renderer-Quest-0.8-'+mode+'-arm64.apk')
+-        run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
+-               '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
+-        run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
+-        results.append({'file':apk.name,'package':package,'fast_uploads':'1','stream_uploads':value,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()})
++    unsigned=work/'unsigned.apk';aligned=work/'aligned.apk'
++    run([bt/'aapt2','link','-I',platform,'--manifest',manifest,'-o',unsigned])
++    with zipfile.ZipFile(unsigned,'a',compression=zipfile.ZIP_DEFLATED) as z:
++        z.write(dex/'classes.dex','classes.dex')
++        for name,lib in libraries.items():z.write(lib,'lib/arm64-v8a/'+name)
++        z.write(root/'LICENSE','assets/LICENSE-MobileGlues.txt')
++        z.write(plugin/'README.md','assets/TGS-README.md')
++        for base in [root/'MobileGlues-cpp/3rdparty',root/'MobileGlues-cpp/include/ska']:
++            for license_file in sorted(base.rglob('*')):
++                if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
++                    z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
++    run([bt/'zipalign','-f','-p','4',unsigned,aligned])
++    apk=output/'TGS-Renderer-Quest-0.9-arm64.apk'
++    run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
++           '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
++    run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
++    results.append({'file':apk.name,'package':package,'fast_uploads':'1','stream_uploads':'1','sha256':hashlib.sha256(apk.read_bytes()).hexdigest()})
+     (output/'build-results.json').write_text(json.dumps(results,indent=2)+'\n')
+     print(json.dumps(results,indent=2))
+ if __name__=='__main__':main()
+--- a/tgs-plugin/source-lock.json
++++ b/tgs-plugin/source-lock.json
+@@ -7,5 +7,6 @@
+     "3rdparty/SPIRV-Cross": "a0fba56c34a6700f1724bf9b751da5b488a3775c",
+     "include/ska": "21c1cec95abee1beef827e4a7c95f692875d9594"
+   },
+-  "tgs_version": "0.8-quest"
++  "tgs_version": "0.9-quest",
++  "native_core": "0.8-quest (unchanged)"
+ }
+--- a/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
+@@ -28,11 +28,11 @@
+                 Os.setenv("TGS_FAST_UPLOADS","1",true);
+                 Os.setenv("TGS_QUEST","1",true);
+                 Os.setenv("TGS_OPAQUE_WINDOW","1",true);
+-                Os.setenv("TGS_STREAM_UPLOADS",getPackageName().endsWith(".fast")?"1":"0",true);
++                Os.setenv("TGS_STREAM_UPLOADS","1",true);
+                 System.loadLibrary("tgscheck");
+                 result=check(getApplicationInfo().nativeLibraryDir);
+             } catch(Throwable error) { result="FAIL: "+error; }
+-            final String text="TGS Quest 0.8 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
++            final String text="TGS Quest 0.9 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
+                 +"\n\nThis is a smoke test, not Minecraft compatibility or an FPS benchmark.";
+             runOnUiThread(()->{report.setText(text);copy.setEnabled(true);});
+         },"tgs-check").start();
+--- a/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
+@@ -12,24 +12,22 @@
+ public class MainActivity extends Activity {
+     @Override public void onCreate(Bundle state) {
+         super.onCreate(state);
+-        boolean fast=getPackageName().endsWith(".fast");
+         LinearLayout column=new LinearLayout(this);
+         column.setOrientation(LinearLayout.VERTICAL); column.setPadding(28,40,28,24);
+         column.setBackgroundColor(Color.rgb(18,24,32));
+         TextView title=new TextView(this);
+-        title.setText("TGS Quest 0.8\n"+(fast?"Streaming":"Reference")+"");
++        title.setText("TGS Quest 0.9");
+         title.setTextColor(Color.WHITE); title.setTextSize(29); column.addView(title);
+         TextView body=new TextView(this);
+-        body.setText("Experimental 0.8 • ARM64\nMinecraft Java 1.21.1 test target\n\n"
+-            +"Quest fixes plus streaming command uploads and desktop matrix compatibility. "
+-            +"It is not yet proven faster in Minecraft.\n\n"
++        body.setText("ARM64 renderer • Minecraft Java 1.20.1 and newer OpenGL versions\n\n"
++            +"One renderer with command streaming, automatic upload fallback and the existing Quest fixes. Resolution and graphics quality stay unchanged.\n\n"
+             +"1. Run the renderer check below.\n"
+             +"2. Restart ZalithLauncher 2 or DroidBridge.\n"
+-            +"3. Select TGS Quest 0.8 Streaming or Reference.\n"
+-            +"4. Launch 1.21.1 using Java 21, with your current working settings.\n\n"
+-            +"Compare the same world, resolution and render distance. Restart the game between renderers. "
+-            +"Keep TGS Quest 0.5 installed for comparison and fallback.\n\n"
+-            +"Both profiles retain resolution and graphics quality. Compare the same scene after warming up. TGS_FRAME log lines report FPS, p95 frame time and streaming use.\n\nForge, Fabric and NeoForge are not blocked by loader name. Compatibility still depends on Minecraft and mod versions; legacy fixed-function rendering is not implemented.");
++            +"3. Select TGS Quest 0.9.\n"
++            +"4. Use the Java runtime required by your Minecraft version.\n\n"
++            +"The old 1.21.1 selection cutoff is removed. Forge, Fabric and NeoForge are not blocked by name. Every version and modpack has not been tested; Vulkan rendering is not supported by this OpenGL plugin.\n\n"
++            +"This updates the 0.8 Streaming app. If the old Reference app is installed, uninstall that app to leave only one TGS renderer.\n\n"
++            +"FPS gains still need testing on your headset.");
+         body.setTextColor(Color.rgb(204,214,225)); body.setTextSize(16); body.setPadding(0,22,0,20); column.addView(body);
+         Button check=new Button(this); check.setText("Run renderer check");
+         check.setOnClickListener(v->startActivity(new Intent(this,DiagnosticActivity.class))); column.addView(check);

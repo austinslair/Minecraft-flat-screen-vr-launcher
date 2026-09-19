@@ -1,0 +1,35 @@
+diff --git a/MobileGlues-cpp/gl/transfer.cpp b/MobileGlues-cpp/gl/transfer.cpp
+index 36f82d9..2461adb 100644
+--- a/MobileGlues-cpp/gl/transfer.cpp
++++ b/MobileGlues-cpp/gl/transfer.cpp
+@@ -14,6 +14,8 @@
+ #include "../gles/loader.h"
+ #include <cstring>
+ #include <vector>
++#include <cstdlib>
++#include "tgs_swizzle.h"
+ 
+ #define DEBUG 0
+ 
+@@ -431,9 +433,21 @@ mg_upload_fix_t::mg_upload_fix_t(GLsizei width, GLsizei height, GLsizei depth, G
+     }
+     uint8_t swapped[16];
+ 
++    static const bool tgs_fast_uploads = [] {
++        const char* value = std::getenv("TGS_FAST_UPLOADS");
++        return value && std::strcmp(value, "1") == 0;
++    }();
++    const bool tgs_swizzle_row = tgs_fast_uploads &&
++        tgs::can_swizzle(format_in, type_in, out_channels, swap_in);
++
+     for (GLsizei z = 0; z < depth; ++z) {
+         for (GLsizei row = 0; row < height; ++row) {
+             const uint8_t* s = src + start + static_cast<size_t>(z) * img_stride + static_cast<size_t>(row) * row_stride;
++            if (tgs_swizzle_row) {
++                tgs::bgra_to_rgba(s, out, static_cast<size_t>(width));
++                out += static_cast<size_t>(width) * 4;
++                continue;
++            }
+             for (GLsizei col = 0; col < width; ++col) {
+                 uint8_t px[4] = {0, 0, 0, 255};
+                 if (swap_in) {

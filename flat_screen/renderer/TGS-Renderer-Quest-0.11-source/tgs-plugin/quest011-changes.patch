@@ -1,0 +1,652 @@
+--- a/MobileGlues-cpp/egl/egl.cpp
++++ b/MobileGlues-cpp/egl/egl.cpp
+@@ -440,10 +440,11 @@
+         if(enabled && result==EGL_TRUE){
+             static thread_local tgs::FrameStats stats;tgs::FrameReport report{};
+             if(stats.frame(reinterpret_cast<uintptr_t>(dpy),reinterpret_cast<uintptr_t>(surface),report))
+-                LOG_V("TGS_FRAME fps=%.2f mean_ms=%.3f p95_ms=%.3f worst_ms=%.3f mapped=%llu fallback=%llu reference=%llu upload_bytes=%llu",
++                LOG_V("TGS_FRAME fps=%.2f mean_ms=%.3f p95_ms=%.3f worst_ms=%.3f mapped=%llu fallback=%llu reference=%llu upload_bytes=%llu staged_uploads=%llu staged_bytes=%llu direct_large_uploads=%llu",
+                   report.fps,report.mean_ms,report.p95_ms,report.worst_ms,
+                   (unsigned long long)report.uploads.mapped,(unsigned long long)report.uploads.fallback,
+-                  (unsigned long long)report.uploads.reference,(unsigned long long)report.uploads.bytes);
++                  (unsigned long long)report.uploads.reference,(unsigned long long)report.uploads.bytes,
++                  (unsigned long long)report.chunks.staged,(unsigned long long)report.chunks.bytes,(unsigned long long)report.chunks.direct);
+         }
+         return result;
+     }
+--- a/MobileGlues-cpp/gl/buffer.cpp
++++ b/MobileGlues-cpp/gl/buffer.cpp
+@@ -6,6 +6,7 @@
+ // End of Source File Header
+ 
+ #include "buffer.h"
++#include "tgs_chunk_upload.h"
+ #include "../egl/context.h"
+ #include <mutex>
+ #include <memory>
+@@ -50,6 +51,7 @@
+     std::vector<GLuint> free_array_ids;
+     std::vector<GLuint> element_array_buffer_per_vao;
+     std::array<GLuint, 13> bound_buffers{};
++    std::array<tgs::UploadRoute,27> chunk_routes{};
+ };
+ 
+ std::mutex g_buf_mutex;
+@@ -1027,7 +1029,26 @@
+     LOG()
+     LOG_D("glBufferSubData, target = %s, offset = %p, size = %zi", glEnumToString(target), (void*)offset, size)
+     borrowed_target_t t(target);
+-    GLES.glBufferSubData(t.target, offset, size, data);
++    const int bucket = tgs::chunk_bucket(t.target, size);
++    if (tgs::chunk_staging_enabled() && bucket >= 0 && offset >= 0 && data) {
++        auto& route = g_bc->chunk_routes[static_cast<size_t>(bucket)];
++        const auto begin = std::chrono::steady_clock::now();
++        bool staged = false;
++        const bool tried = route.use_staging();
++        if (tried) staged = tgs::stage_chunk_upload(GLES, t.target, offset, size, data,
++                                                   g_gles_caps.GL_EXT_buffer_storage != 0);
++        if (!staged) GLES.glBufferSubData(t.target, offset, size, data);
++        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
++            std::chrono::steady_clock::now() - begin).count();
++        if (tried) route.staged(static_cast<uint64_t>(ns), staged);
++        else route.direct(static_cast<uint64_t>(ns));
++        if (staged) {
++            ++tgs::chunk_uploads.staged;
++            tgs::chunk_uploads.bytes += static_cast<uint64_t>(size);
++        } else ++tgs::chunk_uploads.direct;
++    } else {
++        GLES.glBufferSubData(t.target, offset, size, data);
++    }
+     CHECK_GL_ERROR
+ }
+ 
+--- a/MobileGlues-cpp/gl/tgs_chunk_upload.h
++++ b/MobileGlues-cpp/gl/tgs_chunk_upload.h
+@@ -0,0 +1,57 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#pragma once
++#include <GLES3/gl32.h>
++#include <cstdlib>
++#include <cstring>
++#include <cstdint>
++#include <array>
++#include <chrono>
++namespace tgs {
++inline bool chunk_staging_enabled(){static const bool on=[](){const char* s=std::getenv("TGS_CHUNK_STAGING");return s&&std::strcmp(s,"1")==0;}();return on;}
++struct ChunkUploads {uint64_t staged=0,bytes=0,direct=0;};
++inline thread_local ChunkUploads chunk_uploads;
++// Bounded, context-owned route state. Try four staged updates only after a
++// >=0.5 ms direct update; abandon immediately if staging is slower than that
++// reference. Then probe direct again. These are CPU call times, not GPU times.
++struct UploadRoute {
++    uint64_t direct_ns=0;unsigned trials=0;
++    bool use_staging() const{return trials>0;}
++    void direct(uint64_t ns){direct_ns=ns;trials=ns>=500000?4:0;}
++    void staged(uint64_t ns,bool ok){if(!ok||ns>direct_ns)trials=0;else if(trials)--trials;}
++};
++inline int chunk_bucket(GLenum target,GLsizeiptr size){
++    if(size<65536||size>16*1024*1024)return -1;
++    int t=target==GL_ARRAY_BUFFER?0:target==GL_ELEMENT_ARRAY_BUFFER?1:target==GL_COPY_WRITE_BUFFER?2:-1;
++    if(t<0)return -1;
++    unsigned b=0;for(GLsizeiptr n=size/65536;n>1;n>>=1)++b;
++    return t*9+int(b);
++}
++// Large mutable, unmapped geometry updates only. Preserve the destination object,
++// allocation, untouched bytes, VAO references and all binding state. A temporary
++// source has no outstanding GPU readers; copy ordering is handled by GLES.
++// Deletion after the copy queues releases the name, not its in-flight contents.
++template<class D> bool stage_chunk_upload(D& d,GLenum target,GLintptr offset,GLsizeiptr size,const void* data,bool storage_ext){
++ GLenum binding;
++ switch(target){case GL_ARRAY_BUFFER:binding=GL_ARRAY_BUFFER_BINDING;break;
++ case GL_ELEMENT_ARRAY_BUFFER:binding=GL_ELEMENT_ARRAY_BUFFER_BINDING;break;
++ case GL_COPY_WRITE_BUFFER:binding=GL_COPY_WRITE_BUFFER_BINDING;break;default:return false;}
++ if(!data||offset<0||size<65536||size>16*1024*1024)return false;
++ if(!d.glCopyBufferSubData||!d.glGetBufferParameteri64v||!d.glGenBuffers||!d.glDeleteBuffers)return false;
++ GLint bound=0,active=0,mapped=0;d.glGetIntegerv(binding,&bound);if(!bound)return false;
++ d.glGetIntegerv(GL_TRANSFORM_FEEDBACK_ACTIVE,&active);if(active)return false;
++ d.glGetBufferParameteriv(target,GL_BUFFER_MAPPED,&mapped);if(mapped)return false;
++ if(storage_ext){GLint immutable=0;d.glGetBufferParameteriv(target,0x821f /* GL_BUFFER_IMMUTABLE_STORAGE_EXT */,&immutable);if(immutable)return false;}
++ GLint64 capacity=0;d.glGetBufferParameteri64v(target,GL_BUFFER_SIZE,&capacity);
++ if(capacity<0||offset>capacity||size>capacity-offset)return false;
++ GLint previous=0;d.glGetIntegerv(GL_COPY_READ_BUFFER_BINDING,&previous);
++ GLuint scratch=0;d.glGenBuffers(1,&scratch);if(!scratch)return false;
++ d.glBindBuffer(GL_COPY_READ_BUFFER,scratch);
++ d.glBufferData(GL_COPY_READ_BUFFER,size,data,GL_STREAM_DRAW);
++ GLint allocated=0;d.glGetBufferParameteriv(GL_COPY_READ_BUFFER,GL_BUFFER_SIZE,&allocated);
++ const bool ready=allocated==size;
++ if(ready)d.glCopyBufferSubData(GL_COPY_READ_BUFFER,target,0,offset,size);
++ d.glBindBuffer(GL_COPY_READ_BUFFER,static_cast<GLuint>(previous));
++ d.glDeleteBuffers(1,&scratch);
++ return ready;
++}
++}
+--- a/MobileGlues-cpp/gl/tgs_frame_stats.h
++++ b/MobileGlues-cpp/gl/tgs_frame_stats.h
+@@ -1,25 +1,27 @@
+ // TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
+ #pragma once
+ #include "tgs_stream.h"
++#include "tgs_chunk_upload.h"
+ #include <chrono>
+ #include <array>
+ #include <algorithm>
+ namespace tgs {
+-struct FrameReport{double fps,mean_ms,p95_ms,worst_ms;StreamTotals uploads;};
++struct FrameReport{double fps,mean_ms,p95_ms,worst_ms;StreamTotals uploads;ChunkUploads chunks;};
+ class FrameStats {
+  using Clock=std::chrono::steady_clock;
+  Clock::time_point last{};uintptr_t display=0,surface=0;
+- std::array<double,300> samples{};size_t count=0;StreamTotals before{};
++ std::array<double,300> samples{};size_t count=0;StreamTotals before{};ChunkUploads before_chunks{};
+ public:
+  bool frame(uintptr_t d,uintptr_t s,FrameReport& report){
+   const auto now=Clock::now();
+-  if(last==Clock::time_point{} || display!=d || surface!=s){display=d;surface=s;count=0;last=now;before=stream_totals;return false;}
++  if(last==Clock::time_point{} || display!=d || surface!=s){display=d;surface=s;count=0;last=now;before=stream_totals;before_chunks=chunk_uploads;return false;}
+   samples[count++]=std::chrono::duration<double,std::milli>(now-last).count();last=now;
+   if(count<samples.size())return false;
+   double sum=0;for(double ms:samples)sum+=ms;std::sort(samples.begin(),samples.end());
+   report={sum>0?300000.0/sum:0,sum/300.0,samples[284],samples[299],
+-    {stream_totals.mapped-before.mapped,stream_totals.fallback-before.fallback,stream_totals.reference-before.reference,stream_totals.bytes-before.bytes}};
+-  before=stream_totals;count=0;return true;
++    {stream_totals.mapped-before.mapped,stream_totals.fallback-before.fallback,stream_totals.reference-before.reference,stream_totals.bytes-before.bytes},
++    {chunk_uploads.staged-before_chunks.staged,chunk_uploads.bytes-before_chunks.bytes,chunk_uploads.direct-before_chunks.direct}};
++  before=stream_totals;before_chunks=chunk_uploads;count=0;return true;
+  }
+ };
+ }
+--- a/MobileGlues-cpp/main.cpp
++++ b/MobileGlues-cpp/main.cpp
+@@ -35,7 +35,7 @@
+ }
+ 
+ void show_license() {
+-    LOG_V("TGS_BUILD=0.10-quest; proportional cache saves; command streaming, matrix compatibility, frame statistics");
++    LOG_V("TGS_BUILD=0.11-quest; adaptive geometry staging; proportional cache saves; command streaming, matrix compatibility, frame statistics");
+     LOG_V("The Open Source License of MobileGlues: ");
+     LOG_V("  %s", license);
+ }
+--- a/tgs-plugin/HISTORY-0.10.md
++++ b/tgs-plugin/HISTORY-0.10.md
+@@ -0,0 +1,91 @@
++# TGS Quest 0.10 — single renderer app
++
++Install TGS-Renderer-Quest-0.10-arm64.apk, restart your launcher and select **TGS Quest 0.10**.
++This updates the 0.8 Streaming package with the same package identity; no second variant is built.
++If the separate 0.8 Reference app is installed, uninstall it manually. Android does not
++let this update silently remove a separately installed app.
++
++Minecraft selection starts at **1.20.1**, inclusive, with no maximum metadata version.
++This removes the old launcher cutoff; it does not certify every newer game or modpack.
++Use the Java runtime required by the game version. Only OpenGL rendering is handled.
++
++The native core retains streaming with automatic upload fallback,
++matrix compatibility and all prior Quest fixes. No resolution, quality or frame limit changes.
++
++## Startup change in 0.10
++
++The old policy rewrote the whole shader cache every 16 inserted shaders. Saves now
++require at least 16 new entries AND dirty bytes totaling a quarter of current cache
++size, or the existing five-second deadline. This deadline is checked by cache
++operations, not a timer. Translations remain immediately usable in memory. Due writes
++remain synchronous. Cache format, directory, translation output and size limit stay
++unchanged. The final batch is saved on orderly exit. An Android process kill can lose
++the unsaved batch, requiring its translation again next launch.
++
++This addresses repeated disk writes during shader bursts. It does not establish that
++the reported Quest FPS recovery is fixed. Chunk work, Java startup and driver shader
++compilation are outside this change. No graphics quality or resolution is reduced.
++
++This rebuild needs a new test signing key because the old private key is absent from
++the supplied source. If installation reports a signature conflict, uninstall only the
++old TGS renderer plugin before installing this APK. This does not require uninstalling
++the launcher or Minecraft. One renderer APK is produced.
++
++## Performance change
++
++Element and array indirect command buffers are mutable renderer-owned scratch
++buffers. Streaming maps the complete used range with WRITE and INVALIDATE_BUFFER,
++then writes commands directly. The driver can rename busy storage instead of waiting
++for previous draws to finish. No UNSYNCHRONIZED flag, no geometry changes, no modification
++of mod-owned buffer storage. Map failure or lost contents on unmap triggers a complete
++CPU-staged re-upload; the backend is not permanently disabled after a transient failure.
++
++This helps only workloads using those paths, and some drivers may be slower with
++mapping. No headset FPS gain is established. The upload counters indicate whether a workload uses this path.
++
++Every 300 successful presentation intervals, `TGS_FRAME` in the renderer log reports
++FPS, mean/p95/worst frame interval, mapped/fallback/reference upload counts and bytes.
++These are presentation intervals including pacing/compositor waits, NOT GPU execution
++times. Different surfaces start a new window of samples. A zero mapped count means
++the new path was not used during that measurement. No frame cap is changed.
++Set TGS_FRAME_STATS=0 to disable reporting; TGS_STREAM_UPLOADS=0 selects reference uploads.
++
++Compare the same stationary scene, world, resolution, chunks and mods after equal
++warm-up. Repeat both orders to limit thermal bias. Lower p95 frame time is better;
++world generation, Java GC, simulation and compositor caps can dominate either upload path.
++
++## Mod and version compatibility
++
++This native plugin does not discriminate between Forge, Fabric and NeoForge. It
++cannot guarantee every version or modpack: each may require GL features the core
++lacks. Newly implemented compatibility: all nine square/rectangular float matrix
++shapes, including arrays, support desktop transpose=true in both glUniformMatrix*
++and glProgramUniformMatrix*. GLES receives equivalent column-major data with false.
++Ordinary transpose=false uploads pass through unchanged. Previous Quest shader,
++opaque-alpha, resize, upload and indexed-draw fixes remain.
++
++**Every-version compatibility is not verified.** Some advanced GL entry points remain
++unimplemented. Native core tests are not Minecraft or modpack tests. Forge, Fabric and
++NeoForge are not blocked by loader name, but mods must use supported graphics features.
++The plugin has no Vulkan backend. Mojang has announced a transition toward Vulkan:
++https://www.minecraft.net/en-us/article/another-step-towards-vibrant-visuals-for-java-edition
++
++Zalith's RendererPlugin and RendererPluginManager accept nullable version bounds;
++maxMCVer is omitted rather than replaced with an invented upper version:
++https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPlugin.kt
++https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPluginManager.kt
++Other launchers may apply their own additional filters.
++
++## Build and validation
++
++Full corresponding source and dependencies are included. Requires Android NDK r27d,
++CMake 3.22.1/Ninja, build-tools 35.0.0, platform 35 and JDK 17. Paths under toolchain:
++android-ndk-r27d/, cmake/bin/, build-tools/android-15/, platforms/android-35/.
++Run tgs-plugin/build.py --toolchain PATH --java-home PATH --output PATH --native-build PATH.
++It produces one APK using a local test signing key and ARM64/static C++/16 KiB ELF alignment.
++Tests and limitations are recorded in VERIFICATION.txt. Run renderer check in the
++app for the native split-shader, named-varying, texture and indirect upload test.
++
++MobileGlues and TGS additions: LGPL-2.1-only (LICENSE). Third-party licenses accompany
++source and APK assets. https://github.com/MobileGL-Dev/MobileGlues
++This is not an official MobileGlues, launcher, Mojang or Microsoft release.
+--- a/tgs-plugin/README.md
++++ b/tgs-plugin/README.md
+@@ -1,91 +1,69 @@
+-# TGS Quest 0.10 — single renderer app
++# TGS Quest 0.11 — adaptive geometry uploads
+ 
+-Install TGS-Renderer-Quest-0.10-arm64.apk, restart your launcher and select **TGS Quest 0.10**.
+-This updates the 0.8 Streaming package with the same package identity; no second variant is built.
+-If the separate 0.8 Reference app is installed, uninstall it manually. Android does not
+-let this update silently remove a separately installed app.
++One APK: TGS-Renderer-Quest-0.11-arm64.apk. Install over 0.10 and restart your launcher;
++select TGS Quest 0.11. The build retains the 0.10 package and signing certificate.
++Resolution, render distance, mesh contents, shader effects and frame limits are unchanged.
++All previous Quest, matrix, command-streaming and shader-cache fixes remain.
+ 
+-Minecraft selection starts at **1.20.1**, inclusive, with no maximum metadata version.
+-This removes the old launcher cutoff; it does not certify every newer game or modpack.
+-Use the Java runtime required by the game version. Only OpenGL rendering is handled.
++## What changed
+ 
+-The native core retains streaming with automatic upload fallback,
+-matrix compatibility and all prior Quest fixes. No resolution, quality or frame limit changes.
++Large glBufferSubData updates can wait for GPU readers of the destination. For mutable,
++unmapped vertex/index/copy-write buffers, a fresh staging buffer lets a GPU copy perform
++the destination update in command order. The destination storage, VAO references and
++bytes outside the update remain unchanged. Temporary sources are deleted after copying;
++the driver retains in-flight storage as necessary. No unsynchronized mappings, skipped
++uploads, dropped draws or geometry simplifications are introduced.
+ 
+-## Startup change in 0.10
++Only updates from 64 KiB through 16 MiB are candidates. Start on the original path. After
++an eligible call takes at least 0.5 ms on the CPU, try up to four staged calls in that
++context's target/size bucket. If staging takes longer than the triggering direct call
++or cannot run, return immediately to direct uploads; otherwise probe direct again after
++four calls. This heuristic does not establish end-to-end GPU or Minecraft FPS improvement.
++A driver may already stage uploads internally. Temporary GPU storage and extra copies
++can increase bandwidth use; the largest individual staging allocation is 16 MiB, not a
++bound on all in-flight driver memory. No GPU fence waits are inserted.
+ 
+-The old policy rewrote the whole shader cache every 16 inserted shaders. Saves now
+-require at least 16 new entries AND dirty bytes totaling a quarter of current cache
+-size, or the existing five-second deadline. This deadline is checked by cache
+-operations, not a timer. Translations remain immediately usable in memory. Due writes
+-remain synchronous. Cache format, directory, translation output and size limit stay
+-unchanged. The final batch is saved on orderly exit. An Android process kill can lose
+-the unsaved batch, requiring its translation again next launch.
++Mapped/immutable buffers, active transform feedback, unsupported targets, invalid ranges,
++missing entry points and staging-allocation failures retain the original upload path.
++No permanent native object names are cached across contexts. The game can continue using
++its own persistent mappings and buffer management without this path intercepting them.
+ 
+-This addresses repeated disk writes during shader bursts. It does not establish that
+-the reported Quest FPS recovery is fixed. Chunk work, Java startup and driver shader
+-compilation are outside this change. No graphics quality or resolution is reduced.
++## What is and is not verified
+ 
+-This rebuild needs a new test signing key because the old private key is absent from
+-the supplied source. If installation reports a signature conflict, uninstall only the
+-old TGS renderer plugin before installing this APK. This does not require uninstalling
+-the launcher or Minecraft. One renderer APK is produced.
++Actual Mesa GLES byte comparisons verify partial-update guards and restored copy-read
++bindings. Repeated upload/draw tests produce identical pixels. Routing tests cover the
++threshold, bounded trial count and fallback. Allocation failure, mapped/immutable cases
++and missing entry points are exercised. Previous matrix/indirect/presentation tests pass.
+ 
+-## Performance change
++Host timings varied by test order; there is no demonstrated consistent speedup there.
++Quest/Adreno FPS and the reported new-chunk hitch have NOT been measured. This is a
++performance candidate targeting upload stalls, not a proven fix for all chunk lag.
++Java world generation, meshing, GC, shader GPU cost and thermal throttling remain outside
++this patch. A pack that uploads using other entry points may never use staging.
+ 
+-Element and array indirect command buffers are mutable renderer-owned scratch
+-buffers. Streaming maps the complete used range with WRITE and INVALIDATE_BUFFER,
+-then writes commands directly. The driver can rename busy storage instead of waiting
+-for previous draws to finish. No UNSYNCHRONIZED flag, no geometry changes, no modification
+-of mod-owned buffer storage. Map failure or lost contents on unmap triggers a complete
+-CPU-staged re-upload; the backend is not permanently disabled after a transient failure.
++TGS_FRAME reports staged_uploads, staged_bytes and direct_large_uploads on the presenting
++thread alongside FPS and p95 presentation intervals. Zero staged_uploads means it was
++not used in that reporting window. Other threads' counters are not included.
++TGS_CHUNK_STAGING=0 disables the adaptive path; 1 enables it. The APK enables it.
+ 
+-This helps only workloads using those paths, and some drivers may be slower with
+-mapping. No headset FPS gain is established. The upload counters indicate whether a workload uses this path.
++Minecraft selection starts at 1.20.1 with no maximum, as in 0.10. This OpenGL plugin has
++no Vulkan backend and does not certify every Minecraft/Forge/Fabric/NeoForge combination.
+ 
+-Every 300 successful presentation intervals, `TGS_FRAME` in the renderer log reports
+-FPS, mean/p95/worst frame interval, mapped/fallback/reference upload counts and bytes.
+-These are presentation intervals including pacing/compositor waits, NOT GPU execution
+-times. Different surfaces start a new window of samples. A zero mapped count means
+-the new path was not used during that measurement. No frame cap is changed.
+-Set TGS_FRAME_STATS=0 to disable reporting; TGS_STREAM_UPLOADS=0 selects reference uploads.
++## Build and source
+ 
+-Compare the same stationary scene, world, resolution, chunks and mods after equal
+-warm-up. Repeat both orders to limit thermal bias. Lower p95 frame time is better;
+-world generation, Java GC, simulation and compositor caps can dominate either upload path.
++Run tgs-plugin/build.py with --toolchain PATH --java-home PATH --output PATH
++--native-build PATH. Requires Android NDK r27d, CMake 3.22.1/Ninja, build-tools 35.0.0,
++platform 35 and JDK 17. Tool paths: android-ndk-r27d/, cmake/bin/,
++build-tools/android-15/, platforms/android-35/. Complete source/dependencies included.
++ARM64, static C++ runtime, Android API 26 minimum, 16 KiB ELF alignment.
++Builds use a local test key; preserve your key for subsequent updates.
++Tests and exact limitations are in VERIFICATION.txt and gles011.log.
+ 
+-## Mod and version compatibility
++API basis:
++https://registry.khronos.org/OpenGL-Refpages/es3/html/glBufferSubData.xhtml
++https://registry.khronos.org/OpenGL-Refpages/gl4/html/glCopyBufferSubData.xhtml
++https://github.com/KhronosGroup/OpenGL-Registry/blob/main/extensions/EXT/EXT_buffer_storage.txt
+ 
+-This native plugin does not discriminate between Forge, Fabric and NeoForge. It
+-cannot guarantee every version or modpack: each may require GL features the core
+-lacks. Newly implemented compatibility: all nine square/rectangular float matrix
+-shapes, including arrays, support desktop transpose=true in both glUniformMatrix*
+-and glProgramUniformMatrix*. GLES receives equivalent column-major data with false.
+-Ordinary transpose=false uploads pass through unchanged. Previous Quest shader,
+-opaque-alpha, resize, upload and indexed-draw fixes remain.
+-
+-**Every-version compatibility is not verified.** Some advanced GL entry points remain
+-unimplemented. Native core tests are not Minecraft or modpack tests. Forge, Fabric and
+-NeoForge are not blocked by loader name, but mods must use supported graphics features.
+-The plugin has no Vulkan backend. Mojang has announced a transition toward Vulkan:
+-https://www.minecraft.net/en-us/article/another-step-towards-vibrant-visuals-for-java-edition
+-
+-Zalith's RendererPlugin and RendererPluginManager accept nullable version bounds;
+-maxMCVer is omitted rather than replaced with an invented upper version:
+-https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPlugin.kt
+-https://github.com/ZalithLauncher/ZalithLauncher2/blob/main/ZalithLauncher/src/main/java/com/movtery/zalithlauncher/game/plugin/renderer/RendererPluginManager.kt
+-Other launchers may apply their own additional filters.
+-
+-## Build and validation
+-
+-Full corresponding source and dependencies are included. Requires Android NDK r27d,
+-CMake 3.22.1/Ninja, build-tools 35.0.0, platform 35 and JDK 17. Paths under toolchain:
+-android-ndk-r27d/, cmake/bin/, build-tools/android-15/, platforms/android-35/.
+-Run tgs-plugin/build.py --toolchain PATH --java-home PATH --output PATH --native-build PATH.
+-It produces one APK using a local test signing key and ARM64/static C++/16 KiB ELF alignment.
+-Tests and limitations are recorded in VERIFICATION.txt. Run renderer check in the
+-app for the native split-shader, named-varying, texture and indirect upload test.
+-
+-MobileGlues and TGS additions: LGPL-2.1-only (LICENSE). Third-party licenses accompany
+-source and APK assets. https://github.com/MobileGL-Dev/MobileGlues
+-This is not an official MobileGlues, launcher, Mojang or Microsoft release.
++MobileGlues and TGS changes: LGPL-2.1-only. Full corresponding source and third-party
++notices accompany this APK. https://github.com/MobileGL-Dev/MobileGlues
++Independent renderer plugin; no Minecraft assets/code bundled.
+--- a/tgs-plugin/VERIFICATION.txt
++++ b/tgs-plugin/VERIFICATION.txt
+@@ -1,3 +1,19 @@
++TGS Quest 0.11 — 2026-09-14
++PASS: ARM64 core/native diagnostic/Java UI build; one signed renderer APK.
++PASS: Same signing certificate/package as 0.10; versionCode 11.
++PASS: 18 real GLES full-byte/guard/state comparisons across vertex/index/copy-write buffers.
++PASS: Mapped/immutable/invalid/missing-entry/allocation-failure bypasses.
++PASS: 1152 upload/draw iterations produce identical pixels. All GL errors checked.
++PASS: Direct-first route, 0.5 ms threshold, 4-trial limit and slow/failure return to direct.
++PASS: Prior 18 indexed, 12800 indirect-draw, 18 matrix-form and 256 presentation tests rerun.
++PASS: ZIP/embedded libraries/README, ARM64/16 KiB/static C++, signing and manifest flags.
++HOST TIMINGS: Direct 10.449/2.648 ms; staged 10.365/6.840 ms (256 calls per sample).
++Software-driver timings vary; they do not demonstrate consistent improvement or Quest FPS.
++NOT RUN: Quest/Adreno Minecraft, modpacks or reproduction of the new-chunk hitch.
++No settings/geometry/quality reductions. Staging is a performance candidate, not a proven cure.
++See README for routing limits, temporary memory costs and per-thread counters.
++Earlier verification below is historical except checks explicitly rerun above.
++
+ TGS Quest 0.10 — 2026-09-14
+ PASS: Complete ARM64 renderer rebuild, native diagnostics and Java UI build.
+ PASS: Actual Cache implementation: 1024 immediate hits and identical values after teardown/reload.
+--- a/tgs-plugin/build-results.json
++++ b/tgs-plugin/build-results.json
+@@ -1,9 +1,9 @@
+ [
+   {
+-    "file": "TGS-Renderer-Quest-0.10-arm64.apk",
++    "file": "TGS-Renderer-Quest-0.11-arm64.apk",
+     "package": "dev.tgs.renderer.mobileglues.quest8.fast",
+     "fast_uploads": "1",
+     "stream_uploads": "1",
+-    "sha256": "967b81f07e90753493cb45638c87f822fcec9892e61844d701d6de8c45b469f0"
++    "sha256": "3761ceb35fc8ab2dc077b9e14949b8c0303c2a801c8f0b15e457a80ec23d7713"
+   }
+ ]
+--- a/tgs-plugin/build.py
++++ b/tgs-plugin/build.py
+@@ -50,19 +50,19 @@
+     for name in ['libmobileglues.so','libtgscheck.so']:
+         dest=work/name;shutil.copyfile(native/name,dest);run([llvm/'llvm-strip','--strip-unneeded',dest]);libraries[name]=dest
+     results=[]
+-    label='TGS Quest 0.10'
++    label='TGS Quest 0.11'
+     # Retain the 0.8 Streaming identity so this installs as an update.
+     package='dev.tgs.renderer.mobileglues.quest8.fast'
+     manifest=work/'manifest.xml'
+-    shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS=1;TGS_FRAME_STATS=1;TGS_STREAM_UPLOADS=1'
++    shared_env='LIBGL_ES=3;POJAV_RENDERER=opengles3;POJAVEXEC_EGL=libmobileglues.so;LIBGL_EGL=libmobileglues.so;TGS_QUEST=1;TGS_OPAQUE_WINDOW=1;TGS_FAST_UPLOADS=1;TGS_FRAME_STATS=1;TGS_CHUNK_STAGING=1;TGS_STREAM_UPLOADS=1'
+     metadata={'renderer_id':'opengles3','renderer_name':label,
+       'renderer_description':'Quest rendering fixes with reduced presentation and upload overhead',
+       'renderer_library':'libmobileglues.so','renderer_egl':'libmobileglues.so','renderer_env':shared_env,
+       'renderer':label+':libmobileglues.so:libmobileglues.so','des':label,
+-      'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS=1:TGS_FRAME_STATS=1:TGS_STREAM_UPLOADS=1',
++      'pojavEnv':shared_env.replace(';',':'),'boatEnv':'LIBGL_ES=3:TGS_QUEST=1:TGS_OPAQUE_WINDOW=1:TGS_FAST_UPLOADS=1:TGS_FRAME_STATS=1:TGS_CHUNK_STAGING=1:TGS_STREAM_UPLOADS=1',
+       'minMCVer':'1.20.1'}
+     metas='\n'.join('<meta-data android:name="'+k+'" android:value="'+v+'" />' for k,v in metadata.items())
+-    manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="10" android:versionName="0.10-quest">
++    manifest.write_text('''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="'''+package+'''" android:versionCode="11" android:versionName="0.11-quest">
+ <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+ <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+ <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+@@ -87,7 +87,7 @@
+                 if license_file.is_file() and license_file.name.lower().startswith(('license','copying','notice')):
+                     z.write(license_file,'assets/notices/'+str(license_file.relative_to(root/'MobileGlues-cpp')))
+     run([bt/'zipalign','-f','-p','4',unsigned,aligned])
+-    apk=output/'TGS-Renderer-Quest-0.10-arm64.apk'
++    apk=output/'TGS-Renderer-Quest-0.11-arm64.apk'
+     run(j+['-jar',bt/'lib/apksigner.jar','sign','--ks',key,'--ks-key-alias','tgsdebug',
+            '--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned])
+     run(j+['-jar',bt/'lib/apksigner.jar','verify','--verbose',apk])
+--- a/tgs-plugin/source-lock.json
++++ b/tgs-plugin/source-lock.json
+@@ -7,6 +7,6 @@
+     "3rdparty/SPIRV-Cross": "a0fba56c34a6700f1724bf9b751da5b488a3775c",
+     "include/ska": "21c1cec95abee1beef827e4a7c95f692875d9594"
+   },
+-  "tgs_version": "0.10-quest",
+-  "native_core": "0.8-quest plus proportional shader cache save policy"
++  "tgs_version": "0.11-quest",
++  "native_core": "0.10-quest plus adaptive large BufferSubData staging"
+ }
+--- a/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/DiagnosticActivity.java
+@@ -26,13 +26,14 @@
+                 if(!dir.isDirectory()&&!dir.mkdirs()) throw new IllegalStateException("Cannot create diagnostic directory");
+                 Os.setenv("MG_DIR_PATH",dir.getAbsolutePath(),true);
+                 Os.setenv("TGS_FAST_UPLOADS","1",true);
++                Os.setenv("TGS_CHUNK_STAGING","1",true);
+                 Os.setenv("TGS_QUEST","1",true);
+                 Os.setenv("TGS_OPAQUE_WINDOW","1",true);
+                 Os.setenv("TGS_STREAM_UPLOADS","1",true);
+                 System.loadLibrary("tgscheck");
+                 result=check(getApplicationInfo().nativeLibraryDir);
+             } catch(Throwable error) { result="FAIL: "+error; }
+-            final String text="TGS Quest 0.10 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
++            final String text="TGS Quest 0.11 / "+getPackageName()+"\n"+Build.MANUFACTURER+" "+Build.MODEL+" / Android "+Build.VERSION.RELEASE+"\n\n"+result
+                 +"\n\nThis is a smoke test, not Minecraft compatibility or an FPS benchmark.";
+             runOnUiThread(()->{report.setText(text);copy.setEnabled(true);});
+         },"tgs-check").start();
+--- a/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
++++ b/tgs-plugin/src/dev/tgs/renderer/MainActivity.java
+@@ -16,17 +16,17 @@
+         column.setOrientation(LinearLayout.VERTICAL); column.setPadding(28,40,28,24);
+         column.setBackgroundColor(Color.rgb(18,24,32));
+         TextView title=new TextView(this);
+-        title.setText("TGS Quest 0.10");
++        title.setText("TGS Quest 0.11");
+         title.setTextColor(Color.WHITE); title.setTextSize(29); column.addView(title);
+         TextView body=new TextView(this);
+         body.setText("ARM64 renderer • Minecraft Java 1.20.1 and newer OpenGL versions\n\n"
+-            +"Reduced shader-cache disk writes during loading, with command streaming and the existing Quest fixes. Resolution and graphics quality stay unchanged.\n\n"
++            +"Adaptive staging for slow geometry uploads, with command streaming and the existing Quest fixes. Resolution and graphics quality stay unchanged.\n\n"
+             +"1. Run the renderer check below.\n"
+             +"2. Restart ZalithLauncher 2 or DroidBridge.\n"
+-            +"3. Select TGS Quest 0.10.\n"
++            +"3. Select TGS Quest 0.11.\n"
+             +"4. Use the Java runtime required by your Minecraft version.\n\n"
+             +"The old 1.21.1 selection cutoff is removed. Forge, Fabric and NeoForge are not blocked by name. Every version and modpack has not been tested; Vulkan rendering is not supported by this OpenGL plugin.\n\n"
+-            +"This uses the same app identity as 0.9. If Android reports a signing conflict, uninstall the old renderer plugin and then install this APK. Minecraft and launcher data are separate. If the old Reference app is installed, uninstall that app to leave only one TGS renderer.\n\n"
++            +"This installs as an update to TGS Quest 0.10. Select TGS Quest 0.11 in your launcher after installation. If the old Reference app is installed, uninstall that app to leave only one TGS renderer.\n\n"
+             +"FPS gains still need testing on your headset.");
+         body.setTextColor(Color.rgb(204,214,225)); body.setTextSize(16); body.setPadding(0,22,0,20); column.addView(body);
+         Button check=new Button(this); check.setText("Run renderer check");
+--- a/tgs-plugin/tests/chunk_route_test.cpp
++++ b/tgs-plugin/tests/chunk_route_test.cpp
+@@ -0,0 +1,18 @@
++// TGS 2026. SPDX-License-Identifier: LGPL-2.1-only
++#include "../../MobileGlues-cpp/gl/tgs_chunk_upload.h"
++#include <cassert>
++#include <cstdio>
++int main(){
++ tgs::UploadRoute r;assert(!r.use_staging());r.direct(499999);assert(!r.use_staging());
++ r.direct(500000);for(int i=0;i<4;++i){assert(r.use_staging());r.staged(200000,true);}assert(!r.use_staging());
++ r.direct(600000);r.staged(600001,true);assert(!r.use_staging());
++ r.direct(600000);r.staged(0,false);assert(!r.use_staging());
++ assert(tgs::chunk_bucket(GL_ARRAY_BUFFER,65535)==-1);
++ assert(tgs::chunk_bucket(GL_ARRAY_BUFFER,65536)==0);
++ assert(tgs::chunk_bucket(GL_ARRAY_BUFFER,16*1024*1024)==8);
++ assert(tgs::chunk_bucket(GL_ARRAY_BUFFER,16*1024*1024+1)==-1);
++ assert(tgs::chunk_bucket(GL_ELEMENT_ARRAY_BUFFER,65536)==9);
++ assert(tgs::chunk_bucket(GL_COPY_WRITE_BUFFER,65536)==18);
++ assert(tgs::chunk_bucket(GL_PIXEL_UNPACK_BUFFER,65536)==-1);
++ puts("PASS: direct-first routing, slow-upload threshold, bounded trials, slower/failure fallback and bucket bounds");
++}
+--- a/tgs-plugin/tests/gles_test.cpp
++++ b/tgs-plugin/tests/gles_test.cpp
+@@ -10,9 +10,12 @@
+ #include "../../MobileGlues-cpp/gl/tgs_stream.h"
+ #include "../../MobileGlues-cpp/gl/tgs_matrix.h"
+ #include <vector>
++#include <chrono>
++#include "../../MobileGlues-cpp/gl/tgs_chunk_upload.h"
+ #include "../../MobileGlues-cpp/gl/tgs_indexed.h"
+ #define FN(name) decltype(&::name) name
+ struct Driver {
++ FN(glCopyBufferSubData);FN(glDeleteBuffers);FN(glGetBufferParameteriv);FN(glGetBufferParameteri64v);FN(glFinish);
+  FN(glMapBufferRange);FN(glUnmapBuffer);FN(glBufferSubData);FN(glDrawArraysIndirect);FN(glGetUniformLocation);FN(glGetUniformfv);FN(glUniformMatrix2fv);FN(glProgramUniformMatrix2fv);FN(glUniformMatrix3fv);FN(glProgramUniformMatrix3fv);FN(glUniformMatrix4fv);FN(glProgramUniformMatrix4fv);FN(glUniformMatrix2x3fv);FN(glProgramUniformMatrix2x3fv);FN(glUniformMatrix3x2fv);FN(glProgramUniformMatrix3x2fv);FN(glUniformMatrix2x4fv);FN(glProgramUniformMatrix2x4fv);FN(glUniformMatrix4x2fv);FN(glProgramUniformMatrix4x2fv);FN(glUniformMatrix3x4fv);FN(glProgramUniformMatrix3x4fv);FN(glUniformMatrix4x3fv);FN(glProgramUniformMatrix4x3fv);
+  FN(glGenBuffers);FN(glBindBuffer);FN(glBufferData);FN(glCreateShader);FN(glShaderSource);FN(glCompileShader);FN(glGetShaderiv);FN(glCreateProgram);FN(glAttachShader);FN(glLinkProgram);FN(glGetProgramiv);FN(glUseProgram);FN(glGenVertexArrays);FN(glBindVertexArray);FN(glDrawElements);FN(glDrawElementsBaseVertex);FN(glViewport);
+  FN(glColorMaski);FN(glGetBooleani_v);FN(glGetIntegerv);FN(glGetFloatv);FN(glIsEnabled);
+@@ -34,6 +37,7 @@
+  L(glColorMaski);L(glGetBooleani_v);L(glGetIntegerv);L(glGetFloatv);L(glIsEnabled);L(glBindFramebuffer);L(glDisable);L(glEnable);L(glClearColor);L(glClear);L(glClearBufferfv);L(glReadPixels);L(glGetError);L(glGetString);L(glScissor);L(glGenFramebuffers);L(glGenTextures);L(glBindTexture);L(glTexImage2D);L(glFramebufferTexture2D);L(glCheckFramebufferStatus);
+  L(glGenBuffers);L(glBindBuffer);L(glBufferData);L(glCreateShader);L(glShaderSource);L(glCompileShader);L(glGetShaderiv);L(glCreateProgram);L(glAttachShader);L(glLinkProgram);L(glGetProgramiv);L(glUseProgram);L(glGenVertexArrays);L(glBindVertexArray);L(glDrawElements);L(glDrawElementsBaseVertex);L(glViewport);
+  L(glMapBufferRange);L(glUnmapBuffer);L(glBufferSubData);L(glDrawArraysIndirect);L(glGetUniformLocation);L(glGetUniformfv);L(glUniformMatrix2fv);L(glProgramUniformMatrix2fv);L(glUniformMatrix3fv);L(glProgramUniformMatrix3fv);L(glUniformMatrix4fv);L(glProgramUniformMatrix4fv);L(glUniformMatrix2x3fv);L(glProgramUniformMatrix2x3fv);L(glUniformMatrix3x2fv);L(glProgramUniformMatrix3x2fv);L(glUniformMatrix2x4fv);L(glProgramUniformMatrix2x4fv);L(glUniformMatrix4x2fv);L(glProgramUniformMatrix4x2fv);L(glUniformMatrix3x4fv);L(glProgramUniformMatrix3x4fv);L(glUniformMatrix4x3fv);L(glProgramUniformMatrix4x3fv);
++ L(glCopyBufferSubData);L(glDeleteBuffers);L(glGetBufferParameteriv);L(glGetBufferParameteri64v);L(glFinish);
+  printf("Driver: %s / %s\n",d.glGetString(GL_RENDERER),d.glGetString(GL_VERSION));
+  GLuint fbo,tex;d.glGenFramebuffers(1,&fbo);d.glGenTextures(1,&tex);d.glBindTexture(GL_TEXTURE_2D,tex);d.glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,16,16,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);d.glBindFramebuffer(GL_FRAMEBUFFER,fbo);d.glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,tex,0);assert(d.glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
+  auto clearBuffer=d.glClearBufferfv;int cases=0;
+@@ -58,6 +62,72 @@
+  GLuint fs=compile(GL_FRAGMENT_SHADER,"#version 320 es\nprecision highp float;flat in vec4 tint;out vec4 color;void main(){color=tint;}");
+  GLuint program=d.glCreateProgram();d.glAttachShader(program,vs);d.glAttachShader(program,fs);d.glLinkProgram(program);GLint linked;d.glGetProgramiv(program,GL_LINK_STATUS,&linked);assert(linked);d.glUseProgram(program);
+  GLuint vao,ibo;d.glGenVertexArrays(1,&vao);d.glBindVertexArray(vao);d.glGenBuffers(1,&ibo);d.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
++
++ // Real driver updates: compare every destination byte, including untouched guards.
++ {
++ GLuint destination,previous;d.glGenBuffers(1,&destination);d.glGenBuffers(1,&previous);
++ d.glBindBuffer(GL_COPY_READ_BUFFER,previous);d.glBufferData(GL_COPY_READ_BUFFER,128,nullptr,GL_STATIC_DRAW);
++ const bool storage_ext=std::strstr((const char*)d.glGetString(GL_EXTENSIONS),"GL_EXT_buffer_storage")!=nullptr;
++ int updates=0;
++ for(GLenum target:{GL_ARRAY_BUFFER,GL_ELEMENT_ARRAY_BUFFER,GL_COPY_WRITE_BUFFER})
++ for(size_t bytes:{size_t(65536),size_t(262144),size_t(1048576)})
++ for(size_t offset:{size_t(0),size_t(4096)}){
++  std::vector<unsigned char> expected(bytes+8192,0xA7),data(bytes);
++  for(size_t i=0;i<bytes;++i)data[i]=(i*37+offset/4096)&255;
++  std::copy(data.begin(),data.end(),expected.begin()+offset);
++  std::vector<unsigned char> initial(expected.size(),0xA7);
++  d.glBindBuffer(target,destination);d.glBufferData(target,initial.size(),initial.data(),GL_DYNAMIC_DRAW);
++  assert(tgs::stage_chunk_upload(d,target,offset,bytes,data.data(),storage_ext));
++  GLint binding=0;d.glGetIntegerv(GL_COPY_READ_BUFFER_BINDING,&binding);assert(binding==GLint(previous));
++  auto* read=(unsigned char*)d.glMapBufferRange(target,0,expected.size(),GL_MAP_READ_BIT);assert(read);
++  assert(std::memcmp(read,expected.data(),expected.size())==0);
++  assert(!tgs::stage_chunk_upload(d,target,0,bytes,data.data(),storage_ext)); // mapped: original path
++  assert(d.glUnmapBuffer(target));
++  assert(!tgs::stage_chunk_upload(d,target,initial.size(),bytes,data.data(),storage_ext));
++  assert(!tgs::stage_chunk_upload(d,target,-1,bytes,data.data(),storage_ext));
++  assert(!tgs::stage_chunk_upload(d,target,0,32,data.data(),storage_ext));
++  assert(!tgs::stage_chunk_upload(d,target,0,bytes,nullptr,storage_ext));
++  assert(d.glGetError()==GL_NO_ERROR);++updates;
++ }
++ // Repeated upload/draw sequence. Same pixels and bytes, timing is host-only.
++ d.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,destination);
++ std::vector<GLuint> indices(65536,0);for(size_t i=0;i<indices.size();++i)indices[i]=65536+i%3;
++ std::array<unsigned char,1024> reference{},actual{};
++ for(bool staged:{false,true,true,false}){
++  d.glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*4,indices.data(),GL_DYNAMIC_DRAW);
++  for(int warm=0;warm<32;++warm){
++   if(staged)assert(tgs::stage_chunk_upload(d,GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data(),storage_ext));
++   else d.glBufferSubData(GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data());
++   d.glDrawElements(GL_TRIANGLES,3,GL_UNSIGNED_INT,nullptr);
++  }
++  d.glFinish();auto start=std::chrono::steady_clock::now();
++  for(int i=0;i<256;++i){
++   if(staged)assert(tgs::stage_chunk_upload(d,GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data(),storage_ext));
++   else d.glBufferSubData(GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data());
++   d.glDrawElements(GL_TRIANGLES,3,GL_UNSIGNED_INT,nullptr);
++  }
++  d.glFinish();double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
++  d.glReadPixels(0,0,16,16,GL_RGBA,GL_UNSIGNED_BYTE,actual.data());
++  assert(actual[0]==255);if(staged)assert(actual==reference);else reference=actual;
++  assert(d.glGetError()==GL_NO_ERROR);printf("HOST upload/draw test %s: %.3f ms, not Quest FPS\n",staged?"staged":"direct",ms);
++ }
++ auto originalData=d.glBufferData;
++ d.glBufferData=+[](GLenum,GLsizeiptr,const void*,GLenum){};
++ assert(!tgs::stage_chunk_upload(d,GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data(),storage_ext));
++ d.glBufferData=originalData;
++ GLint retained=0;d.glGetIntegerv(GL_COPY_READ_BUFFER_BINDING,&retained);assert(retained==GLint(previous));
++ auto originalCopy=d.glCopyBufferSubData;d.glCopyBufferSubData=nullptr;
++ assert(!tgs::stage_chunk_upload(d,GL_ELEMENT_ARRAY_BUFFER,0,indices.size()*4,indices.data(),storage_ext));d.glCopyBufferSubData=originalCopy;
++ if(storage_ext){
++  auto storage=reinterpret_cast<void(*)(GLenum,GLsizeiptr,const void*,GLbitfield)>(eglGetProcAddress("glBufferStorageEXT"));assert(storage);
++  GLuint immutable;d.glGenBuffers(1,&immutable);d.glBindBuffer(GL_ARRAY_BUFFER,immutable);storage(GL_ARRAY_BUFFER,indices.size()*4,indices.data(),0);
++  assert(!tgs::stage_chunk_upload(d,GL_ARRAY_BUFFER,0,indices.size()*4,indices.data(),true));d.glDeleteBuffers(1,&immutable);
++ }
++ assert(d.glGetError()==GL_NO_ERROR);
++ d.glBindBuffer(GL_COPY_READ_BUFFER,0);d.glBindBuffer(GL_ARRAY_BUFFER,0);d.glBindBuffer(GL_COPY_WRITE_BUFFER,0);
++ d.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);d.glDeleteBuffers(1,&destination);d.glDeleteBuffers(1,&previous);
++ printf("PASS: %d full-byte/guard/state checks, mapped/invalid bypasses, 1152 upload/draw iterations with matching pixels\n",updates);
++ }
+  int indexed_cases=0;
+  for(GLenum type:{GL_UNSIGNED_BYTE,GL_UNSIGNED_SHORT,GL_UNSIGNED_INT})for(GLint base:{0,65536,-3})for(bool fixed:{false,true}){
+   const int size=type==GL_UNSIGNED_BYTE?1:type==GL_UNSIGNED_SHORT?2:4;
