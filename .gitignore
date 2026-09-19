@@ -1,0 +1,38 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.cache/
+
+# Common build output
+build/
+dist/
+out/
+bin/
+obj/
+
+# Dependency caches
+node_modules/
+.nuget/
+.gradle/
+
+# User-specific project files
+*.user
+*.suo
+*.userprefs
