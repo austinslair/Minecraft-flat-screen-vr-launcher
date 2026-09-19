@@ -254,10 +254,12 @@ func _select_nav(button: Button) -> void:
 		caption.modulate = Color.WHITE if item == button else Color(0.78, 0.82, 0.79)
 
 func _navigate(button: Button) -> void:
-	_select_nav(button)
 	_open_section(str(button.name))
 
 func _open_section(section: String) -> void:
+	var nav_button := get_node_or_null(section)
+	if nav_button is Button and nav_button in nav_buttons:
+		_select_nav(nav_button)
 	current_section = section
 	navigation_requested.emit(section)
 	if section == "Home":
@@ -304,7 +306,6 @@ func _on_account_pressed() -> void:
 	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
 	if bool(auth.get("signed_in", false)):
 		_open_section("Accounts")
-		_select_nav($Accounts)
 		return
 	if not runtime.is_available():
 		$AccountSubtitle.text = "Android build required"
@@ -479,7 +480,7 @@ func _populate_instance_list() -> void:
 		return
 	instance_list.clear()
 	var selected_index := -1
-	for index in installed_instances.size():
+	for index in range(installed_instances.size()):
 		var instance: Dictionary = installed_instances[index]
 		var name := str(instance.get("name", "Unnamed instance"))
 		var version := str(instance.get("version", "Unknown"))
