@@ -111,9 +111,74 @@ public final class LoginHelper {
         }
     }
 
+    /**
+     * Restore the last Minecraft account without forcing a new device-code login.
+     * A still-valid Minecraft token is restored immediately. An expired token is
+     * refreshed from the MSAL cache on a background thread when possible.
+     */
+    public static boolean restoreSession(Activity activity, String clientId) {
+        if (!configure(activity, clientId)) {
+            return false;
+        }
+
+        String uuid = getLastAccountUuid(activity);
+        if (uuid == null || uuid.isEmpty()) {
+            return true;
+        }
+
+        File accountsDir = new File(activity.getFilesDir(), "accounts");
+        MinecraftAccount cached = MinecraftAccount.load(accountsDir.getAbsolutePath(), uuid);
+        if (cached == null) {
+            return true;
+        }
+
+        if (cached.isDemoMode || cached.expiresOn >= System.currentTimeMillis()) {
+            setCurrentAccount(activity, cached);
+            clearTransientState();
+            state = State.SIGNED_IN;
+            message = signedInMessage(cached);
+            return true;
+        }
+
+        synchronized (LOCK) {
+            if (isAuthBusy()) {
+                return false;
+            }
+            clearTransientState();
+            state = State.STARTING;
+            message = "Refreshing saved Microsoft session...";
+
+            loginThread = new Thread(() -> {
+                try {
+                    MinecraftAccount refreshed = refreshAccount(activity, uuid);
+                    if (state == State.CANCELLED) {
+                        return;
+                    }
+
+                    if (refreshed != null) {
+                        state = State.SIGNED_IN;
+                        error = "";
+                        message = signedInMessage(refreshed);
+                    } else {
+                        currentAccount = null;
+                        state = State.IDLE;
+                        error = "";
+                        message = "Saved Microsoft session expired. Sign in again to continue.";
+                    }
+                } finally {
+                    if (Thread.currentThread() == loginThread) {
+                        loginThread = null;
+                    }
+                }
+            }, "VoxyQuest-MicrosoftRestore");
+            loginThread.start();
+        }
+        return true;
+    }
+
     public static boolean startLogin(Activity activity, String clientId) {
         synchronized (LOCK) {
-            if (state == State.STARTING || state == State.WAITING_FOR_USER || state == State.EXCHANGING) {
+            if (isAuthBusy()) {
                 return false;
             }
             clearTransientState();
@@ -188,9 +253,7 @@ public final class LoginHelper {
             setCurrentAccount(activity, account);
             state = State.SIGNED_IN;
             error = "";
-            message = account.isDemoMode
-                    ? "Microsoft account signed in. Minecraft ownership was not detected; demo mode is available."
-                    : "Signed in as " + account.username + ".";
+            message = signedInMessage(account);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             if (state != State.CANCELLED) {
@@ -207,7 +270,9 @@ public final class LoginHelper {
             }
         } finally {
             loginFuture = null;
-            loginThread = null;
+            if (Thread.currentThread() == loginThread) {
+                loginThread = null;
+            }
         }
     }
 
@@ -309,6 +374,16 @@ public final class LoginHelper {
     public static String getLastAccountUuid(Activity activity) {
         return activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(PREF_LAST_UUID, "");
+    }
+
+    private static boolean isAuthBusy() {
+        return state == State.STARTING || state == State.WAITING_FOR_USER || state == State.EXCHANGING;
+    }
+
+    private static String signedInMessage(MinecraftAccount account) {
+        return account.isDemoMode
+                ? "Microsoft account signed in. Minecraft ownership was not detected; demo mode is available."
+                : "Signed in as " + account.username + ".";
     }
 
     private static void setCurrentAccount(Activity activity, MinecraftAccount account) {
