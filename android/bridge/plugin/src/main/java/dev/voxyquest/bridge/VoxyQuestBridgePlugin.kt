@@ -10,10 +10,12 @@ import pojlib.PojlibRuntime
 import pojlib.account.LoginHelper
 
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
+    private var accountRestoreRequested = false
+
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
 
     @UsedByGodot
-    fun getBridgeVersion(): String = "0.3.0"
+    fun getBridgeVersion(): String = "0.4.0"
 
     @UsedByGodot
     fun getHostEngine(): String = "Godot"
@@ -26,6 +28,10 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         val hostActivity = activity ?: return false
         return runCatching {
             PojlibRuntime.initialize(hostActivity)
+            if (!accountRestoreRequested && BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()) {
+                accountRestoreRequested = true
+                LoginHelper.restoreSession(hostActivity, BuildConfig.MICROSOFT_CLIENT_ID)
+            }
             PojlibRuntime.isInitialized()
         }.getOrDefault(false)
     }
