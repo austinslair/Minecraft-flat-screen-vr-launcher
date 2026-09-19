@@ -129,6 +129,20 @@ public final class LoginHelper {
         return true;
     }
 
+    /**
+     * Compatibility entry point for older Pojlib callers. The host must have
+     * configured VoxyQuest's own Microsoft application ID first.
+     */
+    @Deprecated
+    public static void login(Activity activity) {
+        String clientId = configuredClientId;
+        if (clientId == null || clientId.isEmpty()) {
+            fail("VoxyQuest Microsoft client ID is not configured.");
+            return;
+        }
+        startLogin(activity, clientId);
+    }
+
     private static void runDeviceCodeLogin(Activity activity) {
         try {
             PublicClientApplication application = pca;
