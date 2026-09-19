@@ -1,0 +1,4 @@
+[submodule "third_party/Pojlib"]
+	path = third_party/Pojlib
+	url = https://github.com/QuestCraftPlusPlus/Pojlib.git
+	branch = QuestCraft-6.0.0
