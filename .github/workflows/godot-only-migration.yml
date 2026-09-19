@@ -1,0 +1,676 @@
+name: Godot-only Pojlib migration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/godot-only-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.event.head_commit.message == 'Add Godot-only Pojlib migration'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out VoxyQuest
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;26.1.10909125"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Restore vendored native runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          UPSTREAM="$RUNNER_TEMP/Pojlib-upstream"
+          COMMIT="c6566d540a3ef530017f99b59f24d38121e3a5df"
+          rm -rf "$UPSTREAM"
+          git clone --depth 1 --branch QuestCraft-6.0.0 https://github.com/QuestCraftPlusPlus/Pojlib.git "$UPSTREAM"
+          git -C "$UPSTREAM" fetch --depth 1 origin "$COMMIT"
+          git -C "$UPSTREAM" checkout --detach "$COMMIT"
+          git -C "$UPSTREAM" lfs install --local
+          git -C "$UPSTREAM" lfs pull
+
+          # VoxyQuest vendors these native files directly. Do not leave them as
+          # LFS pointers to QuestCraft's storage.
+          cat > third_party/Pojlib/.gitattributes <<'EOF'
+          # Linux start script should use LF.
+          /gradlew text eol=lf
+          # Windows scripts should use CRLF.
+          *.bat text eol=crlf
+          EOF
+
+          while IFS= read -r -d '' source; do
+            rel="${source#$UPSTREAM/}"
+            mkdir -p "third_party/Pojlib/$(dirname "$rel")"
+            cp "$source" "third_party/Pojlib/$rel"
+          done < <(find "$UPSTREAM" -type f -name '*.so' -print0)
+
+      - name: Replace Unity host with Godot runtime host
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+          poj = root / "third_party/Pojlib"
+
+          def write(path, text):
+              p = root / path
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(text, encoding="utf-8")
+
+          def replace_text(path, old, new):
+              p = root / path
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise RuntimeError(f"Expected text not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          # Remove Unity-only source and compile stubs.
+          (poj / "src/main/java/pojlib/UnityPlayerActivity.java").unlink(missing_ok=True)
+          (poj / "libs/unity-classes.jar").unlink(missing_ok=True)
+
+          write("third_party/Pojlib/build.gradle", '''plugins {
+              id("com.android.library")
+          }
+
+          android {
+              namespace = "pojlib.android"
+              compileSdk = 36
+              ndkVersion = "26.1.10909125"
+
+              defaultConfig {
+                  minSdk = 29
+                  targetSdk = 34
+                  multiDexEnabled = true
+                  ndk {
+                      abiFilters.add("arm64-v8a")
+                  }
+                  setProperty("archivesBaseName", "PojlibRuntime")
+              }
+
+              externalNativeBuild {
+                  ndkBuild {
+                      path = file("src/main/jni/Android.mk")
+                  }
+              }
+          }
+
+          dependencies {
+              api("org.apache.commons:commons-math3:3.6.1")
+              implementation("com.google.guava:guava:31.0.1-jre")
+              implementation("org.jetbrains:annotations:24.0.1")
+              implementation("com.google.code.gson:gson:2.12.1")
+              implementation("org.json:json:20220924")
+              implementation("commons-io:commons-io:2.13.0")
+              implementation("commons-codec:commons-codec:1.15")
+              implementation("androidx.annotation:annotation:1.7.1")
+              implementation("androidx.core:core:1.13.1")
+              implementation("com.microsoft.azure:msal4j:1.17.2")
+              implementation("com.github.Mathias-Boulay:android_gamepad_remapper:2.0.3")
+          }
+          ''')
+
+          write("third_party/Pojlib/settings.gradle", '''pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  google()
+                  mavenCentral()
+              }
+              plugins {
+                  id("com.android.library") version "8.13.2"
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven { url = uri("https://jitpack.io") }
+              }
+          }
+
+          rootProject.name = "Pojlib"
+          include ":jre_lwjgl3glfw"
+          ''')
+
+          write("third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java", '''package pojlib;
+
+          import static android.os.Build.VERSION.SDK_INT;
+
+          import android.app.Activity;
+          import android.content.ClipData;
+          import android.content.ClipboardManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.os.Process;
+          import android.util.DisplayMetrics;
+
+          import org.lwjgl.glfw.CallbackBridge;
+
+          import java.io.File;
+          import java.io.IOException;
+          import java.util.Objects;
+
+          import pojlib.input.AWTInputBridge;
+          import pojlib.util.Constants;
+          import pojlib.util.FileUtil;
+          import pojlib.util.Logger;
+
+          /**
+           * Android host services used by the Minecraft runtime.
+           *
+           * This class deliberately has no dependency on a UI/game engine. Godot owns
+           * the Android Activity through VoxyQuestBridge and initializes this runtime.
+           */
+          public final class PojlibRuntime {
+              private static volatile ClipboardManager clipboard;
+              private static volatile Context applicationContext;
+              private static volatile boolean initialized;
+              public static volatile DisplayMetrics currentDisplayMetrics;
+
+              private PojlibRuntime() {}
+
+              public static synchronized void initialize(Activity activity) {
+                  Objects.requireNonNull(activity, "activity");
+                  if (!initialized) {
+                      Constants.initConstants(activity);
+                      initialized = true;
+                  }
+                  applicationContext = activity.getApplicationContext();
+                  clipboard = (ClipboardManager) applicationContext.getSystemService(Context.CLIPBOARD_SERVICE);
+                  updateWindowSize(activity);
+                  CallbackBridge.nativeSetUseInputStackQueue(true);
+              }
+
+              public static boolean isInitialized() {
+                  return initialized && applicationContext != null;
+              }
+
+              public static void ensureInitialized(Activity activity) {
+                  if (!isInitialized() || clipboard == null || currentDisplayMetrics == null) {
+                      initialize(activity);
+                  }
+              }
+
+              public static String installLWJGL(Activity activity) throws IOException {
+                  ensureInitialized(activity);
+                  Logger.getInstance().appendToLog("Checking LWJGL");
+                  File lwjgl = new File(Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar");
+                  byte[] lwjglAsset = FileUtil.loadFromAssetToByte(activity, "lwjgl/lwjgl-glfw-classes.jar");
+
+                  if (!lwjgl.exists() || !FileUtil.matchingAssetFile(lwjgl, lwjglAsset)) {
+                      if (lwjgl.exists() && !lwjgl.delete()) {
+                          Logger.getInstance().appendToLog("WARN! Unable to delete stale LWJGL jar");
+                      }
+                      Objects.requireNonNull(lwjgl.getParentFile()).mkdirs();
+                      FileUtil.write(lwjgl.getAbsolutePath(), lwjglAsset);
+                  }
+
+                  Logger.getInstance().appendToLog("LWJGL installed");
+                  return lwjgl.getAbsolutePath();
+              }
+
+              public static void restartSession(Activity activity) {
+                  activity.runOnUiThread(() -> {
+                      Intent start = activity.getPackageManager().getLaunchIntentForPackage(activity.getApplicationInfo().packageName);
+                      if (start == null) {
+                          Logger.getInstance().appendToLog("WARN! Unable to restart VoxyQuest: launch intent missing");
+                          return;
+                      }
+                      start.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                      activity.startActivity(start);
+                      activity.finish();
+                      Process.killProcess(Process.myPid());
+                  });
+              }
+
+              public static DisplayMetrics getDisplayMetrics(Activity activity) {
+                  DisplayMetrics displayMetrics = new DisplayMetrics();
+                  if (activity.isInMultiWindowMode() || activity.isInPictureInPictureMode()) {
+                      displayMetrics = activity.getResources().getDisplayMetrics();
+                  } else if (SDK_INT >= Build.VERSION_CODES.R) {
+                      activity.getDisplay().getRealMetrics(displayMetrics);
+                  } else {
+                      activity.getWindowManager().getDefaultDisplay().getRealMetrics(displayMetrics);
+                  }
+                  currentDisplayMetrics = displayMetrics;
+                  return displayMetrics;
+              }
+
+              public static void updateWindowSize(Activity activity) {
+                  currentDisplayMetrics = getDisplayMetrics(activity);
+                  CallbackBridge.physicalWidth = currentDisplayMetrics.widthPixels;
+                  CallbackBridge.physicalHeight = currentDisplayMetrics.heightPixels;
+              }
+
+              public static float dpToPx(float dp) {
+                  return currentDisplayMetrics == null ? dp : dp * currentDisplayMetrics.density;
+              }
+
+              public static float pxToDp(float px) {
+                  return currentDisplayMetrics == null ? px : px / currentDisplayMetrics.density;
+              }
+
+              public static void querySystemClipboard() {
+                  String text = readPlainTextClipboard();
+                  AWTInputBridge.nativeClipboardReceived(text, "plain");
+              }
+
+              public static void putClipboardData(String data, String mimeType) {
+                  ClipboardManager manager = clipboard;
+                  if (manager == null) return;
+
+                  ClipData clipData;
+                  if ("text/html".equals(mimeType)) {
+                      clipData = ClipData.newHtmlText("Minecraft", data, data);
+                  } else {
+                      clipData = ClipData.newPlainText("Minecraft", data);
+                  }
+                  manager.setPrimaryClip(clipData);
+              }
+
+              public static void copyToClipboard(String data) {
+                  putClipboardData(data == null ? "" : data, "text/plain");
+              }
+
+              public static String readPlainTextClipboard() {
+                  ClipboardManager manager = clipboard;
+                  Context context = applicationContext;
+                  if (manager == null || context == null || !manager.hasPrimaryClip()) return "";
+                  ClipData data = manager.getPrimaryClip();
+                  if (data == null || data.getItemCount() == 0) return "";
+                  CharSequence value = data.getItemAt(0).coerceToText(context);
+                  return value == null ? "" : value.toString();
+              }
+          }
+          ''')
+
+          for rel in [
+              "third_party/Pojlib/src/main/java/pojlib/util/JREUtils.java",
+              "third_party/Pojlib/src/main/java/pojlib/InstanceHandler.java",
+          ]:
+              p = root / rel
+              text = p.read_text(encoding="utf-8")
+              text = text.replace("UnityPlayerActivity", "PojlibRuntime")
+              p.write_text(text, encoding="utf-8")
+
+          callback_path = root / "third_party/Pojlib/src/main/java/org/lwjgl/glfw/CallbackBridge.java"
+          callback = callback_path.read_text(encoding="utf-8")
+          callback = callback.replace("import pojlib.UnityPlayerActivity;\n\nimport pojlib.UnityPlayerActivity;", "import pojlib.PojlibRuntime;")
+          callback = callback.replace("import pojlib.UnityPlayerActivity;", "import pojlib.PojlibRuntime;")
+          callback = re.sub(
+              r'    // Called from JRE side\n    @SuppressWarnings\("unused"\)\n    public static @Nullable String accessAndroidClipboard\(int type, String copy\) \{.*?\n    \}\n\n\n    public static int getCurrentMods\(\)',
+              '''    // Called from JRE side\n    @SuppressWarnings("unused")\n    public static @Nullable String accessAndroidClipboard(int type, String copy) {\n        switch (type) {\n            case CLIPBOARD_COPY:\n                PojlibRuntime.copyToClipboard(copy);\n                return null;\n            case CLIPBOARD_PASTE:\n                return PojlibRuntime.readPlainTextClipboard();\n            default:\n                return null;\n        }\n    }\n\n    public static int getCurrentMods()''',
+              callback,
+              flags=re.S,
+          )
+          callback = callback.replace(
+              '''    public static void restartUnitySession(Activity activity) {\n        UnityPlayerActivity unity = (UnityPlayerActivity) activity;\n        unity.reinitUnity();\n    }''',
+              '''    public static void restartRuntimeSession(Activity activity) {\n        PojlibRuntime.restartSession(activity);\n    }'''
+          )
+          callback_path.write_text(callback, encoding="utf-8")
+
+          api_path = root / "third_party/Pojlib/src/main/java/pojlib/API.java"
+          api = api_path.read_text(encoding="utf-8")
+          api = api.replace("QuestCraft: Restarting launcher...", "VoxyQuest: Restarting launcher...")
+          api = api.replace("CallbackBridge.restartUnitySession(activity);", "CallbackBridge.restartRuntimeSession(activity);")
+          api_path.write_text(api, encoding="utf-8")
+
+          jre_callback = root / "third_party/Pojlib/jre_lwjgl3glfw/src/main/java/org/lwjgl/glfw/CallbackBridge.java"
+          text = jre_callback.read_text(encoding="utf-8")
+          text = text.replace("restartUnitySession", "restartRuntimeSession")
+          jre_callback.write_text(text, encoding="utf-8")
+
+          native_bridge = root / "third_party/Pojlib/src/main/jni/input_bridge_v3.c"
+          text = native_bridge.read_text(encoding="utf-8")
+          text = text.replace("method_restartUnity", "method_restartRuntime")
+          text = text.replace("restartUnitySession", "restartRuntimeSession")
+          native_bridge.write_text(text, encoding="utf-8")
+
+          environ = root / "third_party/Pojlib/src/main/jni/environ/environ.h"
+          text = environ.read_text(encoding="utf-8").replace("method_restartUnity", "method_restartRuntime")
+          environ.write_text(text, encoding="utf-8")
+
+          awt = root / "third_party/Pojlib/src/main/jni/awt_bridge.c"
+          text = awt.read_text(encoding="utf-8").replace('pojlib/UnityPlayerActivity', 'pojlib/PojlibRuntime')
+          awt.write_text(text, encoding="utf-8")
+
+          write("android/bridge/settings.gradle.kts", '''pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+                  maven("https://jitpack.io")
+                  maven("https://plugins.gradle.org/m2/")
+              }
+          }
+
+          rootProject.name = "VoxyQuestBridge"
+          include(":plugin", ":pojlib")
+          project(":pojlib").projectDir = file("../../third_party/Pojlib")
+          ''')
+
+          write("android/bridge/plugin/build.gradle.kts", '''import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+          plugins {
+              id("com.android.library")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          val pluginName = "VoxyQuestBridge"
+          val pluginPackageName = "dev.voxyquest.bridge"
+          val addonDir = rootProject.projectDir.resolve("../../launcher/addons/$pluginName")
+
+          android {
+              namespace = pluginPackageName
+              compileSdk = 36
+
+              buildFeatures {
+                  buildConfig = true
+              }
+
+              defaultConfig {
+                  minSdk = 29
+                  manifestPlaceholders["godotPluginName"] = pluginName
+                  manifestPlaceholders["godotPluginPackageName"] = pluginPackageName
+                  buildConfigField("String", "GODOT_PLUGIN_NAME", "\\\"$pluginName\\\"")
+                  setProperty("archivesBaseName", pluginName)
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlin {
+                  compilerOptions {
+                      jvmTarget.set(JvmTarget.JVM_17)
+                  }
+              }
+          }
+
+          dependencies {
+              implementation("org.godotengine:godot:4.7.2.stable")
+              compileOnly(project(":pojlib"))
+          }
+
+          val syncToGodot by tasks.registering(Copy::class) {
+              dependsOn("assembleDebug", "assembleRelease", ":pojlib:assembleDebug", ":pojlib:assembleRelease")
+              into(addonDir)
+              from("export_scripts_template")
+              from("build/outputs/aar/$pluginName-debug.aar") { into("bin/debug") }
+              from("build/outputs/aar/$pluginName-release.aar") { into("bin/release") }
+              from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-debug.aar")) { into("bin/debug") }
+              from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-release.aar")) { into("bin/release") }
+          }
+          ''')
+
+          write("android/bridge/plugin/src/main/java/dev/voxyquest/bridge/VoxyQuestBridgePlugin.kt", '''package dev.voxyquest.bridge
+
+          import org.godotengine.godot.Godot
+          import org.godotengine.godot.plugin.GodotPlugin
+          import org.godotengine.godot.plugin.UsedByGodot
+          import org.lwjgl.glfw.CallbackBridge
+          import pojlib.PojlibRuntime
+
+          class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
+              override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
+
+              @UsedByGodot
+              fun getBridgeVersion(): String = "0.2.0"
+
+              @UsedByGodot
+              fun getHostEngine(): String = "Godot"
+
+              @UsedByGodot
+              fun isAndroidRuntimeReady(): Boolean = activity != null
+
+              @UsedByGodot
+              fun initializePojlib(): Boolean {
+                  val hostActivity = activity ?: return false
+                  return runCatching {
+                      PojlibRuntime.initialize(hostActivity)
+                      PojlibRuntime.isInitialized()
+                  }.getOrDefault(false)
+              }
+
+              @UsedByGodot
+              fun getPojlibCompatibilityState(): String =
+                  if (PojlibRuntime.isInitialized()) "godot_host_ready" else "not_initialized"
+
+              @UsedByGodot
+              fun sendKey(keyCode: Int, pressed: Boolean) {
+                  CallbackBridge.sendKeyPress(keyCode, CallbackBridge.getCurrentMods(), pressed)
+              }
+
+              @UsedByGodot
+              fun sendMouseButton(button: Int, pressed: Boolean) {
+                  CallbackBridge.sendMouseButton(button, pressed)
+              }
+
+              @UsedByGodot
+              fun sendCursorPosition(x: Float, y: Float) {
+                  CallbackBridge.sendCursorPos(x, y)
+              }
+
+              @UsedByGodot
+              fun sendScroll(x: Float, y: Float) {
+                  CallbackBridge.sendScroll(x.toDouble(), y.toDouble())
+              }
+          }
+          ''')
+
+          write("android/bridge/plugin/export_scripts_template/export_plugin.gd", '''@tool
+          extends EditorPlugin
+
+          var _export_plugin: EditorExportPlugin
+
+          func _enter_tree() -> void:
+          \t_export_plugin = VoxyQuestAndroidExportPlugin.new()
+          \tadd_export_plugin(_export_plugin)
+
+          func _exit_tree() -> void:
+          \tif _export_plugin:
+          \t\tremove_export_plugin(_export_plugin)
+          \t_export_plugin = null
+
+          class VoxyQuestAndroidExportPlugin extends EditorExportPlugin:
+          \tconst PLUGIN_NAME := "VoxyQuestBridge"
+          \tconst POJLIB_NAME := "PojlibRuntime"
+
+          \tfunc _supports_platform(platform: EditorExportPlatform) -> bool:
+          \t\treturn platform is EditorExportPlatformAndroid
+
+          \tfunc _get_android_libraries(_platform: EditorExportPlatform, debug: bool) -> PackedStringArray:
+          \t\tvar variant := "debug" if debug else "release"
+          \t\treturn PackedStringArray([
+          \t\t\tPLUGIN_NAME + "/bin/" + variant + "/" + PLUGIN_NAME + "-" + variant + ".aar",
+          \t\t\tPLUGIN_NAME + "/bin/" + variant + "/" + POJLIB_NAME + "-" + variant + ".aar"
+          \t\t])
+
+          \tfunc _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
+          \t\treturn PackedStringArray([
+          \t\t\t"org.apache.commons:commons-math3:3.6.1",
+          \t\t\t"com.google.guava:guava:31.0.1-jre",
+          \t\t\t"org.jetbrains:annotations:24.0.1",
+          \t\t\t"com.google.code.gson:gson:2.12.1",
+          \t\t\t"org.json:json:20220924",
+          \t\t\t"commons-io:commons-io:2.13.0",
+          \t\t\t"commons-codec:commons-codec:1.15",
+          \t\t\t"androidx.annotation:annotation:1.7.1",
+          \t\t\t"androidx.core:core:1.13.1",
+          \t\t\t"com.microsoft.azure:msal4j:1.17.2",
+          \t\t\t"com.github.Mathias-Boulay:android_gamepad_remapper:2.0.3"
+          \t\t])
+
+          \tfunc _get_android_dependencies_maven_repos(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
+          \t\treturn PackedStringArray(["https://jitpack.io"])
+
+          \tfunc _get_name() -> String:
+          \t\treturn PLUGIN_NAME
+          ''')
+
+          write("launcher/scripts/runtime_bridge.gd", '''class_name VoxyQuestRuntimeBridge
+          extends RefCounted
+
+          const PLUGIN_NAME := "VoxyQuestBridge"
+
+          var _plugin: Object = null
+
+          func _init() -> void:
+          \tif Engine.has_singleton(PLUGIN_NAME):
+          \t\t_plugin = Engine.get_singleton(PLUGIN_NAME)
+
+          func is_available() -> bool:
+          \treturn _plugin != null
+
+          func initialize() -> bool:
+          \tif _plugin == null:
+          \t\treturn false
+          \treturn bool(_plugin.initializePojlib())
+
+          func get_info() -> Dictionary:
+          \tif _plugin == null:
+          \t\treturn {
+          \t\t\t"available": false,
+          \t\t\t"engine": "Godot",
+          \t\t\t"bridge_version": "none",
+          \t\t\t"pojlib": "not_loaded"
+          \t\t}
+
+          \treturn {
+          \t\t"available": true,
+          \t\t"engine": str(_plugin.getHostEngine()),
+          \t\t"bridge_version": str(_plugin.getBridgeVersion()),
+          \t\t"pojlib": str(_plugin.getPojlibCompatibilityState())
+          \t}
+
+          func send_key(key_code: int, pressed: bool) -> void:
+          \tif _plugin != null:
+          \t\t_plugin.sendKey(key_code, pressed)
+
+          func send_mouse_button(button: int, pressed: bool) -> void:
+          \tif _plugin != null:
+          \t\t_plugin.sendMouseButton(button, pressed)
+
+          func send_cursor_position(x: float, y: float) -> void:
+          \tif _plugin != null:
+          \t\t_plugin.sendCursorPosition(x, y)
+
+          func send_scroll(x: float, y: float) -> void:
+          \tif _plugin != null:
+          \t\t_plugin.sendScroll(x, y)
+          ''')
+
+          write("launcher/scripts/xr_bootstrap.gd", '''extends Node3D
+
+          @onready var status_label: Label3D = $XROrigin3D/StatusLabel
+
+          var runtime_bridge := VoxyQuestRuntimeBridge.new()
+
+          func _ready() -> void:
+          \tEngine.physics_ticks_per_second = 90
+
+          \tvar xr_interface := XRServer.find_interface("OpenXR")
+          \tvar xr_ready := xr_interface != null and xr_interface.is_initialized()
+
+          \tif xr_ready:
+          \t\tget_viewport().use_xr = true
+
+          \tvar pojlib_ready := runtime_bridge.initialize()
+          \tvar bridge_info := runtime_bridge.get_info()
+          \tvar xr_text := "OpenXR ready" if xr_ready else "OpenXR unavailable"
+          \tvar bridge_text := "Godot + Pojlib ready" if pojlib_ready else "Android runtime not ready"
+
+          \tstatus_label.text = "VoxyQuest\\n%s\\n%s" % [xr_text, bridge_text]
+          \tprint("VoxyQuest XR: ", xr_text)
+          \tprint("VoxyQuest bridge: ", bridge_info)
+          ''')
+
+          dep_doc = root / "docs/DEPENDENCIES.md"
+          dep = dep_doc.read_text(encoding="utf-8")
+          dep = dep.replace(
+              "Important: upstream Pojlib currently has a direct Unity host dependency concentrated in `pojlib.UnityPlayerActivity`, and its Gradle build references Unity classes. VoxyQuest does not expose those Unity details to the Godot UI. The Android bridge is the stable boundary where a Godot-compatible Pojlib host adapter will live.",
+              "VoxyQuest's vendored Pojlib has been adapted to use the Godot Android host. The Unity player activity and Unity compile stubs are removed; `PojlibRuntime` provides engine-neutral Android services and `VoxyQuestBridge` exposes them to Godot."
+          )
+          dep_doc.write_text(dep, encoding="utf-8")
+
+          godot_doc = root / "docs/GODOT_INTEGRATION.md"
+          if godot_doc.exists():
+              text = godot_doc.read_text(encoding="utf-8")
+              text = text.replace("host adapter is still required", "host adapter is implemented through VoxyQuestBridge and PojlibRuntime")
+              text = text.replace("Unity-specific host", "legacy upstream host")
+              godot_doc.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Build Pojlib and Godot Android bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p android/bridge :pojlib:assembleDebug :pojlib:assembleRelease :plugin:syncToGodot --no-daemon
+
+      - name: Verify Godot-only runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar
+          test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
+          test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
+          test ! -e third_party/Pojlib/libs/unity-classes.jar
+          test "$(wc -c < third_party/Pojlib/src/main/jni/libopenxr_loader.so)" -gt 1000
+          if grep -R -n -E 'com\.unity3d|UnityPlayerActivity|restartUnitySession|method_restartUnity|blank:unity-classes|wrapper/unityLibrary' third_party/Pojlib android launcher --exclude='vivecraft-client-config.json'; then
+            echo "Unity engine reference remains in active code"
+            exit 1
+          fi
+
+      - name: Commit Godot-only runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Remove Unity and make Pojlib Godot-native"
+          git push origin HEAD:main
