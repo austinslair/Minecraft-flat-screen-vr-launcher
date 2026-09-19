@@ -26,7 +26,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
 
     @UsedByGodot
-    fun getBridgeVersion(): String = "0.4.1"
+    fun getBridgeVersion(): String = "0.5.0"
 
     @UsedByGodot
     fun getHostEngine(): String = "Godot"
@@ -160,6 +160,27 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun getInstallSnapshotJson(): String = LauncherOperations.snapshot()
+
+    @UsedByGodot
+    fun renameInstance(oldName: String, newName: String): Boolean {
+        if (!PojlibRuntime.isInitialized()) return false
+        return LauncherOperations.renameInstance(oldName, newName)
+    }
+
+    @UsedByGodot
+    fun removeInstance(name: String): Boolean {
+        if (!PojlibRuntime.isInitialized()) return false
+        return LauncherOperations.removeInstance(name)
+    }
+
+    @UsedByGodot
+    fun getInstanceModsJson(name: String): String {
+        if (!PojlibRuntime.isInitialized()) {
+            return JSONObject().put("available", false).put("mods", JSONArray())
+                .put("error", "Android runtime unavailable").toString()
+        }
+        return LauncherOperations.mods(name)
+    }
 
     @UsedByGodot
     fun launchMinecraftVr(name: String): Boolean {
