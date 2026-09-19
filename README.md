@@ -4,82 +4,54 @@
 
 # VoxyQuest
 
-**Minecraft, your way — in VR or on a flat screen.**
-
-VoxyQuest is a launcher project focused on making Minecraft easier to run across both **VR** and **Flat Screen** gameplay, with an emphasis on performance, stability, mod support, and flexible instance settings.
+**A VR-native Minecraft launcher for standalone headsets, with VR and flat-screen play modes.**
 
 </div>
 
----
+VoxyQuest is being built as a headset-native launcher instead of a normal desktop-style launcher window. The launcher shell is now based on **Godot 4.7.2 + OpenXR**. Minecraft runtime work is kept behind an Android bridge so the UI can evolve without becoming coupled to launcher internals.
 
-## What VoxyQuest is aiming for
+## Current architecture
 
-VoxyQuest is being built around a simple goal: keep launching and configuring Minecraft straightforward while supporting different ways to play.
+```text
+Godot / OpenXR launcher shell
+        |
+        v
+VoxyQuest Android bridge
+        |
+        v
+Pojlib host adapter
+        |
+        v
+Minecraft Java runtime + Vivecraft / flat-screen mode
+```
 
-The project is focused on:
+The Godot project lives in `launcher/`. The Android bridge source lives in `android/bridge/`. Pojlib remains pinned under `third_party/Pojlib`.
 
-- **VR gameplay** with better stability and smoother performance.
-- **Flat Screen Mode** for playing without a headset.
-- **Keyboard & mouse support** for Flat Screen Mode.
-- **Mod support** without turning setup into a mess.
-- **Instance settings** so different setups can stay organized.
-- **Forge support** and broader mod-loader compatibility over time.
-- **Ongoing optimization** to reduce overhead and improve the experience.
+## Current status
 
-## Development status
+The repository now contains a bootable Godot XR project skeleton, a Godot Android plugin bridge, an Android/OpenXR export preset, and CI that checks the bridge build and Godot project import.
 
-VoxyQuest is still in active development. Performance optimization and VR stability are the current priorities, while Flat Screen Mode, input support, mod support, instance settings, Forge, and additional mod loaders are planned.
+Pojlib is **not directly engine-neutral yet**: its current upstream code still references `UnityPlayerActivity`. VoxyQuest therefore treats Pojlib as the runtime core behind a host adapter instead of letting the Godot UI call Pojlib directly. See `docs/GODOT_INTEGRATION.md`.
 
-## 🗺️ VoxyQuest Roadmap
+## Development targets
 
-### 🚧 In Progress
-
-- Performance optimization
-- Better VR stability
-
-### 📋 Planned
-
-- Flat Screen Mode
-- Keyboard & mouse support for Flat Screen Mode
-- Mod support
-- Instance settings
-- Forge support
-- More mod loader support
-- More optimization
-
-### ✅ Goal
-
-Make VoxyQuest smoother, easier to use, and support both VR and Flat Screen gameplay with better mod support.
-
-The standalone roadmap is also available in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+- VR-native launcher UI in Godot
+- Meta Quest / Android arm64 OpenXR startup
+- controller and headset tracking
+- Minecraft VR launch through Vivecraft/OpenXR
+- flat-screen Minecraft rendered as a VR panel later
+- instance, mod-loader, and settings management
 
 ## Repository layout
 
 ```text
 .
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   └── PULL_REQUEST_TEMPLATE.md
-├── assets/
-│   └── voxyquest-banner.svg
+├── launcher/              # Godot XR launcher project
+├── android/bridge/        # Godot Android plugin / runtime bridge
+├── third_party/Pojlib/    # pinned Minecraft launcher core
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   └── ROADMAP.md
-├── CONTRIBUTING.md
-├── SECURITY.md
-└── README.md
+├── assets/
+└── .github/workflows/
 ```
 
-## Contributing
-
-Bug reports, feature ideas, compatibility reports, optimization work, and launcher improvements are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.
-
-For security-sensitive reports, follow [`SECURITY.md`](SECURITY.md) instead of posting details publicly.
-
----
-
-<div align="center">
-
-**VoxyQuest** — VR and Flat Screen Minecraft from one launcher.
-
-</div>
+Use Godot **4.7.2 stable** for the launcher project. The project uses the Mobile renderer and OpenXR.
