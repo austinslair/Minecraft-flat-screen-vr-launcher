@@ -19,10 +19,14 @@ import pojlib.account.LoginHelper
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     private var accountRestoreRequested = false
 
+    companion object {
+        private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
+    }
+
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
 
     @UsedByGodot
-    fun getBridgeVersion(): String = "0.4.0"
+    fun getBridgeVersion(): String = "0.4.1"
 
     @UsedByGodot
     fun getHostEngine(): String = "Godot"
@@ -78,7 +82,15 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     fun getMicrosoftDeviceCode(): String = LoginHelper.getDeviceUserCode()
 
     @UsedByGodot
-    fun getMicrosoftVerificationUrl(): String = LoginHelper.getVerificationUri()
+    fun getMicrosoftVerificationUrl(): String {
+        val verificationUrl = LoginHelper.getVerificationUri()
+        if (verificationUrl.isNotBlank()) return verificationUrl
+        return if (LoginHelper.getDeviceUserCode().isNotBlank()) {
+            MICROSOFT_DEVICE_LOGIN_FALLBACK
+        } else {
+            ""
+        }
+    }
 
     @UsedByGodot
     fun getMicrosoftLoginExpiresIn(): Int =
@@ -99,7 +111,8 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     @UsedByGodot
     fun openMicrosoftLoginPage(): Boolean {
         val hostActivity = activity ?: return false
-        val url = LoginHelper.getVerificationUri()
+        val url = getMicrosoftVerificationUrl()
+        if (url.isBlank()) return false
         val uri = Uri.parse(url)
         val host = uri.host?.lowercase() ?: return false
         if (uri.scheme != "https" || !(host == "microsoft.com" || host.endsWith(".microsoft.com") || host == "microsoftonline.com" || host.endsWith(".microsoftonline.com") || host == "live.com" || host.endsWith(".live.com"))) return false
