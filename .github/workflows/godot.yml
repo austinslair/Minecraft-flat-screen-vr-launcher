@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -27,19 +27,29 @@ jobs:
             "build-tools;35.0.1" \
             "build-tools;36.0.0" \
             "cmake;3.10.2.4988404" \
+            "ndk;26.1.10909125" \
             "ndk;28.1.13356709"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.3"
 
-      - name: Build Godot Android bridge
+      - name: Build Godot + Pojlib Android runtime
         run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
 
-      - name: Verify bridge artifacts
+      - name: Verify Godot-only runtime artifacts
         run: |
           test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar
+          test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
+          test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
+          test ! -e third_party/Pojlib/libs/unity-classes.jar
+          if grep -R -n -E 'com\.unity3d|UnityPlayerActivity|restartUnitySession|method_restartUnity|blank:unity-classes|wrapper/unityLibrary' third_party/Pojlib android launcher --exclude='vivecraft-client-config.json'; then
+            echo "Unity engine reference remains in active code"
+            exit 1
+          fi
 
       - name: Download Godot 4.7.2 and export templates
         run: |
