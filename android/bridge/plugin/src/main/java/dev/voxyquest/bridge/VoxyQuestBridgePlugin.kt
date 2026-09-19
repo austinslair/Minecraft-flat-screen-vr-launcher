@@ -29,8 +29,10 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         return runCatching {
             PojlibRuntime.initialize(hostActivity)
             if (!accountRestoreRequested && BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()) {
-                accountRestoreRequested = true
-                LoginHelper.restoreSession(hostActivity, BuildConfig.MICROSOFT_CLIENT_ID)
+                accountRestoreRequested = LoginHelper.restoreSession(
+                    hostActivity,
+                    BuildConfig.MICROSOFT_CLIENT_ID,
+                )
             }
             PojlibRuntime.isInitialized()
         }.getOrDefault(false)
