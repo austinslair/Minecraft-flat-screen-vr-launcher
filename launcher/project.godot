@@ -1,0 +1,23 @@
+; Engine configuration file.
+; Edit through Godot when possible.
+config_version=5
+
+[application]
+config/name="VoxyQuest"
+run/main_scene="res://scenes/main.tscn"
+
+[display]
+window/size/viewport_width=1440
+window/size/viewport_height=900
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/VoxyQuestBridge/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
+renderer/rendering_method.web="gl_compatibility"
+
+[xr]
+openxr/enabled=true
+shaders/enabled=true

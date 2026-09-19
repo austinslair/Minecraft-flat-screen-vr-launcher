@@ -26,11 +26,23 @@ dist/
 out/
 bin/
 obj/
+*.apk
+*.aab
 
 # Dependency caches
 node_modules/
 .nuget/
 .gradle/
+
+# Godot
+.godot/
+launcher/.godot/
+launcher/android/build/
+launcher/addons/VoxyQuestBridge/bin/
+
+# Android bridge build output
+android/bridge/.gradle/
+android/bridge/plugin/build/
 
 # User-specific project files
 *.user

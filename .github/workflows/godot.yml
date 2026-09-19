@@ -1,0 +1,43 @@
+name: Godot smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build Godot Android bridge
+        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
+
+      - name: Verify bridge artifacts
+        run: |
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
+
+      - name: Download Godot 4.7.2
+        run: |
+          curl -L -o "$RUNNER_TEMP/godot.zip" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
+
+      - name: Import Godot project
+        run: "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path launcher --editor --quit"
