@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -53,6 +54,7 @@ public final class LoginHelper {
     private static volatile Thread loginThread;
     private static volatile CompletableFuture<IAuthenticationResult> loginFuture;
     private static volatile MinecraftAccount currentAccount;
+    private static volatile long authGeneration;
 
     private static volatile State state = State.IDLE;
     private static volatile String deviceUserCode = "";
@@ -111,22 +113,103 @@ public final class LoginHelper {
         }
     }
 
-    public static boolean startLogin(Activity activity, String clientId) {
-        synchronized (LOCK) {
-            if (state == State.STARTING || state == State.WAITING_FOR_USER || state == State.EXCHANGING) {
-                return false;
-            }
-            clearTransientState();
-            state = State.STARTING;
-        }
-
+    /**
+     * Restore the last Minecraft account without forcing a new device-code login.
+     * A still-valid Minecraft token is restored immediately. An expired token is
+     * refreshed from the MSAL cache on a background thread when possible.
+     */
+    public static boolean restoreSession(Activity activity, String clientId) {
         if (!configure(activity, clientId)) {
             return false;
         }
 
-        loginThread = new Thread(() -> runDeviceCodeLogin(activity), "VoxyQuest-MicrosoftLogin");
-        loginThread.start();
-        return true;
+        String uuid = getLastAccountUuid(activity);
+        if (uuid == null || uuid.isEmpty()) {
+            return true;
+        }
+
+        File accountsDir = new File(activity.getFilesDir(), "accounts");
+        MinecraftAccount cached = MinecraftAccount.load(accountsDir.getAbsolutePath(), uuid);
+        if (cached == null) {
+            return true;
+        }
+
+        synchronized (LOCK) {
+            if (isAuthBusy()) {
+                return false;
+            }
+
+            long generation = ++authGeneration;
+            clearTransientState();
+
+            if (cached.isDemoMode || cached.expiresOn >= System.currentTimeMillis()) {
+                setCurrentAccount(activity, cached);
+                state = State.SIGNED_IN;
+                message = signedInMessage(cached);
+                return true;
+            }
+
+            state = State.STARTING;
+            message = "Refreshing saved Microsoft session...";
+            Thread restoreThread = new Thread(
+                    () -> runSessionRestore(activity, uuid, generation),
+                    "VoxyQuest-MicrosoftRestore");
+            loginThread = restoreThread;
+            restoreThread.start();
+            return true;
+        }
+    }
+
+    private static void runSessionRestore(Activity activity, String uuid, long generation) {
+        try {
+            MinecraftAccount refreshed = refreshAccountInternal(activity, uuid, false);
+            synchronized (LOCK) {
+                if (!isCurrentGeneration(generation)) {
+                    return;
+                }
+
+                if (refreshed != null) {
+                    setCurrentAccount(activity, refreshed);
+                    state = State.SIGNED_IN;
+                    error = "";
+                    message = signedInMessage(refreshed);
+                } else {
+                    currentAccount = null;
+                    state = State.IDLE;
+                    error = "";
+                    message = "Saved Microsoft session expired. Sign in again to continue.";
+                }
+            }
+        } finally {
+            synchronized (LOCK) {
+                if (loginThread == Thread.currentThread()) {
+                    loginThread = null;
+                }
+            }
+        }
+    }
+
+    public static boolean startLogin(Activity activity, String clientId) {
+        if (!configure(activity, clientId)) {
+            return false;
+        }
+
+        synchronized (LOCK) {
+            if (isAuthBusy()) {
+                return false;
+            }
+
+            long generation = ++authGeneration;
+            clearTransientState();
+            state = State.STARTING;
+
+            Thread deviceLoginThread = new Thread(
+                    () -> runDeviceCodeLogin(activity, generation),
+                    "VoxyQuest-MicrosoftLogin");
+            loginThread = deviceLoginThread;
+            deviceLoginThread.start();
+            return true;
+        }
     }
 
     /**
@@ -143,33 +226,52 @@ public final class LoginHelper {
         startLogin(activity, clientId);
     }
 
-    private static void runDeviceCodeLogin(Activity activity) {
+    private static void runDeviceCodeLogin(Activity activity, long generation) {
+        CompletableFuture<IAuthenticationResult> operationFuture = null;
         try {
             PublicClientApplication application = pca;
             if (application == null) {
-                fail("Microsoft sign-in is not initialized.");
+                failIfCurrent(generation, "Microsoft sign-in is not initialized.");
                 return;
             }
 
             Consumer<DeviceCode> deviceCodeConsumer = deviceCode -> {
-                deviceUserCode = valueOrEmpty(deviceCode.userCode());
-                verificationUri = valueOrEmpty(deviceCode.verificationUri());
-                deviceCodeExpiresAtMs = System.currentTimeMillis() + (deviceCode.expiresIn() * 1000L);
-                message = valueOrEmpty(deviceCode.message());
-                state = State.WAITING_FOR_USER;
+                synchronized (LOCK) {
+                    if (!isCurrentGeneration(generation)) {
+                        return;
+                    }
+                    deviceUserCode = valueOrEmpty(deviceCode.userCode());
+                    verificationUri = valueOrEmpty(deviceCode.verificationUri());
+                    deviceCodeExpiresAtMs = System.currentTimeMillis() + (deviceCode.expiresIn() * 1000L);
+                    message = valueOrEmpty(deviceCode.message());
+                    state = State.WAITING_FOR_USER;
+                }
             };
 
-            loginFuture = application.acquireToken(
+            operationFuture = application.acquireToken(
                     DeviceCodeFlowParameters.builder(SCOPES, deviceCodeConsumer).build());
 
-            IAuthenticationResult result = loginFuture.get();
+            synchronized (LOCK) {
+                if (!isCurrentGeneration(generation)) {
+                    operationFuture.cancel(true);
+                    return;
+                }
+                loginFuture = operationFuture;
+            }
+
+            IAuthenticationResult result = operationFuture.get();
             if (result == null || result.accessToken() == null || result.accessToken().isEmpty()) {
-                fail("Microsoft sign-in did not return an access token.");
+                failIfCurrent(generation, "Microsoft sign-in did not return an access token.");
                 return;
             }
 
-            state = State.EXCHANGING;
-            message = "Microsoft account verified. Signing in to Minecraft...";
+            synchronized (LOCK) {
+                if (!isCurrentGeneration(generation)) {
+                    return;
+                }
+                state = State.EXCHANGING;
+                message = "Microsoft account verified. Signing in to Minecraft...";
+            }
 
             File accountsDir = new File(activity.getFilesDir(), "accounts");
             if (!accountsDir.exists() && !accountsDir.mkdirs()) {
@@ -181,37 +283,44 @@ public final class LoginHelper {
                     accountsDir.getAbsolutePath(),
                     result.accessToken());
             if (account == null) {
-                fail("Minecraft account login did not return an account.");
+                failIfCurrent(generation, "Minecraft account login did not return an account.");
                 return;
             }
 
-            setCurrentAccount(activity, account);
-            state = State.SIGNED_IN;
-            error = "";
-            message = account.isDemoMode
-                    ? "Microsoft account signed in. Minecraft ownership was not detected; demo mode is available."
-                    : "Signed in as " + account.username + ".";
+            synchronized (LOCK) {
+                if (!isCurrentGeneration(generation)) {
+                    return;
+                }
+                setCurrentAccount(activity, account);
+                state = State.SIGNED_IN;
+                error = "";
+                message = signedInMessage(account);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            if (state != State.CANCELLED) {
-                fail("Microsoft sign-in was interrupted.");
-            }
+            failIfCurrent(generation, "Microsoft sign-in was interrupted.");
         } catch (ExecutionException e) {
-            if (state != State.CANCELLED) {
-                Throwable cause = e.getCause() == null ? e : e.getCause();
-                fail("Microsoft sign-in failed: " + safeMessage(cause));
-            }
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            failIfCurrent(generation, "Microsoft sign-in failed: " + safeMessage(cause));
         } catch (Exception e) {
-            if (state != State.CANCELLED) {
-                fail("Minecraft sign-in failed: " + safeMessage(e));
-            }
+            failIfCurrent(generation, "Minecraft sign-in failed: " + safeMessage(e));
         } finally {
-            loginFuture = null;
-            loginThread = null;
+            synchronized (LOCK) {
+                if (loginFuture == operationFuture) {
+                    loginFuture = null;
+                }
+                if (loginThread == Thread.currentThread()) {
+                    loginThread = null;
+                }
+            }
         }
     }
 
     public static MinecraftAccount refreshAccount(Activity activity, String uuid) {
+        return refreshAccountInternal(activity, uuid, true);
+    }
+
+    private static MinecraftAccount refreshAccountInternal(Activity activity, String uuid, boolean applyAccount) {
         PublicClientApplication application = pca;
         if (application == null || uuid == null || uuid.isEmpty()) {
             return null;
@@ -230,7 +339,9 @@ public final class LoginHelper {
                         new File(activity.getFilesDir(), "accounts/" + refreshed.uuid + ".json").getAbsolutePath(),
                         refreshed);
                 if (uuid.equals(refreshed.uuid)) {
-                    setCurrentAccount(activity, refreshed);
+                    if (applyAccount) {
+                        setCurrentAccount(activity, refreshed);
+                    }
                     return refreshed;
                 }
             }
@@ -241,18 +352,22 @@ public final class LoginHelper {
     }
 
     public static void cancelLogin() {
+        CompletableFuture<IAuthenticationResult> future;
+        Thread thread;
         synchronized (LOCK) {
-            CompletableFuture<IAuthenticationResult> future = loginFuture;
-            if (future != null) {
-                future.cancel(true);
-            }
-            Thread thread = loginThread;
-            if (thread != null) {
-                thread.interrupt();
-            }
+            ++authGeneration;
+            future = loginFuture;
+            thread = loginThread;
             state = State.CANCELLED;
             message = "Microsoft sign-in cancelled.";
             error = "";
+        }
+
+        if (future != null) {
+            future.cancel(true);
+        }
+        if (thread != null) {
+            thread.interrupt();
         }
     }
 
@@ -261,7 +376,7 @@ public final class LoginHelper {
     }
 
     public static String getStateName() {
-        return state.name().toLowerCase();
+        return state.name().toLowerCase(Locale.ROOT);
     }
 
     public static String getDeviceUserCode() {
@@ -309,6 +424,29 @@ public final class LoginHelper {
     public static String getLastAccountUuid(Activity activity) {
         return activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(PREF_LAST_UUID, "");
+    }
+
+    private static boolean isAuthBusy() {
+        return state == State.STARTING || state == State.WAITING_FOR_USER || state == State.EXCHANGING;
+    }
+
+    private static boolean isCurrentGeneration(long generation) {
+        return authGeneration == generation;
+    }
+
+    private static void failIfCurrent(long generation, String failure) {
+        synchronized (LOCK) {
+            if (!isCurrentGeneration(generation)) {
+                return;
+            }
+            fail(failure);
+        }
+    }
+
+    private static String signedInMessage(MinecraftAccount account) {
+        return account.isDemoMode
+                ? "Microsoft account signed in. Minecraft ownership was not detected; demo mode is available."
+                : "Signed in as " + account.username + ".";
     }
 
     private static void setCurrentAccount(Activity activity, MinecraftAccount account) {

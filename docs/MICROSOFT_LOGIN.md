@@ -48,9 +48,13 @@ The client ID is compiled into `VoxyQuestBridge`. A Microsoft client ID identifi
 
 If no client ID is provided, VoxyQuest still builds successfully but the Microsoft sign-in button is disabled and explains that configuration is missing.
 
-## Token storage
+## Token storage and session restoration
 
 MSAL's serialized token cache is stored under VoxyQuest's private Android app files directory in `auth/msal_cache.json`. Minecraft account data is stored in the app-private `accounts/` directory. Tokens are not exposed to GDScript or shown in the launcher UI.
+
+Token-cache updates are written through a temporary file and replaced atomically when the filesystem supports it. This reduces the chance of a partial cache if the app is interrupted while credentials are being persisted.
+
+At launcher startup, VoxyQuest restores the most recently used Minecraft profile when its cached token is still valid. If the Minecraft token is expired, VoxyQuest attempts a silent Microsoft refresh from the MSAL cache on a background thread. If that refresh is unavailable or expired, the launcher returns to the normal sign-in state instead of blocking startup.
 
 Never commit token-cache files, account JSON files, refresh/access tokens, signing keys, or Microsoft client secrets to Git.
 
@@ -63,6 +67,7 @@ The Godot launcher is deliberately a normal 2D Android/Quest application. It doe
 - open the verification URL in the system browser;
 - copy the user code;
 - show Microsoft/Xbox/Minecraft authentication progress;
+- restore a cached account without keeping the launcher in a permanent polling loop;
 - show the signed-in Minecraft username and UUID.
 
 Minecraft VR/OpenXR startup belongs to the game runtime, not to the Godot launcher.

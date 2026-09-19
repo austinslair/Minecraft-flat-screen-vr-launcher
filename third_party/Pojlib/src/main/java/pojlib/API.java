@@ -20,8 +20,6 @@ import pojlib.util.Constants;
 import pojlib.account.LoginHelper;
 
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -182,7 +180,7 @@ public class API {
                 Logger.getInstance().appendToLog("WARN! Instance launch failed!" + e);
             }
         } else {
-            Logger.getInstance().appendToLog("Skipping prelaunch check due to no wifi connection!");
+            Logger.getInstance().appendToLog("Skipping prelaunch check due to no network connection!");
         }
         DownloadManager.reset();
 
@@ -219,8 +217,16 @@ public class API {
      * @return True if removal was successful
      */
     public static boolean removeAccount(Activity activity, String uuid) {
-        if(currentAcc.uuid.equals(uuid)) {
+        if (uuid == null || uuid.isEmpty()) {
+            return false;
+        }
+
+        if (currentAcc != null && uuid.equals(currentAcc.uuid)) {
             currentAcc = null;
+            profileImage = null;
+            profileName = null;
+            profileUUID = null;
+            isDemoMode = false;
         }
         return MinecraftAccount.removeAccount(activity, uuid);
     }
@@ -262,37 +268,30 @@ public class API {
     }
 
     /**
-     * Check if the device has a valid wifi connection
+     * Check whether Android reports a validated internet connection.
+     *
+     * This avoids a synchronous HTTP probe on the launcher thread while still
+     * rejecting networks that Android has not validated for internet access.
      *
      * @param activity activity object
-     * @return true if the device has a valid wifi connection
+     * @return true if the active network has validated internet access
      */
     public static boolean hasConnection(Context activity) {
-        boolean hasNetwork = false;
         ConnectivityManager connManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkCapabilities capabilities = connManager.getNetworkCapabilities(connManager.getActiveNetwork());
-
-        if(capabilities != null) {
-            hasNetwork = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
-        }
-
-        if (hasNetwork) {
-            try {
-                URL url = new URL("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
-                HttpURLConnection conn = (HttpURLConnection)url.openConnection();
-                conn.connect();
-                conn.disconnect();
-                hasWifi = true;
-                return true;
-            } catch (Exception e) {
-                Logger.getInstance().appendToLog("WARN! Unable to reach Microsoft servers!");
-                hasWifi = false;
-                return false;
-            }
-        } else {
-            Logger.getInstance().appendToLog("WARN! Device has no wifi connection!");
+        if (connManager == null) {
             hasWifi = false;
             return false;
         }
+
+        NetworkCapabilities capabilities = connManager.getNetworkCapabilities(connManager.getActiveNetwork());
+        boolean hasNetwork = capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+
+        hasWifi = hasNetwork;
+        if (!hasNetwork) {
+            Logger.getInstance().appendToLog("WARN! Device has no validated internet connection!");
+        }
+        return hasNetwork;
     }
 }

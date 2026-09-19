@@ -1,15 +1,24 @@
-name: Godot smoke test
+name: Godot Android smoke test
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: godot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-java@v5
         with:
@@ -30,7 +39,7 @@ jobs:
             "ndk;26.1.10909125" \
             "ndk;28.1.13356709"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.14.3"
 
@@ -50,6 +59,9 @@ jobs:
           test ! -e third_party/Pojlib/libs/unity-classes.jar
           test ! -e launcher/scripts/xr_bootstrap.gd
           grep -q 'xr_features/xr_mode=0' launcher/export_presets.cfg
+          grep -q 'restoreSession' third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
+          grep -q 'restoreSession' android/bridge/plugin/src/main/java/dev/voxyquest/bridge/VoxyQuestBridgePlugin.kt
+          grep -q 'ATOMIC_MOVE' third_party/Pojlib/src/main/java/pojlib/account/TokenPersistence.java
           if grep -q 'openxr/enabled=true' launcher/project.godot; then
             echo "Godot launcher must remain a flat non-OpenXR app"
             exit 1
@@ -61,11 +73,11 @@ jobs:
 
       - name: Download Godot 4.7.2 and export templates
         run: |
-          curl -L -o "$RUNNER_TEMP/godot.zip" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/godot.zip" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
           unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
           chmod +x "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
 
-          curl -L -o "$RUNNER_TEMP/templates.tpz" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz"
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/templates.tpz" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz"
           mkdir -p "$RUNNER_TEMP/templates" "$HOME/.local/share/godot/export_templates/4.7.2.stable"
           unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/templates"
           cp -R "$RUNNER_TEMP/templates/templates/." "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
@@ -105,7 +117,7 @@ jobs:
           mkdir -p launcher/build
           GODOT="$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
           "$GODOT" --headless --path launcher --install-android-build-template --export-debug "Meta Quest" build/VoxyQuest-ci.apk
-          test -f launcher/build/VoxyQuest-ci.apk
+          test -s launcher/build/VoxyQuest-ci.apk
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4

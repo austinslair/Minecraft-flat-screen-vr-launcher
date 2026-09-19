@@ -1,5 +1,8 @@
 extends Control
 
+const AUTH_POLL_INTERVAL := 0.5
+const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
+
 var runtime := VoxyQuestRuntimeBridge.new()
 var _poll_elapsed := 0.0
 
@@ -14,6 +17,7 @@ var _poll_elapsed := 0.0
 @onready var cancel_button: Button = $Page/Content/CodePanel/Actions/Cancel
 
 func _ready() -> void:
+	set_process(false)
 	sign_in_button.pressed.connect(_on_sign_in_pressed)
 	open_button.pressed.connect(_on_open_pressed)
 	copy_button.pressed.connect(_on_copy_pressed)
@@ -25,16 +29,23 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_poll_elapsed += delta
-	if _poll_elapsed >= 0.25:
+	if _poll_elapsed >= AUTH_POLL_INTERVAL:
 		_poll_elapsed = 0.0
 		_refresh_auth_ui()
 
+func _set_auth_polling(enabled: bool) -> void:
+	if is_processing() == enabled:
+		return
+	_poll_elapsed = 0.0
+	set_process(enabled)
+
 func _on_sign_in_pressed() -> void:
-	if not runtime.start_microsoft_login():
-		_refresh_auth_ui()
+	runtime.start_microsoft_login()
+	_refresh_auth_ui()
 
 func _on_open_pressed() -> void:
-	runtime.open_microsoft_login_page()
+	if not runtime.open_microsoft_login_page():
+		status_label.text = "Could not open the Microsoft verification page."
 
 func _on_copy_pressed() -> void:
 	var auth := runtime.get_microsoft_login_snapshot()
@@ -61,6 +72,8 @@ func _refresh_auth_ui() -> void:
 	var profile_uuid := str(auth.get("profile_uuid", ""))
 	var demo_mode := bool(auth.get("demo_mode", false))
 
+	_set_auth_polling(state in ACTIVE_AUTH_STATES)
+
 	if not runtime.is_available():
 		account_label.text = "Microsoft account: Android build required"
 		status_label.text = "The launcher UI can be edited on desktop, but Microsoft sign-in runs through the Android bridge."
@@ -84,13 +97,13 @@ func _refresh_auth_ui() -> void:
 		return
 
 	sign_in_button.text = "Sign in with Microsoft"
-	sign_in_button.disabled = state in ["starting", "waiting_for_user", "exchanging"]
+	sign_in_button.disabled = state in ACTIVE_AUTH_STATES
 	code_panel.visible = not code.is_empty()
 	device_code_label.text = "Code: %s" % code
 	verification_label.text = "Open: %s" % verification_url
 	open_button.disabled = verification_url.is_empty()
 	copy_button.disabled = code.is_empty()
-	cancel_button.disabled = not (state in ["starting", "waiting_for_user", "exchanging"])
+	cancel_button.disabled = not (state in ACTIVE_AUTH_STATES)
 
 	if not error.is_empty():
 		status_label.text = error
@@ -99,8 +112,8 @@ func _refresh_auth_ui() -> void:
 	elif state == "exchanging":
 		status_label.text = "Microsoft verified. Connecting to Xbox Live and Minecraft Services..."
 	elif state == "starting":
-		status_label.text = "Requesting a Microsoft sign-in code..."
+		status_label.text = message if not message.is_empty() else "Requesting a Microsoft sign-in code..."
 	elif state == "cancelled":
 		status_label.text = "Microsoft sign-in cancelled."
 	else:
-		status_label.text = "Sign in to the Microsoft account that owns Minecraft: Java Edition."
+		status_label.text = message if not message.is_empty() else "Sign in to the Microsoft account that owns Minecraft: Java Edition."
