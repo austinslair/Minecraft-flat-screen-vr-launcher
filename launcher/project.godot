@@ -7,8 +7,9 @@ config/name="VoxyQuest"
 run/main_scene="res://scenes/main.tscn"
 
 [display]
-window/size/viewport_width=1440
-window/size/viewport_height=900
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
 
 [editor_plugins]
 enabled=PackedStringArray("res://addons/VoxyQuestBridge/plugin.cfg")
@@ -18,7 +19,3 @@ renderer/rendering_method="mobile"
 renderer/rendering_method.mobile="mobile"
 renderer/rendering_method.web="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
-
-[xr]
-openxr/enabled=true
-shaders/enabled=true

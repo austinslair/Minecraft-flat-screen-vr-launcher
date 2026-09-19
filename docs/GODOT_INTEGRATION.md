@@ -2,40 +2,44 @@
 
 ## Engine baseline
 
-VoxyQuest targets Godot `4.7.2-stable` with the Mobile renderer and built-in OpenXR support. The launcher project is under `launcher/`.
+VoxyQuest targets Godot `4.7.2-stable` with the Mobile renderer. The launcher project is under `launcher/`.
 
-The first XR milestone is intentionally small: enter an OpenXR session, render a world-space status panel, and track the headset/controllers. Minecraft launching comes after that shell is stable.
+Godot is the launcher engine, but the launcher itself is intentionally **not an OpenXR application**. On Quest it should appear as a normal flat Android application panel. When the user later chooses Play VR, the Minecraft/Vivecraft runtime owns the immersive OpenXR session.
 
 ## Runtime boundary
 
-The launcher should only talk to the Android runtime through the `VoxyQuestBridge` Godot singleton.
+The launcher talks to Android/Minecraft services only through the `VoxyQuestBridge` Godot singleton:
 
 ```text
-GDScript UI -> VoxyQuestBridge -> Android/Kotlin host -> Pojlib -> Minecraft
+Godot 2D UI -> VoxyQuestBridge -> Android/Kotlin host -> Pojlib -> Minecraft
 ```
 
-This keeps Android process/runtime details out of scenes and UI scripts.
+This keeps Android process, account, JVM, and Minecraft details out of scenes and UI scripts.
 
-## Why Pojlib cannot be linked directly yet
+## Pojlib host
 
-The pinned upstream Pojlib currently imports Unity player classes in `UnityPlayerActivity`. Other launcher code and one native JNI bridge refer back to that class for host services such as LWJGL asset installation and clipboard access.
+The vendored Pojlib source has been adapted away from Unity. `PojlibRuntime` provides engine-neutral Android host services and `VoxyQuestBridge` initializes it from Godot.
 
-The long-term fix is a small engine-neutral host abstraction: Android activity/context, display metrics, clipboard, input hooks, and runtime restart behavior belong in the VoxyQuest host layer. The rest of Pojlib can stay focused on Minecraft installation and launch logic.
+Pojlib remains editable source under `third_party/Pojlib`; there is no Unity player activity or Unity compile stub in the active runtime.
 
-Until that adapter is implemented, the Godot project and Android bridge can be developed and tested independently without carrying Unity into the launcher.
+## Microsoft account flow
+
+Microsoft authentication is exposed through `VoxyQuestBridge`. The Godot UI sees only login state, device code, verification URL, Minecraft username/UUID, and demo/ownership state. Access and refresh tokens remain in the Android/Pojlib layer.
+
+See `docs/MICROSOFT_LOGIN.md` for registration and build configuration.
 
 ## Android plugin
 
-`android/bridge/` is a Godot Android plugin v2 project. It currently exposes bridge/version/compatibility information to GDScript. Later Pojlib calls should be added there, not directly in scene scripts.
-
-Build it with Gradle task:
+`android/bridge/` is a Godot Android plugin v2 project. Build it with:
 
 ```bash
 gradle -p android/bridge :plugin:syncToGodot
 ```
 
-That copies the generated AARs into `launcher/addons/VoxyQuestBridge/bin/`.
+That builds both the bridge and Pojlib AARs and copies them into `launcher/addons/VoxyQuestBridge/bin/` for Android export.
 
 ## Quest export
 
-`launcher/export_presets.cfg` is configured for Android arm64 and OpenXR. Vendor-specific Meta features can be added later when a feature actually needs them; core headset/controller tracking should stay on standard OpenXR first.
+`launcher/export_presets.cfg` targets Android arm64 as a normal non-XR Quest application. Godot must not request an OpenXR session at launcher startup.
+
+The future Play VR path should hand off to the Minecraft/Vivecraft runtime, which then starts the game-specific OpenXR session. Flat-screen Minecraft should use its non-VR rendering path.

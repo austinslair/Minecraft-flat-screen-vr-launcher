@@ -9,29 +9,29 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 public class TokenPersistence implements ITokenCacheAccessAspect {
-        String data;
-        File cache;
+    private String data;
+    private final File cache;
 
-        TokenPersistence(String data, File cache) {
-                this.data = data;
-                this.cache = cache;
-        }
+    TokenPersistence(String data, File cache) {
+        this.data = data == null ? "" : data;
+        this.cache = cache;
+    }
 
-        @Override
-        public void beforeCacheAccess(ITokenCacheAccessContext iTokenCacheAccessContext) {
-                iTokenCacheAccessContext.tokenCache().deserialize(data);
+    @Override
+    public synchronized void beforeCacheAccess(ITokenCacheAccessContext context) {
+        if (!data.isEmpty()) {
+            context.tokenCache().deserialize(data);
         }
+    }
 
-        @Override
-        public void afterCacheAccess(ITokenCacheAccessContext iTokenCacheAccessContext) {
-                data = iTokenCacheAccessContext.tokenCache().serialize();
-                try {
-                        BufferedWriter writer = new BufferedWriter(new FileWriter(cache));
-                        writer.write(data);
-                        writer.flush();
-                        writer.close();
-                } catch (IOException e) {
-                        throw new RuntimeException(e);
-                }
+    @Override
+    public synchronized void afterCacheAccess(ITokenCacheAccessContext context) {
+        data = context.tokenCache().serialize();
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(cache, false))) {
+            writer.write(data == null ? "" : data);
+            writer.flush();
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to persist Microsoft token cache", e);
         }
+    }
 }

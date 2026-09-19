@@ -33,6 +33,53 @@ func get_info() -> Dictionary:
 		"pojlib": str(_plugin.getPojlibCompatibilityState())
 	}
 
+func is_microsoft_login_configured() -> bool:
+	return _plugin != null and bool(_plugin.isMicrosoftLoginConfigured())
+
+func start_microsoft_login() -> bool:
+	if _plugin == null:
+		return false
+	return bool(_plugin.startMicrosoftLogin())
+
+func cancel_microsoft_login() -> void:
+	if _plugin != null:
+		_plugin.cancelMicrosoftLogin()
+
+func open_microsoft_login_page() -> bool:
+	if _plugin == null:
+		return false
+	return bool(_plugin.openMicrosoftLoginPage())
+
+func get_microsoft_login_snapshot() -> Dictionary:
+	if _plugin == null:
+		return {
+			"configured": false,
+			"state": "unavailable",
+			"message": "Android bridge unavailable.",
+			"error": "",
+			"device_code": "",
+			"verification_url": "",
+			"expires_in": 0,
+			"signed_in": false,
+			"profile_name": "",
+			"profile_uuid": "",
+			"demo_mode": false
+		}
+
+	return {
+		"configured": bool(_plugin.isMicrosoftLoginConfigured()),
+		"state": str(_plugin.getMicrosoftLoginState()),
+		"message": str(_plugin.getMicrosoftLoginMessage()),
+		"error": str(_plugin.getMicrosoftLoginError()),
+		"device_code": str(_plugin.getMicrosoftDeviceCode()),
+		"verification_url": str(_plugin.getMicrosoftVerificationUrl()),
+		"expires_in": int(_plugin.getMicrosoftLoginExpiresIn()),
+		"signed_in": bool(_plugin.isMicrosoftSignedIn()),
+		"profile_name": str(_plugin.getMicrosoftProfileName()),
+		"profile_uuid": str(_plugin.getMicrosoftProfileUuid()),
+		"demo_mode": bool(_plugin.isMicrosoftDemoMode())
+	}
+
 func send_key(key_code: int, pressed: bool) -> void:
 	if _plugin != null:
 		_plugin.sendKey(key_code, pressed)

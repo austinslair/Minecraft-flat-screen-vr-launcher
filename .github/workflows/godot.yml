@@ -37,15 +37,23 @@ jobs:
       - name: Build Godot + Pojlib Android runtime
         run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
 
-      - name: Verify Godot-only runtime artifacts
+      - name: Verify launcher and account runtime
         run: |
           test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
           test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar
           test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
+          test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
+          test -f launcher/scripts/launcher.gd
           test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
           test ! -e third_party/Pojlib/libs/unity-classes.jar
+          test ! -e launcher/scripts/xr_bootstrap.gd
+          grep -q 'xr_features/xr_mode=0' launcher/export_presets.cfg
+          if grep -q 'openxr/enabled=true' launcher/project.godot; then
+            echo "Godot launcher must remain a flat non-OpenXR app"
+            exit 1
+          fi
           if grep -R -n -E 'com\.unity3d|UnityPlayerActivity|restartUnitySession|method_restartUnity|blank:unity-classes|wrapper/unityLibrary' third_party/Pojlib android launcher --exclude='vivecraft-client-config.json'; then
             echo "Unity engine reference remains in active code"
             exit 1
@@ -88,7 +96,7 @@ jobs:
             -keysize 2048 \
             -validity 10000
 
-      - name: Export Quest debug APK
+      - name: Export flat Quest launcher APK
         env:
           GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey

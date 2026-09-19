@@ -2,7 +2,7 @@
 
 ## Godot
 
-VoxyQuest uses Godot `4.7.2-stable` as the launcher/XR shell. The Android bridge compiles against `org.godotengine:godot:4.7.2.stable`.
+VoxyQuest uses Godot `4.7.2-stable` for the flat launcher UI. The launcher itself is a normal non-XR Android/Quest application. The Android bridge compiles against `org.godotengine:godot:4.7.2.stable`.
 
 ## Pojlib
 
@@ -14,12 +14,12 @@ VoxyQuest uses Godot `4.7.2-stable` as the launcher/XR shell. The Android bridge
 
 Pojlib is vendored directly into this repository as normal Git files. It is not a Git submodule. The source under `third_party/Pojlib` can be edited, committed, reviewed, and built together with VoxyQuest.
 
-The imported snapshot keeps Pojlib's original `LICENSE`, Gradle files, Java/native sources, local libraries, runtime manifests, and wrapper scripts. `third_party/Pojlib/UPSTREAM.md` records the exact upstream revision used for the import.
+VoxyQuest's copy has been adapted away from Unity. `PojlibRuntime` supplies engine-neutral Android host services and `VoxyQuestBridge` exposes launcher/runtime operations to Godot.
 
-VoxyQuest's vendored Pojlib has been adapted to use the Godot Android host. The Unity player activity and Unity compile stubs are removed; `PojlibRuntime` provides engine-neutral Android services and `VoxyQuestBridge` exposes them to Godot.
+Pojlib includes the Microsoft/Xbox/Minecraft account chain used by VoxyQuest. VoxyQuest supplies its own Microsoft public-client application ID at build time; QuestCraft's application registration is not reused. MSAL4J is currently `com.microsoft.azure:msal4j:1.17.2`.
 
-Pojlib's runtime manifests already describe QuestCraft Vivecraft/Fabric combinations for supported Minecraft versions, so those mod jars should remain runtime-managed instead of being copied into the launcher source tree.
+Pojlib's runtime manifests describe supported Vivecraft/Fabric combinations. Those game-side components remain runtime-managed rather than being copied into the Godot launcher UI.
 
 No submodule initialization is required when cloning VoxyQuest.
 
-Do not commit signing keys, account tokens, Unity/Godot credentials, or other secrets.
+Do not commit signing keys, account tokens, Microsoft client secrets, token caches, or other credentials.
