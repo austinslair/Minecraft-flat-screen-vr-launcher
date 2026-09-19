@@ -240,7 +240,7 @@ public class JREUtils {
         userArgs.add("-Dorg.lwjgl.egl.libname=" + "/system/lib64/libEGL_dri.so");
 
         userArgs.addAll(JVMArgs);
-        System.out.println(JVMArgs);
+        // Launch arguments contain the Minecraft access token; never log them.
 
         runtimeDir = activity.getFilesDir() + "/runtimes/JRE";
 
@@ -309,7 +309,7 @@ public class JREUtils {
                 "-Dglfwstub.windowHeight=" + 720,
                 "-Dglfwstub.initEgl=false",
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
-                "-Dnet.minecraft.clientmodname=" + "QuestCraft",
+                "-Dnet.minecraft.clientmodname=" + "VoxyQuest",
                 "-Dext.net.resolvPath=" + resConfFile,
                 "-Dsodium.checks.issue2561=false",
                 "-Dorg.sqlite.lib.path=" + ctx.getApplicationInfo().nativeLibraryDir

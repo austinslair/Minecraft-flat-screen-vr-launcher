@@ -22,6 +22,25 @@ public class StreamDL extends InputStream {
         return b;
     }
 
+    @Override
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+        int read = in.read(buffer, offset, length);
+        if (read > 0) {
+            if (listeners.isEmpty()) {
+                count += read;
+                DownloadManager.addBytes(read);
+            } else {
+                for (int i = 0; i < read; i++) byteReceived(buffer[offset + i] & 0xff);
+            }
+        }
+        return read;
+    }
+
+    @Override
+    public void close() throws IOException {
+        in.close();
+    }
+
     public void addListener(StreamListener listener) {
         listeners.add(listener);
     }

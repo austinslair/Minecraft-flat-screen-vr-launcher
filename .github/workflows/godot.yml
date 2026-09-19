@@ -44,7 +44,9 @@ jobs:
           gradle-version: "8.14.3"
 
       - name: Build Godot + Pojlib Android runtime
-        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
+        env:
+          VOXYQUEST_MICROSOFT_CLIENT_ID: ${{ vars.VOXYQUEST_MICROSOFT_CLIENT_ID }}
+        run: gradle -p android/bridge :plugin:syncToGodot :pojlib:testDebugUnitTest --no-daemon
 
       - name: Verify launcher and account runtime
         run: |
@@ -95,6 +97,11 @@ jobs:
 
       - name: Import Godot project
         run: "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64 --headless --path launcher --editor --quit"
+
+      - name: Verify launcher empty states and account UI
+        run: |
+          "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/home_smoke.gd
+          "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/auth_flow.gd
 
       - name: Create CI debug keystore
         run: |

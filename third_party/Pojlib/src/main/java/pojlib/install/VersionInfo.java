@@ -72,6 +72,24 @@ public class VersionInfo {
     }
 
     public static class Library {
+        public Rule[] rules;
+        public static class Rule {
+            public String action;
+            public OS os;
+            public static class OS { public String name; public String arch; }
+        }
+        public boolean allowedOnAndroid() {
+            if (rules == null || rules.length == 0) return true;
+            boolean allowed = false;
+            for (Rule rule : rules) {
+                boolean matches = rule.os == null ||
+                    ((rule.os.name == null || "linux".equals(rule.os.name)) &&
+                     (rule.os.arch == null || "aarch64".equals(rule.os.arch) || "arm64".equals(rule.os.arch)));
+                if (matches) allowed = "allow".equals(rule.action);
+            }
+            return allowed;
+        }
+
         @SerializedName("downloads")
         public Downloads downloads;
         @SerializedName("name")

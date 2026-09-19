@@ -21,25 +21,20 @@ public class FileUtil {
 
 
     public static byte[] loadFromAssetToByte(Context ctx, String inFile) {
-        byte[] buffer = null;
-
-        try {
-            InputStream stream = ctx.getAssets().open(inFile);
-
-            int size = stream.available();
-            buffer = new byte[size];
-            stream.read(buffer);
-            stream.close();
+        try (InputStream stream = ctx.getAssets().open(inFile);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = stream.read(buffer)) != -1) output.write(buffer, 0, read);
+            return output.toByteArray();
         } catch (IOException e) {
-            // Handle exceptions here
-            e.printStackTrace();
+            throw new java.io.UncheckedIOException("Unable to read bundled asset " + inFile, e);
         }
-        return buffer;
     }
 
     public static boolean matchingAssetFile(File sourceFile, byte[] assetFile) throws IOException {
         byte[] sf = Files.readAllBytes(sourceFile.toPath());
-        return sf == assetFile;
+        return java.util.Arrays.equals(sf, assetFile);
     }
 
     public static String read(String path) throws IOException {
