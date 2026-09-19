@@ -1,0 +1,72 @@
+name: Vendor Pojlib source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/vendor-pojlib.yml
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out VoxyQuest
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Import pinned Pojlib snapshot as normal files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          POJLIB_COMMIT="c6566d540a3ef530017f99b59f24d38121e3a5df"
+          POJLIB_BRANCH="QuestCraft-6.0.0"
+          UPSTREAM="https://github.com/QuestCraftPlusPlus/Pojlib.git"
+
+          rm -rf "$RUNNER_TEMP/Pojlib"
+          git clone --depth 1 --branch "$POJLIB_BRANCH" "$UPSTREAM" "$RUNNER_TEMP/Pojlib"
+          git -C "$RUNNER_TEMP/Pojlib" fetch --depth 1 origin "$POJLIB_COMMIT"
+          git -C "$RUNNER_TEMP/Pojlib" checkout --detach "$POJLIB_COMMIT"
+
+          # Remove Git metadata so the imported project is ordinary repository content.
+          rm -rf "$RUNNER_TEMP/Pojlib/.git"
+          rm -f "$RUNNER_TEMP/Pojlib/.gitmodules"
+
+          # Replace the old gitlink/submodule with real files.
+          git rm -f third_party/Pojlib || true
+          rm -rf third_party/Pojlib
+          mkdir -p third_party/Pojlib
+          cp -a "$RUNNER_TEMP/Pojlib/." third_party/Pojlib/
+
+          # The launcher repository no longer uses Pojlib as a submodule.
+          rm -f .gitmodules
+
+          cat > third_party/Pojlib/UPSTREAM.md <<EOF
+          # Vendored Pojlib snapshot
+
+          This directory is a directly editable vendored snapshot of Pojlib.
+
+          - Upstream: https://github.com/QuestCraftPlusPlus/Pojlib
+          - Upstream branch: $POJLIB_BRANCH
+          - Upstream commit: $POJLIB_COMMIT
+          - License: LGPL-3.0 (see LICENSE in this directory)
+
+          VoxyQuest intentionally stores these files directly instead of using a Git submodule so launcher/runtime integration changes can be made in this repository.
+          EOF
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Pojlib snapshot is already vendored."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Vendor Pojlib source into VoxyQuest"
+          git push origin HEAD:main
