@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" role="img" aria-label="VoxyQuest banner inspired by the supplied Minecraft landscape artwork">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5f87b1"/>
+      <stop offset="0.55" stop-color="#9eb6cf"/>
+      <stop offset="1" stop-color="#d7c7ad"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6f94ad"/>
+      <stop offset="1" stop-color="#254958"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#456244"/>
+      <stop offset="1" stop-color="#172618"/>
+    </linearGradient>
+    <radialGradient id="sunGlow">
+      <stop offset="0" stop-color="#fff8d8" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#fff0b9" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#fff0b9" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#0b1110" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="480" fill="url(#sky)"/>
+  <circle cx="155" cy="145" r="110" fill="url(#sunGlow)"/>
+  <circle cx="155" cy="145" r="36" fill="#fff7d2"/>
+
+  <g fill="#f4efe9" opacity="0.82">
+    <rect x="82" y="72" width="58" height="18" rx="3"/>
+    <rect x="112" y="58" width="46" height="17" rx="3"/>
+    <rect x="150" y="76" width="70" height="19" rx="3"/>
+    <rect x="235" y="115" width="58" height="18" rx="3"/>
+    <rect x="275" y="103" width="42" height="16" rx="3"/>
+    <rect x="362" y="75" width="70" height="18" rx="3"/>
+    <rect x="700" y="96" width="62" height="17" rx="3"/>
+    <rect x="740" y="84" width="39" height="15" rx="3"/>
+    <rect x="915" y="72" width="68" height="18" rx="3"/>
+    <rect x="1080" y="109" width="64" height="18" rx="3"/>
+  </g>
+
+  <g opacity="0.9">
+    <polygon points="815,315 930,130 1000,205 1085,92 1185,315" fill="#66736f"/>
+    <polygon points="860,315 944,182 1007,233 1088,128 1165,315" fill="#475755"/>
+    <polygon points="935,175 962,136 987,195" fill="#c9d0d2"/>
+    <polygon points="1062,131 1088,92 1112,146" fill="#d2d6d7"/>
+  </g>
+
+  <path d="M0 245 L105 210 L180 242 L255 220 L330 275 L410 255 L485 315 L0 360 Z" fill="url(#hill)"/>
+  <path d="M1200 235 L1090 210 L1010 245 L925 228 L850 270 L785 255 L720 315 L1200 355 Z" fill="url(#hill)"/>
+
+  <g fill="#263824">
+    <rect x="48" y="145" width="22" height="122"/>
+    <rect x="24" y="160" width="74" height="36"/>
+    <rect x="30" y="128" width="62" height="40"/>
+    <rect x="85" y="245" width="18" height="82"/>
+    <rect x="65" y="228" width="58" height="33"/>
+    <rect x="1102" y="183" width="20" height="104"/>
+    <rect x="1076" y="169" width="74" height="36"/>
+    <rect x="1087" y="139" width="56" height="38"/>
+    <rect x="1012" y="235" width="17" height="75"/>
+    <rect x="988" y="219" width="62" height="31"/>
+  </g>
+
+  <path d="M0 320 C175 292 300 338 420 330 C520 324 600 282 700 320 C820 366 930 315 1200 332 L1200 480 L0 480 Z" fill="#1e301b"/>
+  <path d="M355 340 C470 322 530 338 600 320 C675 301 733 334 845 350 C782 390 728 430 670 480 L445 480 C420 428 391 383 355 340 Z" fill="url(#water)"/>
+  <path d="M398 359 C500 345 545 352 604 339 C669 324 710 345 789 356" fill="none" stroke="#b9d1d8" stroke-width="5" opacity="0.5"/>
+  <path d="M438 394 C520 382 575 390 634 378 C685 367 716 380 752 388" fill="none" stroke="#91b6c3" stroke-width="4" opacity="0.5"/>
+
+  <g fill="#31442a" opacity="0.95">
+    <rect x="0" y="342" width="150" height="48"/>
+    <rect x="35" y="310" width="95" height="37"/>
+    <rect x="126" y="355" width="165" height="52"/>
+    <rect x="190" y="325" width="118" height="36"/>
+    <rect x="876" y="351" width="170" height="54"/>
+    <rect x="948" y="316" width="134" height="42"/>
+    <rect x="1034" y="349" width="166" height="58"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="600" cy="238" r="132" fill="#121c18" stroke="#4f9a4b" stroke-width="10"/>
+    <path d="M480 142 H563 L600 231 L638 142 H720 L626 350 H573 Z" fill="#5aa154" stroke="#0c1713" stroke-width="10" stroke-linejoin="miter"/>
+    <path d="M546 142 L578 218 L553 218 L519 142 Z" fill="#5aa154"/>
+  </g>
+
+  <rect x="0" y="0" width="1200" height="480" fill="none" stroke="#0d1512" stroke-opacity="0.22" stroke-width="6"/>
+</svg>
