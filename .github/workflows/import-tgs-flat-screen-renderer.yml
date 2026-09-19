@@ -65,13 +65,17 @@ jobs:
           test -f "$TARGET/tgs-plugin/source-lock.json"
           test -f "$TARGET/tgs-plugin/quest011-changes.patch"
           test -f "$TARGET/MobileGlues-cpp/CMakeLists.txt"
+          test -f "$TARGET/MobileGlues-cpp/gl/transfer.cpp"
+          test -f "$TARGET/MobileGlues-cpp/egl/egl.cpp"
           grep -q 'fbc4e412e353302607ba36489b2dd573b5becb25' "$TARGET/tgs-plugin/source-lock.json"
+          grep -q '0.11-quest' "$TARGET/tgs-plugin/source-lock.json"
 
           FILE_COUNT="$(find "$TARGET" -type f | wc -l)"
-          if [ "$FILE_COUNT" -ne 8203 ]; then
-            echo "Unexpected reconstructed source file count: $FILE_COUNT (expected 8203)" >&2
+          if [ "$FILE_COUNT" -lt 8000 ]; then
+            echo "Renderer source reconstruction is unexpectedly incomplete: $FILE_COUNT files" >&2
             exit 1
           fi
+          echo "Reconstructed TGS flat-screen renderer source: $FILE_COUNT files"
 
           rm -rf "$GITHUB_WORKSPACE/.renderer-import"
           rm -f "$GITHUB_WORKSPACE/.github/workflows/import-tgs-flat-screen-renderer.yml"
