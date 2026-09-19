@@ -6,6 +6,9 @@ signal sign_in_requested
 signal install_requested
 signal change_instance_requested
 
+const AUTH_POLL_INTERVAL := 0.5
+const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
+
 var nav_buttons: Array[Button] = []
 var runtime: RefCounted = VoxyQuestRuntimeBridge.new()
 var selected_name := ""
@@ -19,8 +22,12 @@ var install_submit: Button
 var instance_list: ItemList
 var install_status: Label
 var install_timer: Timer
+var account_code: Label
+var _auth_poll_elapsed := 0.0
+var _open_browser_when_ready := false
 
 func _ready() -> void:
+	set_process(false)
 	for section in ["Home", "Instances", "Mods", "Accounts", "Settings"]:
 		var button := get_node(section) as Button
 		nav_buttons.append(button)
@@ -28,10 +35,13 @@ func _ready() -> void:
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
 	_build_instance_window()
+	_build_inline_account_status()
 	_select_nav($Home)
-	$AccountWindow.close_requested.connect($AccountWindow.hide)
-	$AccountWindow/AccountUI.auth_changed.connect(_sync_account)
-	_sync_account(runtime.get_microsoft_login_snapshot())
+	if has_node("AccountWindow"):
+		$AccountWindow.queue_free()
+	if runtime.is_available():
+		runtime.initialize()
+	_refresh_auth_ui()
 	_refresh_instances()
 	if OS.get_name() == "Android":
 		$Minimize.hide()
@@ -41,6 +51,39 @@ func _ready() -> void:
 	$Play.pressed.connect(_on_play_pressed)
 	$Close.pressed.connect(func(): get_tree().quit())
 	$Minimize.pressed.connect(func(): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED))
+
+func _process(delta: float) -> void:
+	_auth_poll_elapsed += delta
+	if _auth_poll_elapsed >= AUTH_POLL_INTERVAL:
+		_auth_poll_elapsed = 0.0
+		_refresh_auth_ui()
+
+func _set_auth_polling(enabled: bool) -> void:
+	if is_processing() == enabled:
+		return
+	_auth_poll_elapsed = 0.0
+	set_process(enabled)
+
+func _build_inline_account_status() -> void:
+	account_code = Label.new()
+	account_code.name = "AccountCode"
+	account_code.visible = false
+	account_code.layout_mode = 0
+	account_code.offset_left = 1213.0
+	account_code.offset_top = 188.0
+	account_code.offset_right = 1499.0
+	account_code.offset_bottom = 228.0
+	account_code.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	account_code.add_theme_font_size_override("font_size", 18)
+	account_code.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
+	add_child(account_code)
+
+func _set_account_code(code: String) -> void:
+	var show_code := not code.is_empty()
+	account_code.visible = show_code
+	account_code.text = "Code: %s" % code if show_code else ""
+	$AccountPanel.offset_bottom = 244.0 if show_code else 208.0
+	$Account.offset_bottom = 244.0 if show_code else 208.0
 
 func style_box(fill: Color, border: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -93,17 +136,70 @@ func _on_play_pressed() -> void:
 		_show_message("Could not start Minecraft", "Check your sign-in and installed instance, then try again.")
 
 func _on_account_pressed() -> void:
-	$AccountWindow/AccountUI._refresh_auth_ui()
-	$AccountWindow.popup_centered()
 	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
-	if auth.get("configured", false) and not auth.get("signed_in", false) and not auth.get("state", "") in ["starting", "waiting_for_user", "exchanging"]:
-		$AccountWindow/AccountUI._on_sign_in_pressed()
+	if bool(auth.get("signed_in", false)):
+		return
+	if not runtime.is_available():
+		$AccountSubtitle.text = "Android build required"
+		return
+	if not bool(auth.get("configured", false)):
+		$AccountSubtitle.text = "Microsoft login not configured"
+		return
+	var state := str(auth.get("state", "idle"))
+	var code := str(auth.get("device_code", ""))
+	if state == "waiting_for_user" and not code.is_empty():
+		if not runtime.open_microsoft_login_page():
+			$AccountSubtitle.text = "Code ready — tap to retry browser"
+		return
+	if state in ACTIVE_AUTH_STATES:
+		return
+	_open_browser_when_ready = runtime.start_microsoft_login()
+	if not _open_browser_when_ready:
+		$AccountSubtitle.text = "Could not start Microsoft sign-in"
+	_refresh_auth_ui()
+
+func _refresh_auth_ui() -> void:
+	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
+	var state := str(auth.get("state", "unavailable"))
+	var code := str(auth.get("device_code", ""))
+	var is_signed_in := bool(auth.get("signed_in", false))
+
+	_sync_account(auth)
+	_set_auth_polling(state in ACTIVE_AUTH_STATES)
+	_set_account_code(code if state == "waiting_for_user" and not code.is_empty() else "")
+
+	if _open_browser_when_ready and state == "waiting_for_user" and not code.is_empty():
+		_open_browser_when_ready = false
+		if not runtime.open_microsoft_login_page():
+			$AccountSubtitle.text = "Code ready — tap to retry browser"
+	if state in ["error", "cancelled", "signed_in"]:
+		_open_browser_when_ready = false
+
+	if is_signed_in:
+		return
+	if not runtime.is_available():
+		$AccountSubtitle.text = "Android build required"
+	elif not bool(auth.get("configured", false)):
+		$AccountSubtitle.text = "Microsoft login not configured"
+	elif state == "starting":
+		$AccountSubtitle.text = "Getting Microsoft code..."
+	elif state == "waiting_for_user":
+		if $AccountSubtitle.text != "Code ready — tap to retry browser":
+			$AccountSubtitle.text = "Sign in with Microsoft"
+	elif state == "exchanging":
+		$AccountSubtitle.text = "Finishing Microsoft sign-in..."
+	elif state == "error":
+		$AccountSubtitle.text = "Sign-in failed — tap to retry"
+	else:
+		$AccountSubtitle.text = "Sign in with Microsoft"
 
 func _sync_account(auth: Dictionary) -> void:
 	signed_in = bool(auth.get("signed_in", false))
 	_update_play()
-	$AccountTitle.text = str(auth.get("profile_name", "")) if auth.get("signed_in", false) else "Not Signed In"
-	$AccountSubtitle.text = "Microsoft account" if auth.get("signed_in", false) else "Sign in with Microsoft"
+	$AccountTitle.text = str(auth.get("profile_name", "")) if signed_in else "Not Signed In"
+	$AccountSubtitle.text = "Microsoft account" if signed_in else "Sign in with Microsoft"
+	if signed_in:
+		_set_account_code("")
 
 func _on_install_pressed() -> void:
 	_refresh_instances()
