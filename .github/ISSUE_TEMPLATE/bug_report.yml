@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem in HorizonShelf
+title: "[Bug] "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: e.g. v0.2.0 or a commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: VR runtime / platform / headset
+      placeholder: Include what is relevant to reproducing the issue
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or extra context
+      description: Remove passwords, tokens, personal data, or other secrets before posting.
