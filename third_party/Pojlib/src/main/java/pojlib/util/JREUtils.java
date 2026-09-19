@@ -28,7 +28,7 @@ import java.util.concurrent.ExecutionException;
 
 import pojlib.API;
 
-import pojlib.UnityPlayerActivity;
+import pojlib.PojlibRuntime;
 import pojlib.install.Installer;
 import pojlib.install.MinecraftMeta;
 import pojlib.util.json.MinecraftInstances;
@@ -185,7 +185,7 @@ public class JREUtils {
 
     // Called before game launch to ensure all files are present and correct
     public static void prelaunchCheck(Activity activity, MinecraftInstances.Instance instance) throws IOException, ExecutionException, InterruptedException {
-        UnityPlayerActivity.installLWJGL(activity);
+        PojlibRuntime.installLWJGL(activity);
         Installer.installJVM(activity);
         Installer.installClient(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME).get();
         Installer.installLibraries(MinecraftMeta.getVersionInfo(instance.versionName), Constants.USER_HOME).get();

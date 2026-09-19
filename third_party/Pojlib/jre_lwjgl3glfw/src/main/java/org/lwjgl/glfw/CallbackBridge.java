@@ -38,10 +38,10 @@ public class CallbackBridge {
 	    //Quick and dirty: debul all key inputs to System.out
 */
 
-        Runtime.getRuntime().addShutdownHook(new Thread(CallbackBridge::restartUnitySession));
+        Runtime.getRuntime().addShutdownHook(new Thread(CallbackBridge::restartRuntimeSession));
     }
 
-    public static native void restartUnitySession();
+    public static native void restartRuntimeSession();
     public static void sendData(int type, String data) {
         nativeSendData(false, type, data);
     }

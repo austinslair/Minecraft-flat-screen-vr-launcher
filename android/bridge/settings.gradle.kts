@@ -11,9 +11,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven("https://jitpack.io")
         maven("https://plugins.gradle.org/m2/")
     }
 }
 
 rootProject.name = "VoxyQuestBridge"
-include(":plugin")
+include(":plugin", ":pojlib")
+project(":pojlib").projectDir = file("../../third_party/Pojlib")

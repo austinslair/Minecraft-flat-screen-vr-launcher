@@ -207,8 +207,8 @@ public class API {
      * @param activity Android activity object
      */
     public static void restartLauncher(Activity activity) {
-        Logger.getInstance().appendToLog("QuestCraft: Restarting launcher...");
-        CallbackBridge.restartUnitySession(activity);
+        Logger.getInstance().appendToLog("VoxyQuest: Restarting launcher...");
+        CallbackBridge.restartRuntimeSession(activity);
     }
 
     /**

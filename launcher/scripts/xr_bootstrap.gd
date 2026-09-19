@@ -13,9 +13,10 @@ func _ready() -> void:
 	if xr_ready:
 		get_viewport().use_xr = true
 
+	var pojlib_ready := runtime_bridge.initialize()
 	var bridge_info := runtime_bridge.get_info()
 	var xr_text := "OpenXR ready" if xr_ready else "OpenXR unavailable"
-	var bridge_text := "Android bridge ready" if bridge_info.get("available", false) else "Android bridge not loaded"
+	var bridge_text := "Godot + Pojlib ready" if pojlib_ready else "Android runtime not ready"
 
 	status_label.text = "VoxyQuest\n%s\n%s" % [xr_text, bridge_text]
 	print("VoxyQuest XR: ", xr_text)

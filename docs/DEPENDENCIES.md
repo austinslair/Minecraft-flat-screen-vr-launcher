@@ -16,7 +16,7 @@ Pojlib is vendored directly into this repository as normal Git files. It is not 
 
 The imported snapshot keeps Pojlib's original `LICENSE`, Gradle files, Java/native sources, local libraries, runtime manifests, and wrapper scripts. `third_party/Pojlib/UPSTREAM.md` records the exact upstream revision used for the import.
 
-Important: upstream Pojlib currently has a direct Unity host dependency concentrated in `pojlib.UnityPlayerActivity`, and its Gradle build references Unity classes. VoxyQuest does not expose those Unity details to the Godot UI. The Android bridge is the stable boundary where a Godot-compatible Pojlib host adapter will live.
+VoxyQuest's vendored Pojlib has been adapted to use the Godot Android host. The Unity player activity and Unity compile stubs are removed; `PojlibRuntime` provides engine-neutral Android services and `VoxyQuestBridge` exposes them to Godot.
 
 Pojlib's runtime manifests already describe QuestCraft Vivecraft/Fabric combinations for supported Minecraft versions, so those mod jars should remain runtime-managed instead of being copied into the launcher source tree.
 

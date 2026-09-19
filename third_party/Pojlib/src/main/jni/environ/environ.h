@@ -43,7 +43,7 @@ struct pojav_environ_s {
     jmethodID method_onGrabStateChanged;
     jmethodID method_glftSetWindowAttrib;
     jmethodID method_internalWindowSizeChanged;
-    jmethodID method_restartUnity;
+    jmethodID method_restartRuntime;
     jclass bridgeClazz;
     jclass apiClass;
     jclass vmGlfwClass;
