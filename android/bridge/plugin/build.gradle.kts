@@ -8,10 +8,12 @@ plugins {
 val pluginName = "VoxyQuestBridge"
 val pluginPackageName = "dev.voxyquest.bridge"
 val addonDir = rootProject.projectDir.resolve("../../launcher/addons/$pluginName")
-val microsoftClientId = providers.gradleProperty("voxyquestMicrosoftClientId")
-    .orElse(providers.environmentVariable("VOXYQUEST_MICROSOFT_CLIENT_ID"))
-    .orElse("d17a73a2-707c-40f5-8c90-d3eda0956f10")
-    .get()
+
+fun nonBlank(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
+val microsoftClientId = nonBlank(providers.gradleProperty("voxyquestMicrosoftClientId").orNull)
+    ?: nonBlank(providers.environmentVariable("VOXYQUEST_MICROSOFT_CLIENT_ID").orNull)
+    ?: "d17a73a2-707c-40f5-8c90-d3eda0956f10"
 
 android {
     namespace = pluginPackageName
