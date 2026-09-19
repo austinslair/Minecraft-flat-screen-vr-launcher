@@ -8,19 +8,18 @@ VoxyQuest uses Godot `4.7.2-stable` as the launcher/XR shell. The Android bridge
 
 - Upstream: https://github.com/QuestCraftPlusPlus/Pojlib
 - Branch: `QuestCraft-6.0.0`
-- Pinned commit: `c6566d540a3ef530017f99b59f24d38121e3a5df`
+- Imported commit: `c6566d540a3ef530017f99b59f24d38121e3a5df`
 - License: LGPL-3.0
+- Local source: `third_party/Pojlib`
 
-Pojlib is kept as a Git submodule at `third_party/Pojlib`.
+Pojlib is vendored directly into this repository as normal Git files. It is not a Git submodule. The source under `third_party/Pojlib` can be edited, committed, reviewed, and built together with VoxyQuest.
+
+The imported snapshot keeps Pojlib's original `LICENSE`, Gradle files, Java/native sources, local libraries, runtime manifests, and wrapper scripts. `third_party/Pojlib/UPSTREAM.md` records the exact upstream revision used for the import.
 
 Important: upstream Pojlib currently has a direct Unity host dependency concentrated in `pojlib.UnityPlayerActivity`, and its Gradle build references Unity classes. VoxyQuest does not expose those Unity details to the Godot UI. The Android bridge is the stable boundary where a Godot-compatible Pojlib host adapter will live.
 
-Pojlib's runtime manifests already describe QuestCraft Vivecraft/Fabric combinations for supported Minecraft versions, so those mod jars should remain runtime-managed instead of being copied into this repository.
+Pojlib's runtime manifests already describe QuestCraft Vivecraft/Fabric combinations for supported Minecraft versions, so those mod jars should remain runtime-managed instead of being copied into the launcher source tree.
 
-Clone dependencies with:
-
-```bash
-git submodule update --init --recursive
-```
+No submodule initialization is required when cloning VoxyQuest.
 
 Do not commit signing keys, account tokens, Unity/Godot credentials, or other secrets.
