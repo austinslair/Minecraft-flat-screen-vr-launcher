@@ -152,18 +152,14 @@ func install_instance(instance_name: String, version: String) -> bool:
 	var plugin: Object = _refresh_plugin()
 	if plugin == null or not plugin.has_method("installInstance"):
 		return false
-	# Initialization can fail if attempted before the Android activity is fully
-	# attached. Retry at the moment the user actually starts an installation.
-	if plugin.has_method("initializePojlib") and not bool(plugin.initializePojlib()):
-		return false
+	# Do not block the request on launcher-side initialization. The Android
+	# installer worker initializes Pojlib itself before downloading anything.
 	return bool(plugin.installInstance(instance_name, version))
 
 func get_install_snapshot() -> Dictionary:
 	var plugin: Object = _refresh_plugin()
 	if plugin == null or not plugin.has_method("getInstallSnapshotJson"):
 		# Do not grey out Install on Quest just because the plugin is still attaching.
-		# A click will retry discovery/initialization and report an error if it truly
-		# cannot connect.
 		if OS.get_name() == "Android":
 			return {"state": "idle", "message": ""}
 		return {"state": "unavailable", "message": "Installation is available in the Android launcher."}
