@@ -55,6 +55,8 @@ jobs:
           test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
           test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
           test -f launcher/scripts/launcher.gd
+          test -f launcher/scripts/instance_install_ux.gd
+          grep -q 'InstanceInstallUX=' launcher/project.godot
           test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
           test ! -e third_party/Pojlib/libs/unity-classes.jar
           test ! -e launcher/scripts/xr_bootstrap.gd
@@ -146,7 +148,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.2
+          TAG: v0.1.0-alpha.3
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
@@ -154,9 +156,9 @@ jobs:
           cat > release-notes.md <<EOF
           VoxyQuest alpha test build for Meta Quest.
 
-          Fixes the instance Install button becoming unavailable while the Android bridge is attaching. Install remains available on Quest and retries runtime initialization when pressed.
+          Instance installation is now one-click on Quest. If the instance-name field is blank, VoxyQuest automatically creates a valid name from the selected Minecraft version before starting the existing installer. When installation finishes, the launcher selects that instance so it is ready for Play after Microsoft sign-in.
 
-          This build also starts VoxyQuest's stable alpha signing line so future alpha APKs can update over it when their Android version code is increased.
+          This build keeps the stable alpha signing key and increases the Android version code, so it can update directly over alpha.2 without uninstalling.
 
           Built from commit: $GITHUB_SHA
 
@@ -167,7 +169,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.2" \
+              --title "VoxyQuest v0.1.0-alpha.3" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"
