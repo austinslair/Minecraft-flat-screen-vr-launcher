@@ -70,29 +70,29 @@ static void voxyquest_breadcrumb(const char *message) {
     fclose(file);
 }
 
-void android_sigaction(int signal, siginfo_t *info, void *reserved) {
+void android_sigaction(int signum, siginfo_t *info, void *reserved) {
   if (JVM_handle_linux_signal == NULL) {
       /* Do not dereference sa_sigaction when the previous disposition is SIG_DFL,
        * SIG_IGN, or a one-argument handler. The old implementation could turn an
        * otherwise diagnosable JVM startup signal into an immediate native crash. */
-      struct sigaction *previous = &old_sa[signal];
+      struct sigaction *previous = &old_sa[signum];
       if (previous->sa_handler == SIG_IGN) {
           return;
       }
       if (previous->sa_handler == SIG_DFL) {
-          signal(signal, SIG_DFL);
-          raise(signal);
+          signal(signum, SIG_DFL);
+          raise(signum);
           return;
       }
       if ((previous->sa_flags & SA_SIGINFO) != 0 && previous->sa_sigaction != NULL) {
-          previous->sa_sigaction(signal, info, reserved);
+          previous->sa_sigaction(signum, info, reserved);
       } else if (previous->sa_handler != NULL) {
-          previous->sa_handler(signal);
+          previous->sa_handler(signum);
       }
   } else {
       // Based on https://github.com/PojavLauncherTeam/openjdk-multiarch-jdk8u/blob/aarch64-shenandoah-jdk8u272-b10/hotspot/src/os/linux/vm/os_linux.cpp#L4688-4693
       int orig_errno = errno;  // Preserve errno value over signal handler.
-      JVM_handle_linux_signal(signal, info, reserved, true);
+      JVM_handle_linux_signal(signum, info, reserved, true);
       errno = orig_errno;
   }
 }
