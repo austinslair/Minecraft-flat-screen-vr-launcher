@@ -213,9 +213,8 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
                 if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,
             ).putExtra("instance_name", name)
             host.startActivity(intent)
-            // The Godot launcher can otherwise remain resident while Minecraft, the JVM, and
-            // OpenXR allocate memory. It is recreated by PojlibRuntime.restartSession() on exit.
-            host.finish()
+            // Keep the Godot host Activity alive behind Minecraft. Finishing the Godot Activity
+            // tears down the process on Android, which also terminates the Minecraft Activity.
             true
         }.getOrDefault(false)
     }
