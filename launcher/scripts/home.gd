@@ -158,31 +158,32 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	return label
 
 func _build_workspace() -> void:
+	# This is only a content host. The sidebar is the launcher navigation; sections
+	# should not look like a second dashboard floating inside the home screen.
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(290, 280)
-	workspace.size = Vector2(1211, 660)
+	workspace.position = Vector2(302, 270)
+	workspace.size = Vector2(1185, 662)
 	workspace.visible = false
-	workspace.add_theme_stylebox_override("panel", style_box(Color(0.028, 0.041, 0.031, 0.965), Color(0.42, 0.49, 0.4, 0.52), 10))
+	workspace.add_theme_stylebox_override("panel", style_box(Color.TRANSPARENT, Color.TRANSPARENT, 0))
 	add_child(workspace)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 26)
+		margin.add_theme_constant_override("margin_" + side, 8)
 	workspace.add_child(margin)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 11)
+	content.add_theme_constant_override("separation", 9)
 	margin.add_child(content)
 
-	workspace_title = _make_label("", 29)
-	workspace_title.add_theme_color_override("font_color", Color(0.68, 0.93, 0.5, 1))
+	workspace_title = _make_label("", 27)
+	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	content.add_child(workspace_title)
-	workspace_subtitle = _make_label("", 16, true)
-	workspace_subtitle.custom_minimum_size.y = 28
+	workspace_subtitle = _make_label("", 15, true)
+	workspace_subtitle.custom_minimum_size.y = 24
 	content.add_child(workspace_subtitle)
-	content.add_child(HSeparator.new())
 	workspace_body = VBoxContainer.new()
 	workspace_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	workspace_body.add_theme_constant_override("separation", 10)
@@ -418,7 +419,7 @@ func _update_play() -> void:
 func _render_instances_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Choose what to play, rename an existing instance, remove it, or install another version."
+	workspace_subtitle.text = "Select an instance to play or edit it here. Install another version from the same page."
 	_refresh_instances()
 
 	instance_list = ItemList.new()
@@ -612,11 +613,10 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "See the mod JARs in the selected instance. Core VR files stay under VoxyQuest runtime management."
+	workspace_subtitle.text = "Mods for the selected instance. Core Vivecraft/runtime files stay managed by VoxyQuest."
 	if selected_name.is_empty():
 		workspace_body.add_child(_make_label("No instance selected.", 22))
-		workspace_body.add_child(_make_label("Choose an instance first, then come back here to inspect its mods.", 16, true))
-		workspace_body.add_child(_make_button("Choose instance", _open_section.bind("Instances"), true))
+		workspace_body.add_child(_make_label("Select an instance from Instances first.", 16, true))
 		return
 
 	workspace_body.add_child(_make_label(selected_name, 23))
@@ -630,11 +630,7 @@ func _render_mods_page() -> void:
 	workspace_body.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	workspace_body.add_child(mods_status)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.add_child(_make_button("Refresh mods", _refresh_mods_page, true))
-	row.add_child(_make_button("Edit instance", _open_section.bind("Instances")))
-	workspace_body.add_child(row)
+	workspace_body.add_child(_make_button("Refresh mods", _refresh_mods_page, true))
 	_refresh_mods_page()
 
 func _refresh_mods_page() -> void:
@@ -654,7 +650,7 @@ func _refresh_mods_page() -> void:
 func _render_accounts_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Accounts"
-	workspace_subtitle.text = "Microsoft device-code sign-in stays in the launcher while authentication completes in your browser."
+	workspace_subtitle.text = "Microsoft device-code sign-in. Authentication finishes in the browser and returns to VoxyQuest."
 	account_page_title = _make_label("Microsoft account", 23)
 	workspace_body.add_child(account_page_title)
 	account_page_status = _make_label("", 17, true)
@@ -750,7 +746,7 @@ func _cancel_account_login() -> void:
 func _render_settings_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Settings"
-	workspace_subtitle.text = "Launcher/runtime status and safe maintenance controls. Minecraft VR owns OpenXR only after launch."
+	workspace_subtitle.text = "Launcher and runtime status. Minecraft VR owns OpenXR only after launch."
 	var info: Dictionary = runtime.get_info()
 	var info_panel := VBoxContainer.new()
 	info_panel.add_theme_constant_override("separation", 6)
@@ -767,7 +763,6 @@ func _render_settings_page() -> void:
 	var clear_button := _make_button("Clear instance selection", _clear_instance_selection)
 	clear_button.disabled = selected_name.is_empty()
 	row.add_child(clear_button)
-	row.add_child(_make_button("Back to Home", _open_section.bind("Home")))
 	workspace_body.add_child(row)
 	settings_status = _make_label("", 16, true)
 	workspace_body.add_child(settings_status)
