@@ -26,7 +26,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
 
     @UsedByGodot
-    fun getBridgeVersion(): String = "0.5.0"
+    fun getBridgeVersion(): String = "0.6.0"
 
     @UsedByGodot
     fun getHostEngine(): String = "Godot"
@@ -154,7 +154,9 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     @UsedByGodot
     fun installInstance(name: String, version: String): Boolean {
         val host = activity ?: return false
-        if (!PojlibRuntime.isInitialized()) return false
+        // VoxyQuestInstaller.install() calls PojlibRuntime.ensureInitialized(activity)
+        // on the install worker. Do not reject the click merely because launcher
+        // initialization has not completed yet.
         return LauncherOperations.install(host, name, version)
     }
 
