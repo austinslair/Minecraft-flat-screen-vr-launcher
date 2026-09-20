@@ -58,7 +58,8 @@ jobs:
           test -f launcher/scripts/instance_install_ux.gd
           test -f launcher/tests/install_bridge.gd
           grep -q 'InstanceInstallUX=' launcher/project.godot
-          grep -q 'Installing —' launcher/scripts/instance_install_ux.gd
+          grep -q 'Installer started. Waiting for download progress' launcher/scripts/instance_install_ux.gd
+          grep -q 'runtime_bridge.install_instance(instance_name, version)' launcher/scripts/instance_install_ux.gd
           grep -q 'return bool(plugin.installInstance(instance_name, version))' launcher/scripts/runtime_bridge.gd
           test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
           test ! -e third_party/Pojlib/libs/unity-classes.jar
@@ -152,7 +153,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.4
+          TAG: v0.1.0-alpha.5
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
@@ -160,11 +161,9 @@ jobs:
           cat > release-notes.md <<EOF
           VoxyQuest alpha test build for Meta Quest.
 
-          Fixes instance installs that could be rejected before the Android worker started. The launcher now sends the install request directly to the Android installer, which initializes Pojlib on demand.
+          The Install button now starts the Android installer directly on button-down instead of depending only on the page callback. It immediately shows Starting, then live installer progress, Installed, or a visible Retry install message.
 
-          The Instances page now shows live visible install feedback: Starting, Installing with the current download stage, Installed, or Retry install on failure.
-
-          Uses the same stable alpha signing key and Android version code 4, so it can update directly over alpha.2/alpha.3.
+          This build keeps the stable alpha signing key and uses Android version code 5, so it can update directly over alpha.2-alpha.4.
 
           Built from commit: $GITHUB_SHA
 
@@ -175,7 +174,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.4" \
+              --title "VoxyQuest v0.1.0-alpha.5" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"
