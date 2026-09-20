@@ -26,7 +26,9 @@ func _refresh_plugin() -> Object:
 	return _plugin
 
 func is_available() -> bool:
-	return _refresh_plugin() != null
+	# On Android, keep launcher actions available while the Godot plugin finishes
+	# attaching. Individual actions still verify the singleton before invoking it.
+	return _refresh_plugin() != null or OS.get_name() == "Android"
 
 func initialize() -> bool:
 	var plugin: Object = _refresh_plugin()
@@ -159,6 +161,11 @@ func install_instance(instance_name: String, version: String) -> bool:
 func get_install_snapshot() -> Dictionary:
 	var plugin: Object = _refresh_plugin()
 	if plugin == null or not plugin.has_method("getInstallSnapshotJson"):
+		# Do not grey out Install on Quest just because the plugin is still attaching.
+		# A click will retry discovery/initialization and report an error if it truly
+		# cannot connect.
+		if OS.get_name() == "Android":
+			return {"state": "idle", "message": ""}
 		return {"state": "unavailable", "message": "Installation is available in the Android launcher."}
 	var parsed: Variant = JSON.parse_string(str(plugin.getInstallSnapshotJson()))
 	return parsed if parsed is Dictionary else {"state": "error", "message": "Invalid installer response."}
