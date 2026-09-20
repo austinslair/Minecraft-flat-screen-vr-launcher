@@ -61,6 +61,10 @@ var account_page_cancel: Button
 var settings_status: Label
 
 func _ready() -> void:
+	theme = preload("res://scripts/ui_theme.gd").create()
+	for caption in [$AccountTitle, $AccountSubtitle]:
+		caption.clip_text = true
+		caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	set_process(false)
 	for section in ["Home", "Instances", "Mods", "Accounts", "Settings"]:
 		var button := get_node(section) as Button
@@ -136,9 +140,10 @@ func _style_danger_button(button: Button) -> void:
 func _make_button(text: String, callback: Callable, primary := false, danger := false) -> Button:
 	var button := Button.new()
 	button.text = text
-	button.custom_minimum_size = Vector2(150, 44)
+	button.custom_minimum_size = Vector2(150, 48)
 	button.add_theme_font_size_override("font_size", 17)
 	style_button(button)
+	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("1d2b22"), Color("526558")))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -153,41 +158,48 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override(
 		"font_color",
-		Color(0.67, 0.72, 0.68, 1) if muted else Color(0.95, 0.97, 0.94, 1)
+		Color(0.73, 0.79, 0.75, 1) if muted else Color(0.95, 0.97, 0.94, 1)
 	)
 	return label
 
 func _build_workspace() -> void:
-	# This is only a content host. The sidebar is the launcher navigation; sections
-	# should not look like a second dashboard floating inside the home screen.
+	# A single readable surface hosts every page; long content scrolls below its title.
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(302, 270)
-	workspace.size = Vector2(1185, 662)
+	workspace.position = Vector2(290, 280)
+	workspace.size = Vector2(1211, 672)
 	workspace.visible = false
-	workspace.add_theme_stylebox_override("panel", style_box(Color.TRANSPARENT, Color.TRANSPARENT, 0))
+	workspace.add_theme_stylebox_override("panel", style_box(Color(0.045, 0.063, 0.049, 0.96), Color(0.42, 0.49, 0.4, 0.5), 12))
 	add_child(workspace)
 
 	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 8)
+		margin.add_theme_constant_override("margin_" + side, 28)
 	workspace.add_child(margin)
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var content := VBoxContainer.new()
 	content.add_theme_constant_override("separation", 9)
 	margin.add_child(content)
 
-	workspace_title = _make_label("", 27)
+	workspace_title = _make_label("", 28)
+	workspace_title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
 	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	content.add_child(workspace_title)
 	workspace_subtitle = _make_label("", 15, true)
 	workspace_subtitle.custom_minimum_size.y = 24
 	content.add_child(workspace_subtitle)
+	var scroll := ScrollContainer.new()
+	scroll.name = "PageScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	content.add_child(scroll)
 	workspace_body = VBoxContainer.new()
+	workspace_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	workspace_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	workspace_body.add_theme_constant_override("separation", 10)
-	content.add_child(workspace_body)
+	workspace_body.add_theme_constant_override("separation", 14)
+	scroll.add_child(workspace_body)
 
 func _build_inline_account_status() -> void:
 	account_code = Label.new()
@@ -436,7 +448,7 @@ func _render_instances_page() -> void:
 	instance_rename = LineEdit.new()
 	instance_rename.placeholder_text = "Select an instance to rename"
 	instance_rename.max_length = 48
-	instance_rename.custom_minimum_size = Vector2(420, 44)
+	instance_rename.custom_minimum_size = Vector2(360, 48)
 	instance_rename.add_theme_font_size_override("font_size", 17)
 	edit_row.add_child(instance_rename)
 	instance_rename_button = _make_button("Rename", _rename_selected_instance, true)
@@ -456,12 +468,13 @@ func _render_instances_page() -> void:
 	workspace_body.add_child(install_row)
 	install_name = LineEdit.new()
 	install_name.placeholder_text = "Instance name"
+	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
-	install_name.custom_minimum_size = Vector2(330, 44)
+	install_name.custom_minimum_size = Vector2(330, 48)
 	install_name.add_theme_font_size_override("font_size", 17)
 	install_row.add_child(install_name)
 	install_version = OptionButton.new()
-	install_version.custom_minimum_size = Vector2(230, 44)
+	install_version.custom_minimum_size = Vector2(230, 48)
 	install_version.add_theme_font_size_override("font_size", 17)
 	for version in runtime.get_install_versions():
 		install_version.add_item(str(version))

@@ -61,6 +61,7 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("NewsCard0") == null)
 	assert(ui.get_node_or_null("Version") == null)
 	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a == 0)
+	assert(ui.get_node("AccountTitle").clip_text)
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -76,6 +77,11 @@ func run_checks() -> void:
 	assert(ui.current_section == "Instances")
 	assert(ui.workspace.visible)
 	assert(ui.instance_list.get_item_count() == 1)
+	await process_frame
+	await process_frame
+	assert(ui.workspace_body.get_parent() is ScrollContainer)
+	assert(ui.workspace_body.size.x <= ui.workspace.size.x)
+	assert(ui.install_submit.get_global_rect().end.x <= ui.workspace.get_global_rect().end.x)
 	assert(ui.instance_list.get_item_text(0).contains("My saved world"))
 	ui._on_instance_selected(0)
 	assert(ui.selected_name == "My saved world")
