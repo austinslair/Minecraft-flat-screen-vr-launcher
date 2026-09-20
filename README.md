@@ -8,11 +8,11 @@
 
 ### Download
 
-[![Download VoxyQuest APK](https://img.shields.io/badge/Download-VoxyQuest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white)](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases/download/v0.1.0-alpha.4/VoxyQuest-Quest.apk)
+[![Download VoxyQuest APK](https://img.shields.io/badge/Download-VoxyQuest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white)](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases/download/v0.1.0-alpha.5/VoxyQuest-Quest.apk)
 
 [View all releases](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases)
 
-**Current test release:** `v0.1.0-alpha.4` · Meta Quest APK
+**Current test release:** `v0.1.0-alpha.5` · Meta Quest APK
 
 </div>
 
