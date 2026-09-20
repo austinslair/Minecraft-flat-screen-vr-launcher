@@ -58,6 +58,12 @@ public class Logger {
         } else {
             mLogFile.delete();
         }
+
+        // Alpha 10 already wrote detailed JVM/native breadcrumbs, but the launcher report
+        // filter only displayed "VoxyQuest launch:" lines. Promote those saved prefixes in
+        // place so an Alpha 10 crash can become useful immediately after installing Alpha 11.
+        promoteSavedCrashDiagnostics(new File(Constants.USER_HOME, "previouslog.txt"));
+
         try {
             mLogFile.createNewFile();
             mLogStream = new PrintStream(mLogFile.getAbsolutePath());
@@ -72,6 +78,21 @@ public class Logger {
             ).contains(marker);
         } catch (IOException ignored) {
             return false;
+        }
+    }
+
+    private static void promoteSavedCrashDiagnostics(File file) {
+        if (!file.isFile() || file.length() <= 0L) return;
+        try {
+            String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+            String promoted = text
+                    .replace("VoxyQuest native JVM:", "VoxyQuest launch: native JVM:")
+                    .replace("VoxyQuest JVM:", "VoxyQuest launch: JVM:");
+            if (!promoted.equals(text)) {
+                Files.write(file.toPath(), promoted.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException ignored) {
+            // Keep the original report if it cannot be rewritten.
         }
     }
 
