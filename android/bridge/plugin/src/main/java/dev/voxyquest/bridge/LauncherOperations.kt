@@ -23,7 +23,7 @@ object LauncherOperations {
 
     @Synchronized
     fun install(activity: Activity, name: String, version: String): Boolean {
-        if (state == "installing" || MinecraftGameActivity.isRunning) return false
+        if (isBusy() || MinecraftGameActivity.isRunning) return false
         try { VoxyQuestInstaller.directoryName(name) } catch (_: IllegalArgumentException) {
             state = "error"
             message = "Use 1–48 letters, numbers, spaces, underscores or hyphens."
@@ -46,7 +46,7 @@ object LauncherOperations {
         return true
     }
 
-    fun isBusy(): Boolean = state == "installing"
+    fun isBusy(): Boolean = state == "installing" || state == "importing_mod"
 
     fun snapshot(): String = JSONObject().put("state", state)
         .put("message", message).put("installed_name", installedName).toString()
@@ -59,7 +59,7 @@ object LauncherOperations {
 
     @Synchronized
     fun renameInstance(oldName: String, newName: String): Boolean {
-        if (state == "installing" || MinecraftGameActivity.isRunning) return false
+        if (isBusy() || MinecraftGameActivity.isRunning) return false
         return runCatching {
             val cleanName = newName.trim()
             val desiredDirectoryName = VoxyQuestInstaller.directoryName(cleanName)
@@ -122,7 +122,7 @@ object LauncherOperations {
 
     @Synchronized
     fun removeInstance(name: String): Boolean {
-        if (state == "installing" || MinecraftGameActivity.isRunning) return false
+        if (isBusy() || MinecraftGameActivity.isRunning) return false
         return runCatching {
             val registry = VoxyQuestInstaller.readRegistry()
             val target = registry.toArray().firstOrNull { it.instanceName == name } ?: return false
@@ -167,6 +167,77 @@ object LauncherOperations {
     }.getOrElse {
         JSONObject().put("available", false).put("mods", JSONArray())
             .put("error", "Could not read instance mods").toString()
+    }
+
+    @Synchronized
+    fun importMod(name: String, filename: String, input: java.io.InputStream): String {
+        if (isBusy() || MinecraftGameActivity.isRunning) return "Wait for Minecraft and installation to stop."
+        if (!filename.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar", RegexOption.IGNORE_CASE))) {
+            return "Choose a mod file ending in .jar."
+        }
+        val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+            ?: return "Instance no longer exists."
+        val root = File(Constants.USER_HOME, "instances").canonicalFile
+        val game = File(instance.gameDir ?: return "Instance has no folder.").canonicalFile
+        if (game == root || !game.toPath().startsWith(root.toPath())) return "Invalid instance folder."
+        val mods = File(game, "mods").canonicalFile
+        if (mods.parentFile != game) return "Invalid mods folder."
+        mods.mkdirs()
+        val destination = File(mods, filename)
+        if (destination.exists()) return "A mod with this filename already exists. It was not replaced."
+        val temp = File.createTempFile("import-", ".tmp", mods)
+        state = "importing_mod"
+        try {
+            temp.outputStream().use { output ->
+                val buffer = ByteArray(65536)
+                var total = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    check(total <= 256L * 1024 * 1024) { "Mod is too large" }
+                    output.write(buffer, 0, count)
+                }
+            }
+            java.util.jar.JarFile(temp).use { jar ->
+                val entry = jar.getJarEntry("fabric.mod.json") ?: return "This is not a Fabric mod JAR."
+                val metadata = jar.getInputStream(entry).use { stream ->
+                    val bytes = readDescriptor(stream)
+                    check(bytes.size <= 1024 * 1024)
+                    JSONObject(String(bytes, Charsets.UTF_8))
+                }
+                val id = metadata.optString("id")
+                check(id.isNotBlank())
+                for (existing in mods.listFiles().orEmpty().filter { it.extension.equals("jar", true) }) {
+                    val sameId = runCatching {
+                        java.util.jar.JarFile(existing).use { installed ->
+                            val descriptor = installed.getJarEntry("fabric.mod.json")
+                            descriptor != null && installed.getInputStream(descriptor).use { stream ->
+                                JSONObject(String(readDescriptor(stream), Charsets.UTF_8)).optString("id") == id
+                            }
+                        }
+                    }.getOrDefault(false)
+                    if (sameId) return "This mod is already installed. Duplicate mod IDs cannot be added."
+                }
+            }
+            Files.move(temp.toPath(), destination.toPath())
+            return "Added $filename. Use mods compatible with Minecraft ${instance.versionName}; dependencies may be required."
+        } finally {
+            temp.delete()
+            state = "idle"
+        }
+    }
+
+    private fun readDescriptor(input: java.io.InputStream): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            check(output.size() + count <= 1024 * 1024) { "Mod metadata is too large" }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun moveDirectory(source: File, destination: File) {

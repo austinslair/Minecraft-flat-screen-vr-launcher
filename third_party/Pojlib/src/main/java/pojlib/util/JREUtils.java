@@ -305,8 +305,8 @@ public class JREUtils {
                 "-Djna.boot.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.nosys=true",
                 "-Djava.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
-                "-Dglfwstub.windowWidth=" + 1280,
-                "-Dglfwstub.windowHeight=" + 720,
+                "-Dglfwstub.windowWidth=" + FlatDisplay.width,
+                "-Dglfwstub.windowHeight=" + FlatDisplay.height,
                 "-Dglfwstub.initEgl=false",
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
                 "-Dnet.minecraft.clientmodname=" + "VoxyQuest",

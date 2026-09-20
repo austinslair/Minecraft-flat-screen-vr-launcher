@@ -79,9 +79,6 @@ public final class VoxyQuestInstaller {
         ModsJson.Version selected = findCatalogVersion(activity, version);
 
         if (existing != null) {
-            if (isInstalled(existing)) {
-                throw new IOException("An instance with this name already exists");
-            }
             if (existing.versionName != null && !existing.versionName.isEmpty()
                     && !version.equals(existing.versionName)) {
                 throw new IOException("Incomplete instance uses a different Minecraft version");
@@ -233,6 +230,13 @@ public final class VoxyQuestInstaller {
         for (String path : instance.classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
             if (path.isEmpty() || !new File(path).isFile()) return false;
         }
-        return new File(instance.gameDir, "mods/Vivecraft.jar").isFile();
+        if (!new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
+        if (instance.assetsDir == null || !new File(instance.assetsDir).isDirectory()) return false;
+        for (ProjectInfo project : instance.toArray()) {
+            if (project.slug == null || !project.slug.matches("[A-Za-z0-9_-]+")) return false;
+            File mod = new File(instance.gameDir, "mods/" + project.slug + ".jar");
+            if (!mod.isFile() || mod.length() == 0) return false;
+        }
+        return true;
     }
 }
