@@ -165,42 +165,46 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	return label
 
 func _build_workspace() -> void:
-	# A single readable surface hosts every page; long content scrolls below its title.
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(290, 280)
-	workspace.size = Vector2(1211, 672)
+	workspace.position = Vector2(290, 250)
+	workspace.size = Vector2(1211, 702)
 	workspace.visible = false
-	workspace.add_theme_stylebox_override("panel", style_box(Color(0.045, 0.063, 0.049, 0.96), Color(0.42, 0.49, 0.4, 0.5), 12))
+	workspace.clip_contents = true
+	workspace.add_theme_stylebox_override("panel", style_box(Color(0.045, 0.063, 0.049, 0.94), Color(0.42, 0.49, 0.4, 0.45), 12))
 	add_child(workspace)
 
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 28)
+		margin.add_theme_constant_override("margin_" + side, 18)
 	workspace.add_child(margin)
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 9)
+	content.add_theme_constant_override("separation", 6)
 	margin.add_child(content)
 
-	workspace_title = _make_label("", 28)
+	workspace_title = _make_label("", 26)
 	workspace_title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
 	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	content.add_child(workspace_title)
-	workspace_subtitle = _make_label("", 15, true)
-	workspace_subtitle.custom_minimum_size.y = 24
+	workspace_subtitle = _make_label("", 14, true)
+	workspace_subtitle.custom_minimum_size.y = 20
 	content.add_child(workspace_subtitle)
+
 	var scroll := ScrollContainer.new()
 	scroll.name = "PageScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.follow_focus = true
+	scroll.clip_contents = true
 	content.add_child(scroll)
+
 	workspace_body = VBoxContainer.new()
 	workspace_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	workspace_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	workspace_body.add_theme_constant_override("separation", 14)
+	workspace_body.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	workspace_body.add_theme_constant_override("separation", 10)
 	scroll.add_child(workspace_body)
 
 func _build_inline_account_status() -> void:
@@ -233,6 +237,7 @@ func _clear_workspace() -> void:
 	for child in workspace_body.get_children():
 		workspace_body.remove_child(child)
 		child.queue_free()
+	instance_empty_hint = null
 	instance_list = null
 	instance_rename = null
 	instance_rename_button = null
@@ -428,7 +433,7 @@ func _update_play() -> void:
 	var selected := _selected_instance()
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false)))
 	$Play.modulate = Color(0.42, 0.46, 0.41) if $Play.disabled else Color.WHITE
-	$Play.tooltip_text = "Sign in and select a fully installed instance to play Minecraft VR." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
+	$Play.tooltip_text = "Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
@@ -437,7 +442,7 @@ func _page_card(parent: Control, heading: String, description := "") -> VBoxCont
 	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("18271e"), Color("3e5143")))
 	parent.add_child(panel)
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 14)
+	body.add_theme_constant_override("separation", 12)
 	panel.add_child(body)
 	var title := _make_label(heading, 21)
 	title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
@@ -469,80 +474,98 @@ func _detail_row(parent: Control, caption: String, value: String) -> void:
 func _render_instances_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Install, select, and manage your Minecraft VR instances."
+	workspace_subtitle.text = "Select an instance, repair it, or install another Minecraft version."
 	_refresh_instances()
 
 	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 14)
+	mode_row.add_theme_constant_override("separation", 12)
 	workspace_body.add_child(mode_row)
-	mode_row.add_child(_make_label("Play mode", 18))
+	var mode_label := _make_label("Play mode", 17)
+	mode_label.custom_minimum_size.x = 120
+	mode_row.add_child(mode_label)
 	var mode := OptionButton.new()
 	mode.add_item("Virtual reality")
 	mode.add_item("Flatscreen · keyboard & mouse")
 	mode.selected = 1 if play_mode == "flat" else 0
-	mode.custom_minimum_size = Vector2(380, 48)
+	mode.custom_minimum_size = Vector2(360, 46)
 	mode.item_selected.connect(func(index: int):
 		play_mode = "flat" if index == 1 else "vr"
 		_update_play()
 	)
 	mode_row.add_child(mode)
-	var library := _page_card(workspace_body, "Your instances", "Select an installed instance to manage it or play.")
-	instance_empty_hint = _make_label("No instances yet. Create your first installation below.", 18, true)
-	library.add_child(instance_empty_hint)
+
+	workspace_body.add_child(_make_label("Your instances", 20))
+	instance_empty_hint = _make_label("No instances yet. Install one below.", 16, true)
+	workspace_body.add_child(instance_empty_hint)
+
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 156)
-	instance_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	instance_list.custom_minimum_size = Vector2(0, 190)
+	instance_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	instance_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	instance_list.mouse_filter = Control.MOUSE_FILTER_STOP
+	instance_list.focus_mode = Control.FOCUS_ALL
 	instance_list.add_theme_font_size_override("font_size", 18)
-	instance_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.7), Color(0.35, 0.43, 0.34, 0.48)))
+	instance_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.78), Color(0.35, 0.43, 0.34, 0.62)))
 	instance_list.item_selected.connect(_on_instance_selected)
-	library.add_child(instance_list)
+	workspace_body.add_child(instance_list)
 
 	var edit_row := HBoxContainer.new()
-	edit_row.add_theme_constant_override("separation", 10)
-	library.add_child(edit_row)
+	edit_row.add_theme_constant_override("separation", 8)
+	workspace_body.add_child(edit_row)
 	instance_rename = LineEdit.new()
 	instance_rename.placeholder_text = "Select an instance to rename"
 	instance_rename.max_length = 48
-	instance_rename.custom_minimum_size = Vector2(260, 48)
-	instance_rename.add_theme_font_size_override("font_size", 17)
+	instance_rename.custom_minimum_size = Vector2(300, 46)
 	instance_rename.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	instance_rename.add_theme_font_size_override("font_size", 17)
 	edit_row.add_child(instance_rename)
 	instance_rename_button = _make_button("Rename", _rename_selected_instance, true)
+	instance_rename_button.custom_minimum_size.x = 125
 	edit_row.add_child(instance_rename_button)
 	instance_remove_button = _make_button("Remove", _request_remove_selected, false, true)
+	instance_remove_button.custom_minimum_size.x = 125
 	edit_row.add_child(instance_remove_button)
-	edit_row.add_child(_make_button("Refresh", _refresh_instances_page))
-	library.add_child(_make_button("Repair / resume selected", _repair_selected_instance))
+	var refresh := _make_button("Refresh", _refresh_instances_page)
+	refresh.custom_minimum_size.x = 125
+	edit_row.add_child(refresh)
 
+	var action_row := HBoxContainer.new()
+	action_row.add_theme_constant_override("separation", 8)
+	workspace_body.add_child(action_row)
+	var repair := _make_button("Repair / resume selected", _repair_selected_instance)
+	repair.custom_minimum_size.x = 260
+	action_row.add_child(repair)
 	instance_status = _make_label(instance_notice, 15, true)
-	instance_status.custom_minimum_size.y = 24
-	library.add_child(instance_status)
-	var installer := _page_card(workspace_body, "Create an instance", "Give your installation a name and choose a Minecraft version.")
+	instance_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	action_row.add_child(instance_status)
+
+	workspace_body.add_child(HSeparator.new())
+	workspace_body.add_child(_make_label("Install an instance", 20))
 
 	var install_row := HBoxContainer.new()
-	install_row.add_theme_constant_override("separation", 10)
-	installer.add_child(install_row)
+	install_row.add_theme_constant_override("separation", 8)
+	workspace_body.add_child(install_row)
 	install_name = LineEdit.new()
 	install_name.placeholder_text = "Instance name"
 	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
-	install_name.custom_minimum_size = Vector2(330, 48)
+	install_name.custom_minimum_size = Vector2(340, 46)
 	install_name.add_theme_font_size_override("font_size", 17)
-	_field(install_row, "Instance name", install_name)
+	install_row.add_child(install_name)
 	install_version = OptionButton.new()
-	install_version.custom_minimum_size = Vector2(230, 48)
+	install_version.custom_minimum_size = Vector2(250, 46)
 	install_version.add_theme_font_size_override("font_size", 17)
 	for version in runtime.get_install_versions():
 		install_version.add_item(str(version))
-	_field(install_row, "Minecraft version", install_version)
+	install_row.add_child(install_version)
 	install_submit = _make_button("Install", _start_install, true)
-	install_submit.custom_minimum_size.x = 180
-	install_submit.size_flags_vertical = Control.SIZE_SHRINK_END
+	install_submit.custom_minimum_size = Vector2(170, 46)
 	install_row.add_child(install_submit)
 
 	install_status = _make_label("", 15, true)
-	install_status.custom_minimum_size.y = 24
-	installer.add_child(install_status)
+	install_status.custom_minimum_size.y = 22
+	workspace_body.add_child(install_status)
 	_populate_instance_list()
 	_poll_install()
 
@@ -638,7 +661,8 @@ func _confirm_remove_instance() -> void:
 func _repair_selected_instance() -> void:
 	var selected := _selected_instance()
 	if selected.is_empty() or install_busy:
-		instance_status.text = "Select an instance first."
+		if is_instance_valid(instance_status):
+			instance_status.text = "Select an instance first."
 		return
 	handled_install_name = ""
 	if runtime.install_instance(selected_name, str(selected.get("version", ""))):
@@ -696,9 +720,9 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Explore the mods installed in your selected Minecraft instance."
+	workspace_subtitle.text = "Mods for your selected Minecraft instance."
 	if selected_name.is_empty():
-		var empty := _page_card(workspace_body, "Choose an instance first", "Each instance has its own collection of mods. Select one to see what is installed.")
+		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
 		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
 		choose.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		empty.add_child(choose)
@@ -708,21 +732,19 @@ func _render_mods_page() -> void:
 	var selected := _selected_instance()
 	collection.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 260)
-	mods_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mods_list.custom_minimum_size = Vector2(0, 300)
+	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.7), Color(0.35, 0.43, 0.34, 0.48)))
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
-	var refresh := _make_button("Refresh mods", _refresh_mods_page)
-	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 12)
 	collection.add_child(actions)
 	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
-	actions.add_child(refresh)
-	collection.add_child(_make_label("Choose Fabric mods for this Minecraft version. Install any required dependencies too.", 16, true))
+	actions.add_child(_make_button("Refresh mods", _refresh_mods_page))
+	collection.add_child(_make_label("Use Fabric mods made for this Minecraft version and install required dependencies.", 16, true))
 	_refresh_mods_page()
 
 func _add_mod() -> void:
@@ -731,7 +753,7 @@ func _add_mod() -> void:
 	if runtime.add_instance_mod(selected_name):
 		mods_status.text = "Choose a mod in the file picker, then refresh this list when you return."
 	else:
-		mods_status.text = "Could not open mod import. Use the updated Android build and stop Minecraft first."
+		mods_status.text = "Could not open mod import. Stop Minecraft and try again."
 
 func _refresh_mods_page() -> void:
 	if not is_instance_valid(mods_list):
@@ -750,7 +772,7 @@ func _refresh_mods_page() -> void:
 func _render_accounts_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Accounts"
-	workspace_subtitle.text = "Connect your Minecraft account and get ready to play."
+	workspace_subtitle.text = "Connect the Microsoft account that owns Minecraft: Java Edition."
 	var account := _page_card(workspace_body, "Your account")
 	account_page_title = _make_label("Microsoft account", 23)
 	account.add_child(account_page_title)
@@ -802,7 +824,7 @@ func _refresh_account_page_fields(auth: Dictionary) -> void:
 		account_page_status.text = "Microsoft sign-in requires the Android build."
 		account_page_action.disabled = true
 	elif not configured:
-		account_page_status.text = "This build does not have a VoxyQuest Microsoft application client ID configured."
+		account_page_status.text = "This build does not have a Microsoft application client ID configured."
 		account_page_action.disabled = true
 	elif state == "waiting_for_user" and not code.is_empty():
 		account_page_status.text = "Enter the code below in the Microsoft page. The browser should already be open."
@@ -850,7 +872,7 @@ func _cancel_account_login() -> void:
 func _render_settings_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Settings"
-	workspace_subtitle.text = "Manage your launcher and check that everything is ready."
+	workspace_subtitle.text = "Launcher and runtime status."
 	var selection := _page_card(workspace_body, "Game selection", "Choose which installed instance the Play button opens.")
 	_detail_row(selection, "Selected instance", selected_name if not selected_name.is_empty() else "None selected")
 	var row := HBoxContainer.new()
