@@ -64,7 +64,9 @@ static void voxyquest_breadcrumb(const char *message) {
 
     FILE *file = fopen(path, "a");
     if (file == NULL) return;
-    fprintf(file, "%s\n", message);
+    // The launcher crash dialog whitelists "VoxyQuest launch:" lines. Prefix the
+    // fsync'd native breadcrumbs so the exact native JVM stage appears in the report.
+    fprintf(file, "VoxyQuest launch: %s\n", message);
     fflush(file);
     fsync(fileno(file));
     fclose(file);
