@@ -20,6 +20,7 @@ var runtime: RefCounted = VoxyQuestRuntimeBridge.new()
 var selected_name := ""
 var play_mode := "vr"
 var installed_instances: Array = []
+var instance_read_error := ""
 var signed_in := false
 var install_busy := false
 var current_section := "Home"
@@ -234,6 +235,7 @@ func _build_install_timer() -> void:
 	add_child(install_timer)
 
 func _clear_workspace() -> void:
+	(workspace_body.get_parent() as ScrollContainer).scroll_vertical = 0
 	for child in workspace_body.get_children():
 		workspace_body.remove_child(child)
 		child.queue_free()
@@ -393,6 +395,9 @@ func _sync_account(auth: Dictionary) -> void:
 
 func _refresh_instances() -> void:
 	var snapshot: Dictionary = runtime.get_instance_snapshot()
+	instance_read_error = str(snapshot.get("error", ""))
+	if not bool(snapshot.get("available", false)):
+		instance_read_error = "Instances need the Android runtime. Open an APK with the VoxyQuest bridge included."
 	installed_instances = snapshot.get("instances", [])
 	if not selected_name.is_empty() and not _has_instance(selected_name):
 		selected_name = ""
@@ -574,8 +579,9 @@ func _populate_instance_list() -> void:
 		return
 	instance_list.clear()
 	if is_instance_valid(instance_empty_hint):
-		instance_empty_hint.visible = installed_instances.is_empty()
-	instance_list.visible = not installed_instances.is_empty()
+		instance_empty_hint.visible = installed_instances.is_empty() or not instance_read_error.is_empty()
+		instance_empty_hint.text = instance_read_error if not instance_read_error.is_empty() else "No instances installed yet. Choose a Minecraft version below and install one."
+	instance_list.visible = true
 	var selected_index := -1
 	for index in range(installed_instances.size()):
 		var instance: Dictionary = installed_instances[index]
@@ -693,7 +699,7 @@ func _poll_install() -> void:
 	var busy := state == "installing"
 	install_busy = busy
 	if is_instance_valid(install_submit):
-		install_submit.disabled = busy or not is_instance_valid(install_version) or install_version.item_count == 0
+		install_submit.disabled = busy or not runtime.is_available() or state == "unavailable" or not is_instance_valid(install_version) or install_version.item_count == 0
 	if is_instance_valid(install_name):
 		install_name.editable = not busy
 	if is_instance_valid(install_version):

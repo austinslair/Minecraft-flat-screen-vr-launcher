@@ -117,10 +117,12 @@ func get_instance_snapshot() -> Dictionary:
 
 func get_install_versions() -> Array:
 	if _plugin == null or not _plugin.has_method("getInstallVersionsJson"):
-		return []
-	var parsed: Variant = JSON.parse_string(str(_plugin.getInstallVersionsJson()))
-	if parsed is Array and not parsed.is_empty():
-		return parsed
+		return BUNDLED_INSTALL_VERSIONS.duplicate()
+	var json := JSON.new()
+	if json.parse(str(_plugin.getInstallVersionsJson())) == OK:
+		var parsed: Variant = json.data
+		if parsed is Array and not parsed.is_empty():
+			return parsed
 	# The same versions are bundled in assets/voxyquest/runtime_mods.json. Keep the
 	# installer usable if the Android bridge returns an empty catalog response.
 	return BUNDLED_INSTALL_VERSIONS.duplicate()

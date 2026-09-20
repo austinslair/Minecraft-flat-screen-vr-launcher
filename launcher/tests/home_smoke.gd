@@ -58,11 +58,28 @@ class FakeRuntime extends RefCounted:
 		imported = name
 		return true
 
+class CatalogPlugin extends RefCounted:
+	var response := "[]"
+	func getInstallVersionsJson() -> String:
+		return response
+
 func _initialize() -> void:
 	call_deferred("run_checks")
 
 func run_checks() -> void:
 	create_timer(10).timeout.connect(func(): quit(1))
+	var bridge := VoxyQuestRuntimeBridge.new()
+	bridge._plugin = null
+	assert(not bridge.get_install_versions().is_empty())
+	bridge._plugin = RefCounted.new()
+	assert(not bridge.get_install_versions().is_empty())
+	var catalog := CatalogPlugin.new()
+	bridge._plugin = catalog
+	assert(not bridge.get_install_versions().is_empty())
+	catalog.response = "invalid json"
+	assert(not bridge.get_install_versions().is_empty())
+	catalog.response = '["1.20.1"]'
+	assert(bridge.get_install_versions() == ["1.20.1"])
 	var ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await process_frame
@@ -73,6 +90,12 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("Version") == null)
 	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a == 0)
 	assert(ui.get_node("AccountTitle").clip_text)
+	ui._open_section("Instances")
+	assert(ui.install_version.item_count > 0)
+	assert(ui.install_submit.disabled)
+	assert(ui.instance_empty_hint.text.contains("Android runtime"))
+	assert(ui.instance_list.visible)
+	ui._open_section("Home")
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -80,6 +103,11 @@ func run_checks() -> void:
 	assert(ui.workspace_body.find_children("*", "Button", true, false).size() == 1)
 	ui._open_section("Instances")
 	assert(ui.instance_empty_hint.visible)
+	fake.snapshot.error = "Could not read saved instances"
+	ui._refresh_instances()
+	assert(ui.instance_empty_hint.text == "Could not read saved instances")
+	fake.snapshot.error = ""
+	ui._refresh_instances()
 	ui._open_section("Home")
 	ui._refresh_instances()
 	assert(ui.get_node("InstanceEmpty").text == "No instances installed")
@@ -102,6 +130,16 @@ func run_checks() -> void:
 	ui._on_instance_selected(0)
 	assert(ui.selected_name == "My saved world")
 	assert(ui.instance_rename.text == "My saved world")
+	(ui.workspace_body.get_parent() as ScrollContainer).scroll_vertical = 250
+	ui._open_section("Home")
+	ui._open_section("Instances")
+	await process_frame
+	await process_frame
+	assert((ui.workspace_body.get_parent() as ScrollContainer).scroll_vertical == 0)
+	assert(ui.instance_list.is_visible_in_tree())
+	assert(ui.instance_list.get_selected_items()[0] == 0)
+	assert(ui.instance_list.get_global_rect().intersection((ui.workspace_body.get_parent() as ScrollContainer).get_global_rect()).size.y > 100)
+
 
 	ui._sync_account({"signed_in": true, "profile_name": "Test player"})
 	assert(ui.get_node("AccountTitle").text == "Test player")
