@@ -70,10 +70,11 @@ open class MinecraftGameActivity : Activity() {
         val info = ActivityManager.MemoryInfo()
         manager.getMemoryInfo(info)
         val usableMb = ((info.availMem - info.threshold).coerceAtLeast(0L) / (1024L * 1024L))
-        // Minecraft also needs substantial native/OpenXR/GPU memory outside the Java heap.
-        // Keep roughly half of currently usable RAM outside the JVM and cap the heap so
-        // Android does not kill the whole process while Minecraft is still loading.
-        val heapMb = (usableMb / 2L).coerceIn(1024L, 2048L)
+        // The JVM heap is only part of Minecraft's memory use. Vivecraft/OpenXR, LWJGL,
+        // graphics drivers, native libraries, and the still-resident Godot host all need
+        // room outside the Java heap. The previous 1 GiB minimum left only ~336 MiB when
+        // the device reported 1360 MiB usable, which can make Android kill the process.
+        val heapMb = (usableMb / 2L).coerceIn(768L, 1536L)
         API.customRAMValue = true
         API.memoryValue = heapMb.toString()
         Logger.getInstance().appendToLog(
@@ -98,9 +99,18 @@ open class MinecraftGameActivity : Activity() {
                 API.currentInstance = instance
                 API.gameReady = false
                 configureJvmMemory()
+
+                // This is part of Pojlib's normal launch sequence. It redirects the embedded
+                // JVM's stdout/stderr into latestlog.txt so startup failures survive a process
+                // exit instead of looking like an unexplained return to Quest Home.
+                Logger.getInstance().appendToLog("VoxyQuest launch: enabling Java output capture")
+                JREUtils.redirectAndPrintJRELog()
+                Logger.getInstance().appendToLog("VoxyQuest launch: Java output capture ready")
+
                 if (vr) {
                     Logger.getInstance().appendToLog("VoxyQuest launch: configuring OpenXR")
                     VLoader.setAndroidInitInfo(this)
+                    Logger.getInstance().appendToLog("VoxyQuest launch: OpenXR configuration ready")
                 }
                 Logger.getInstance().appendToLog("VoxyQuest launch: starting Java VM")
                 val exitCode = JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
