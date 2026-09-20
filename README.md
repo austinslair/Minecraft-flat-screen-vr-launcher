@@ -6,6 +6,14 @@
 
 **A VR-native Minecraft launcher for standalone headsets, with VR and flat-screen play modes.**
 
+### Download
+
+[![Download VoxyQuest APK](https://img.shields.io/badge/Download-VoxyQuest%20APK-2ea44f?style=for-the-badge&logo=android&logoColor=white)](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases/download/v0.1.0-alpha.1/VoxyQuest-Quest.apk)
+
+[View all releases](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases)
+
+**Current test release:** `v0.1.0-alpha.1` · Meta Quest APK
+
 </div>
 
 VoxyQuest is being built as a headset-native launcher instead of a normal desktop-style launcher window. The launcher shell is now based on **Godot 4.7.2 + OpenXR**. Minecraft runtime work is kept behind an Android bridge so the UI can evolve without becoming coupled to launcher internals.
