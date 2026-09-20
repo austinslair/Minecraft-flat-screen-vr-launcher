@@ -55,11 +55,10 @@ jobs:
           test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
           test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
           test -f launcher/scripts/launcher.gd
-          test -f launcher/scripts/instance_install_ux.gd
+          test -f launcher/scripts/home.gd
+          test ! -e launcher/scripts/instance_install_ux.gd
           test -f launcher/tests/install_bridge.gd
-          grep -q 'InstanceInstallUX=' launcher/project.godot
-          grep -q 'Installer started. Waiting for download progress' launcher/scripts/instance_install_ux.gd
-          grep -q 'runtime_bridge.install_instance(instance_name, version)' launcher/scripts/instance_install_ux.gd
+          grep -q 'runtime.install_instance(new_name, version)' launcher/scripts/home.gd
           grep -q 'return bool(plugin.installInstance(instance_name, version))' launcher/scripts/runtime_bridge.gd
           test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
           test ! -e third_party/Pojlib/libs/unity-classes.jar

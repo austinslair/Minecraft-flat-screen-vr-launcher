@@ -9,6 +9,8 @@ class FakeRuntime extends RefCounted:
 	var imported := ""
 	var install_args: Array = []
 	var install_state := "idle"
+	var accept_install := true
+	var install_calls := 0
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -22,8 +24,9 @@ class FakeRuntime extends RefCounted:
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
 	func install_instance(_name: String, _version: String) -> bool:
+		install_calls += 1
 		install_args = [_name, _version]
-		return true
+		return accept_install
 	func rename_instance(old_name: String, new_name: String) -> bool:
 		for item in snapshot.instances:
 			if item.name == old_name:
@@ -122,6 +125,26 @@ func run_checks() -> void:
 	assert(ui.current_section == "Instances")
 	assert(ui.workspace.visible)
 	assert(ui.instance_list.get_item_count() == 1)
+	fake.accept_install = false
+	ui.install_name.text = "Rejected instance"
+	ui.install_submit.pressed.emit()
+	assert(ui.install_status.text.contains("rejected"))
+	ui._poll_install()
+	assert(ui.install_status.text.contains("rejected"))
+	assert(ui.get_node("ActionDialog").visible)
+	ui.get_node("ActionDialog").hide()
+	fake.accept_install = true
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["Rejected instance", "test"])
+	assert(ui.install_status.text == "Preparing installation…")
+	ui.install_name.text = ""
+	var previous_calls := fake.install_calls
+	ui.install_submit.pressed.emit()
+	assert(fake.install_calls == previous_calls + 1)
+	assert(fake.install_args == ["Minecraft test", "test"])
+	assert(ui.install_submit.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS)
+
+
 	await process_frame
 	await process_frame
 	assert(ui.workspace_body.get_parent() is ScrollContainer)
