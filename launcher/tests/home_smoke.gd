@@ -8,6 +8,7 @@ class FakeRuntime extends RefCounted:
 	var last_mode := ""
 	var imported := ""
 	var install_args: Array = []
+	var install_state := "idle"
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -19,7 +20,7 @@ class FakeRuntime extends RefCounted:
 	func get_install_versions() -> Array:
 		return ["test"]
 	func get_install_snapshot() -> Dictionary:
-		return {"state": "idle", "message": "", "installed_name": ""}
+		return {"state": install_state, "message": "", "installed_name": ""}
 	func install_instance(_name: String, _version: String) -> bool:
 		install_args = [_name, _version]
 		return true
@@ -150,6 +151,17 @@ func run_checks() -> void:
 	ui.play_mode = "vr"
 	ui._on_play_pressed()
 	assert(fake.last_mode == "vr")
+	fake.snapshot.instances[0].installed = false
+	ui._refresh_instances()
+	assert(ui.get_node("PlaybarCaption").text == "REPAIR REQUIRED")
+	fake.snapshot.instances[0].installed = true
+	fake.install_state = "installing"
+	ui._poll_install()
+	assert(ui.get_node("Play").disabled)
+	fake.install_state = "error"
+	ui._poll_install()
+	assert(not ui.get_node("Play").disabled)
+	fake.install_state = "idle"
 	ui._repair_selected_instance()
 	assert(fake.install_args == [ui.selected_name, "test"])
 

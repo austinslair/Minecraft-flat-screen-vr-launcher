@@ -129,6 +129,8 @@ func style_button(button: Button) -> void:
 	button.add_theme_stylebox_override("pressed", style_box(Color(0.8, 0.85, 0.82, 0.12), Color(0.8, 0.85, 0.81, 0.35)))
 	button.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), Color(0.85, 0.9, 0.87, 0.8)))
 	button.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
+	if button == $ChangeInstance:
+		button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
 	if button == $Play:
 		_style_primary_button(button)
 
@@ -137,6 +139,10 @@ func _style_primary_button(button: Button) -> void:
 	button.add_theme_stylebox_override("hover", style_box(Color("79b35b"), Color.TRANSPARENT))
 	button.add_theme_stylebox_override("pressed", style_box(Color("52823c"), Color.TRANSPARENT))
 	button.add_theme_color_override("font_color", Color("10170d"))
+	for state in ["normal", "hover", "pressed"]:
+		var box := button.get_theme_stylebox(state)
+		box.content_margin_left = 16
+		box.content_margin_right = 16
 
 func _style_danger_button(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", style_box(Color(0.24, 0.07, 0.07, 0.72), Color(0.72, 0.31, 0.31, 0.75)))
@@ -457,7 +463,7 @@ func _update_play() -> void:
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false)))
 	$Play.modulate = Color.WHITE
 	$Play.tooltip_text = "Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
-	$PlaybarCaption.text = "INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else "READY TO PLAY"))
+	$PlaybarCaption.text = "INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else ("REPAIR REQUIRED" if not bool(selected.get("installed", false)) else "READY TO PLAY")))
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
@@ -489,7 +495,7 @@ func _detail_row(parent: Control, caption: String, value: String) -> void:
 	row.add_theme_constant_override("separation", 24)
 	parent.add_child(row)
 	var label := _make_label(caption, 17, true)
-	label.custom_minimum_size.x = 210
+	label.custom_minimum_size.x = 260
 	row.add_child(label)
 	var detail := _make_label(value, 17)
 	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -739,6 +745,7 @@ func _poll_install() -> void:
 				if current_section == "Instances":
 					_render_instances_page()
 	_update_instance_editor_state()
+	_update_play()
 
 func _render_mods_page() -> void:
 	_clear_workspace()
@@ -836,6 +843,9 @@ func _refresh_account_page_fields(auth: Dictionary) -> void:
 
 	account_page_title.text = "Signed in as %s" % profile if is_signed_in else "Microsoft account"
 	account_page_code.text = code if state == "waiting_for_user" else ""
+	account_page_code.get_parent().visible = state == "waiting_for_user" and not code.is_empty()
+	account_page_copy.visible = state == "waiting_for_user" and not code.is_empty()
+	account_page_cancel.visible = state in ACTIVE_AUTH_STATES
 	account_page_copy.disabled = code.is_empty()
 	account_page_cancel.disabled = not (state in ACTIVE_AUTH_STATES)
 
