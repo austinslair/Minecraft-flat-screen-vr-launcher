@@ -56,7 +56,10 @@ jobs:
           test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
           test -f launcher/scripts/launcher.gd
           test -f launcher/scripts/instance_install_ux.gd
+          test -f launcher/tests/install_bridge.gd
           grep -q 'InstanceInstallUX=' launcher/project.godot
+          grep -q 'Installing —' launcher/scripts/instance_install_ux.gd
+          grep -q 'return bool(plugin.installInstance(instance_name, version))' launcher/scripts/runtime_bridge.gd
           test ! -e third_party/Pojlib/src/main/java/pojlib/UnityPlayerActivity.java
           test ! -e third_party/Pojlib/libs/unity-classes.jar
           test ! -e launcher/scripts/xr_bootstrap.gd
@@ -102,6 +105,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/home_smoke.gd
           "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/auth_flow.gd
+          "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/install_bridge.gd
 
       - name: Capture launcher UI previews
         env:
@@ -148,7 +152,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.3
+          TAG: v0.1.0-alpha.4
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
@@ -156,9 +160,11 @@ jobs:
           cat > release-notes.md <<EOF
           VoxyQuest alpha test build for Meta Quest.
 
-          Instance installation is now one-click on Quest. If the instance-name field is blank, VoxyQuest automatically creates a valid name from the selected Minecraft version before starting the existing installer. When installation finishes, the launcher selects that instance so it is ready for Play after Microsoft sign-in.
+          Fixes instance installs that could be rejected before the Android worker started. The launcher now sends the install request directly to the Android installer, which initializes Pojlib on demand.
 
-          This build keeps the stable alpha signing key and increases the Android version code, so it can update directly over alpha.2 without uninstalling.
+          The Instances page now shows live visible install feedback: Starting, Installing with the current download stage, Installed, or Retry install on failure.
+
+          Uses the same stable alpha signing key and Android version code 4, so it can update directly over alpha.2/alpha.3.
 
           Built from commit: $GITHUB_SHA
 
@@ -169,7 +175,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.3" \
+              --title "VoxyQuest v0.1.0-alpha.4" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"
