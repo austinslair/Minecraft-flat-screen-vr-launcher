@@ -208,7 +208,14 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
                 ?: return false
             if (!VoxyQuestInstaller.isInstalled(instance)) return false
-            host.startActivity(Intent(host, if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java).putExtra("instance_name", name))
+            val intent = Intent(
+                host,
+                if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,
+            ).putExtra("instance_name", name)
+            host.startActivity(intent)
+            // The Godot launcher can otherwise remain resident while Minecraft, the JVM, and
+            // OpenXR allocate memory. It is recreated by PojlibRuntime.restartSession() on exit.
+            host.finish()
             true
         }.getOrDefault(false)
     }
