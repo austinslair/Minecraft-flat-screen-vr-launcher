@@ -6,9 +6,6 @@ config_version=5
 config/name="VoxyQuest"
 run/main_scene="res://scenes/main.tscn"
 
-[autoload]
-InstanceInstallUX="*res://scripts/instance_install_ux.gd"
-
 [display]
 window/size/viewport_width=1536
 window/size/viewport_height=1024

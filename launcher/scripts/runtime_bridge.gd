@@ -14,6 +14,7 @@ const BUNDLED_INSTALL_VERSIONS := [
 ]
 
 var _plugin: Object = null
+var _install_request_error := ""
 
 func _init() -> void:
 	_refresh_plugin()
@@ -150,18 +151,24 @@ func get_install_versions() -> Array:
 
 func install_instance(instance_name: String, version: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("installInstance"):
+	_install_request_error = ""
+	if plugin == null:
+		_install_request_error = "The Android runtime is missing or has not loaded. Install an APK that includes VoxyQuestBridge and Pojlib."
+		return false
+	if not plugin.has_method("installInstance"):
+		_install_request_error = "This APK contains an older runtime without instance installation. Update the complete APK."
 		return false
 	# Do not block the request on launcher-side initialization. The Android
 	# installer worker initializes Pojlib itself before downloading anything.
 	return bool(plugin.installInstance(instance_name, version))
 
 func get_install_snapshot() -> Dictionary:
+	if not _install_request_error.is_empty():
+		return {"state": "error", "message": _install_request_error}
 	var plugin: Object = _refresh_plugin()
 	if plugin == null or not plugin.has_method("getInstallSnapshotJson"):
-		# Do not grey out Install on Quest just because the plugin is still attaching.
 		if OS.get_name() == "Android":
-			return {"state": "idle", "message": ""}
+			return {"state": "idle", "message": "Android installer not connected. Tap Install to check again, or update the complete APK."}
 		return {"state": "unavailable", "message": "Installation is available in the Android launcher."}
 	var parsed: Variant = JSON.parse_string(str(plugin.getInstallSnapshotJson()))
 	return parsed if parsed is Dictionary else {"state": "error", "message": "Invalid installer response."}

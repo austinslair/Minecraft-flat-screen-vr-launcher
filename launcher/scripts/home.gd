@@ -49,6 +49,7 @@ var install_submit: Button
 var install_status: Label
 var install_timer: Timer
 var handled_install_name := ""
+var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
@@ -573,7 +574,7 @@ func _render_instances_page() -> void:
 	install_row.add_theme_constant_override("separation", 8)
 	installer.add_child(install_row)
 	install_name = LineEdit.new()
-	install_name.placeholder_text = "Instance name"
+	install_name.placeholder_text = "Optional — automatic name"
 	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
 	install_name.custom_minimum_size = Vector2(340, 46)
@@ -586,6 +587,7 @@ func _render_instances_page() -> void:
 		install_version.add_item(str(version))
 	_field(install_row, "Minecraft version", install_version)
 	install_submit = _make_button("Install", _start_install, true)
+	install_submit.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	install_submit.custom_minimum_size = Vector2(170, 46)
 	install_submit.size_flags_vertical = Control.SIZE_SHRINK_END
 	install_row.add_child(install_submit)
@@ -701,19 +703,33 @@ func _repair_selected_instance() -> void:
 func _start_install() -> void:
 	if not is_instance_valid(install_name) or not is_instance_valid(install_version):
 		return
-	var new_name := install_name.text.strip_edges()
-	if new_name.is_empty():
-		install_status.text = "Enter a name for this instance."
+	if install_busy:
 		return
 	if install_version.item_count == 0:
-		install_status.text = "No supported runtime versions are available."
+		install_feedback = "No supported runtime versions are available."
+		install_status.text = install_feedback
+		_show_message("Installation unavailable", install_feedback)
 		return
+	if install_version.selected < 0:
+		install_version.select(0)
+	var version := install_version.get_item_text(install_version.selected)
+	var new_name := install_name.text.strip_edges()
+	if new_name.is_empty():
+		new_name = "Minecraft %s" % version.replace(".", "-")
+		install_name.text = new_name
+
 	handled_install_name = ""
-	if runtime.install_instance(new_name, install_version.get_item_text(install_version.selected)):
-		install_status.text = "Preparing installation…"
+	if runtime.install_instance(new_name, version):
+		install_feedback = "Preparing installation…"
+		install_status.text = install_feedback
 		install_timer.start()
 	else:
-		install_status.text = "Could not start the installation."
+		var snapshot: Dictionary = runtime.get_install_snapshot()
+		install_feedback = str(snapshot.get("message", "")).strip_edges()
+		if install_feedback.is_empty():
+			install_feedback = "The Android installer rejected the request. Stop Minecraft, check the instance name, and try again."
+		install_status.text = install_feedback
+		_show_message("Installation did not start", install_feedback)
 	_poll_install()
 
 func _poll_install() -> void:
@@ -722,13 +738,19 @@ func _poll_install() -> void:
 	var busy := state == "installing"
 	install_busy = busy
 	if is_instance_valid(install_submit):
+		install_submit.text = "Installing…" if busy else ("Retry install" if state == "error" else "Install")
 		install_submit.disabled = busy or not runtime.is_available() or state == "unavailable" or not is_instance_valid(install_version) or install_version.item_count == 0
 	if is_instance_valid(install_name):
 		install_name.editable = not busy
 	if is_instance_valid(install_version):
 		install_version.disabled = busy
+	var message := str(snapshot.get("message", "")).strip_edges()
+	if not message.is_empty():
+		install_feedback = message
+	elif busy:
+		install_feedback = "Installing Minecraft…"
 	if is_instance_valid(install_status):
-		install_status.text = str(snapshot.get("message", ""))
+		install_status.text = install_feedback
 	if busy:
 		_update_play()
 		if install_timer.is_stopped():
