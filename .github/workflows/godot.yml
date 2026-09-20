@@ -2,7 +2,7 @@ name: Godot Android smoke test
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/native-library-extraction]
   pull_request:
   workflow_dispatch:
 
