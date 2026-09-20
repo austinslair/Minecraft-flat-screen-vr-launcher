@@ -2,6 +2,16 @@ class_name VoxyQuestRuntimeBridge
 extends RefCounted
 
 const PLUGIN_NAME := "VoxyQuestBridge"
+const BUNDLED_INSTALL_VERSIONS := [
+	"1.21.5",
+	"1.21.4",
+	"1.21.1",
+	"1.20.6",
+	"1.20.4",
+	"1.20.1",
+	"1.19.4",
+	"1.19.2",
+]
 
 var _plugin: Object = null
 
@@ -109,7 +119,11 @@ func get_install_versions() -> Array:
 	if _plugin == null or not _plugin.has_method("getInstallVersionsJson"):
 		return []
 	var parsed: Variant = JSON.parse_string(str(_plugin.getInstallVersionsJson()))
-	return parsed if parsed is Array else []
+	if parsed is Array and not parsed.is_empty():
+		return parsed
+	# The same versions are bundled in assets/voxyquest/runtime_mods.json. Keep the
+	# installer usable if the Android bridge returns an empty catalog response.
+	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
 func install_instance(instance_name: String, version: String) -> bool:
 	return _plugin != null and _plugin.has_method("installInstance") and bool(_plugin.installInstance(instance_name, version))
