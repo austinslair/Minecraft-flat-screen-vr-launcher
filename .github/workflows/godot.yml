@@ -116,22 +116,18 @@ jobs:
           path: ${{ runner.temp }}/launcher-previews/*.png
           if-no-files-found: error
 
-      - name: Create CI debug keystore
+      - name: Prepare stable alpha signing key
         run: |
-          keytool -genkeypair -noprompt \
-            -keystore "$RUNNER_TEMP/debug.keystore" \
+          base64 --decode .github/voxyquest-alpha.keystore.b64 > "$RUNNER_TEMP/voxyquest-alpha.keystore"
+          keytool -list \
+            -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" \
             -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Android Debug,O=VoxyQuest,C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
+            -alias voxyquestalpha >/dev/null
 
       - name: Export flat Quest launcher APK
         env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/debug.keystore
-          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/voxyquest-alpha.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: voxyquestalpha
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p launcher/build
@@ -150,7 +146,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.1
+          TAG: v0.1.0-alpha.2
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
@@ -158,18 +154,20 @@ jobs:
           cat > release-notes.md <<EOF
           VoxyQuest alpha test build for Meta Quest.
 
-          Includes the latest launcher redesign and current fixes on main, including instance selection/catalog handling, late Android bridge discovery for the installer, play readiness, instance repair/resume, VR/flatscreen launch modes, and Fabric mod import.
+          Fixes the instance Install button becoming unavailable while the Android bridge is attaching. Install remains available on Quest and retries runtime initialization when pressed.
+
+          This build also starts VoxyQuest's stable alpha signing line so future alpha APKs can update over it when their Android version code is increased.
 
           Built from commit: $GITHUB_SHA
 
-          This is a debug-signed prerelease intended for headset testing.
+          This is a prerelease test build. The committed alpha signing key is for test builds only and must not be used for a production release.
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.1" \
+              --title "VoxyQuest v0.1.0-alpha.2" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"
