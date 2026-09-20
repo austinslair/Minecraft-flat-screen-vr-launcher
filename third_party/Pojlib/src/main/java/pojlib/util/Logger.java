@@ -3,6 +3,7 @@ package pojlib.util;
 import androidx.annotation.Keep;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.ref.WeakReference;
@@ -66,7 +67,7 @@ public class Logger {
 
         try {
             mLogFile.createNewFile();
-            mLogStream = new PrintStream(mLogFile.getAbsolutePath());
+            mLogStream = new PrintStream(new FileOutputStream(mLogFile, true));
         }catch (IOException e){e.printStackTrace();}
 
     }
@@ -132,7 +133,7 @@ public class Logger {
             if (mLogStream != null) mLogStream.close();
             mLogFile.delete();
             mLogFile.createNewFile();
-            mLogStream = new PrintStream(mLogFile.getAbsolutePath());
+            mLogStream = new PrintStream(new FileOutputStream(mLogFile, true));
         }catch (IOException e){ e.printStackTrace();}
     }
 
