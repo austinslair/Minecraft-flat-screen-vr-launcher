@@ -65,6 +65,11 @@ func run_checks() -> void:
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
+	ui._open_section("Mods")
+	assert(ui.workspace_body.find_children("*", "Button", true, false).size() == 1)
+	ui._open_section("Instances")
+	assert(ui.instance_empty_hint.visible)
+	ui._open_section("Home")
 	ui._refresh_instances()
 	assert(ui.get_node("InstanceEmpty").text == "No instances installed")
 

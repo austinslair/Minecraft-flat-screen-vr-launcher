@@ -32,6 +32,7 @@ var workspace_title: Label
 var workspace_subtitle: Label
 var workspace_body: VBoxContainer
 
+var instance_empty_hint: Label
 var instance_list: ItemList
 var instance_rename: LineEdit
 var instance_rename_button: Button
@@ -428,28 +429,67 @@ func _update_play() -> void:
 	$Play.tooltip_text = "Sign in and select a fully installed instance to play Minecraft VR." if $Play.disabled else "Play Minecraft VR"
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · VR" % str(selected.get("version", ""))
 
+func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("18271e"), Color("3e5143")))
+	parent.add_child(panel)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 14)
+	panel.add_child(body)
+	var title := _make_label(heading, 21)
+	title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	body.add_child(title)
+	if not description.is_empty():
+		body.add_child(_make_label(description, 16, true))
+	return body
+
+func _field(parent: Control, caption: String, control: Control) -> void:
+	var field := VBoxContainer.new()
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.add_theme_constant_override("separation", 8)
+	parent.add_child(field)
+	field.add_child(_make_label(caption, 15, true))
+	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.add_child(control)
+
+func _detail_row(parent: Control, caption: String, value: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	parent.add_child(row)
+	var label := _make_label(caption, 17, true)
+	label.custom_minimum_size.x = 210
+	row.add_child(label)
+	var detail := _make_label(value, 17)
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(detail)
+
 func _render_instances_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Select an instance to play or edit it here. Install another version from the same page."
+	workspace_subtitle.text = "Install, select, and manage your Minecraft VR instances."
 	_refresh_instances()
 
+	var library := _page_card(workspace_body, "Your instances", "Select an installed instance to manage it or play.")
+	instance_empty_hint = _make_label("No instances yet. Create your first installation below.", 18, true)
+	library.add_child(instance_empty_hint)
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 218)
+	instance_list.custom_minimum_size = Vector2(0, 156)
 	instance_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	instance_list.add_theme_font_size_override("font_size", 18)
 	instance_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.7), Color(0.35, 0.43, 0.34, 0.48)))
 	instance_list.item_selected.connect(_on_instance_selected)
-	workspace_body.add_child(instance_list)
+	library.add_child(instance_list)
 
 	var edit_row := HBoxContainer.new()
 	edit_row.add_theme_constant_override("separation", 10)
-	workspace_body.add_child(edit_row)
+	library.add_child(edit_row)
 	instance_rename = LineEdit.new()
 	instance_rename.placeholder_text = "Select an instance to rename"
 	instance_rename.max_length = 48
-	instance_rename.custom_minimum_size = Vector2(360, 48)
+	instance_rename.custom_minimum_size = Vector2(260, 48)
 	instance_rename.add_theme_font_size_override("font_size", 17)
+	instance_rename.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	edit_row.add_child(instance_rename)
 	instance_rename_button = _make_button("Rename", _rename_selected_instance, true)
 	edit_row.add_child(instance_rename_button)
@@ -459,33 +499,33 @@ func _render_instances_page() -> void:
 
 	instance_status = _make_label(instance_notice, 15, true)
 	instance_status.custom_minimum_size.y = 24
-	workspace_body.add_child(instance_status)
-	workspace_body.add_child(HSeparator.new())
-	workspace_body.add_child(_make_label("Install a new Minecraft VR instance", 19))
+	library.add_child(instance_status)
+	var installer := _page_card(workspace_body, "Create an instance", "Give your installation a name and choose a Minecraft version.")
 
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 10)
-	workspace_body.add_child(install_row)
+	installer.add_child(install_row)
 	install_name = LineEdit.new()
 	install_name.placeholder_text = "Instance name"
 	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
 	install_name.custom_minimum_size = Vector2(330, 48)
 	install_name.add_theme_font_size_override("font_size", 17)
-	install_row.add_child(install_name)
+	_field(install_row, "Instance name", install_name)
 	install_version = OptionButton.new()
 	install_version.custom_minimum_size = Vector2(230, 48)
 	install_version.add_theme_font_size_override("font_size", 17)
 	for version in runtime.get_install_versions():
 		install_version.add_item(str(version))
-	install_row.add_child(install_version)
+	_field(install_row, "Minecraft version", install_version)
 	install_submit = _make_button("Install", _start_install, true)
 	install_submit.custom_minimum_size.x = 180
+	install_submit.size_flags_vertical = Control.SIZE_SHRINK_END
 	install_row.add_child(install_submit)
 
 	install_status = _make_label("", 15, true)
 	install_status.custom_minimum_size.y = 24
-	workspace_body.add_child(install_status)
+	installer.add_child(install_status)
 	_populate_instance_list()
 	_poll_install()
 
@@ -493,6 +533,9 @@ func _populate_instance_list() -> void:
 	if not is_instance_valid(instance_list):
 		return
 	instance_list.clear()
+	if is_instance_valid(instance_empty_hint):
+		instance_empty_hint.visible = installed_instances.is_empty()
+	instance_list.visible = not installed_instances.is_empty()
 	var selected_index := -1
 	for index in range(installed_instances.size()):
 		var instance: Dictionary = installed_instances[index]
@@ -626,24 +669,28 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Mods for the selected instance. Core Vivecraft/runtime files stay managed by VoxyQuest."
+	workspace_subtitle.text = "Explore the mods installed in your selected Minecraft instance."
 	if selected_name.is_empty():
-		workspace_body.add_child(_make_label("No instance selected.", 22))
-		workspace_body.add_child(_make_label("Select an instance from Instances first.", 16, true))
+		var empty := _page_card(workspace_body, "Choose an instance first", "Each instance has its own collection of mods. Select one to see what is installed.")
+		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
+		choose.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		empty.add_child(choose)
 		return
 
-	workspace_body.add_child(_make_label(selected_name, 23))
+	var collection := _page_card(workspace_body, selected_name)
 	var selected := _selected_instance()
-	workspace_body.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
+	collection.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 350)
+	mods_list.custom_minimum_size = Vector2(0, 260)
 	mods_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	mods_list.add_theme_font_size_override("font_size", 18)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.7), Color(0.35, 0.43, 0.34, 0.48)))
-	workspace_body.add_child(mods_list)
+	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
-	workspace_body.add_child(mods_status)
-	workspace_body.add_child(_make_button("Refresh mods", _refresh_mods_page, true))
+	collection.add_child(mods_status)
+	var refresh := _make_button("Refresh mods", _refresh_mods_page)
+	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	collection.add_child(refresh)
 	_refresh_mods_page()
 
 func _refresh_mods_page() -> void:
@@ -663,18 +710,19 @@ func _refresh_mods_page() -> void:
 func _render_accounts_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Accounts"
-	workspace_subtitle.text = "Microsoft device-code sign-in. Authentication finishes in the browser and returns to VoxyQuest."
+	workspace_subtitle.text = "Connect your Minecraft account and get ready to play."
+	var account := _page_card(workspace_body, "Your account")
 	account_page_title = _make_label("Microsoft account", 23)
-	workspace_body.add_child(account_page_title)
+	account.add_child(account_page_title)
 	account_page_status = _make_label("", 17, true)
 	account_page_status.custom_minimum_size.y = 56
-	workspace_body.add_child(account_page_status)
+	account.add_child(account_page_status)
 	account_page_code = LineEdit.new()
 	account_page_code.editable = false
 	account_page_code.placeholder_text = "Microsoft code appears here"
-	account_page_code.custom_minimum_size = Vector2(520, 52)
+	account_page_code.custom_minimum_size = Vector2(320, 64)
 	account_page_code.add_theme_font_size_override("font_size", 24)
-	workspace_body.add_child(account_page_code)
+	_field(account, "Microsoft sign-in code", account_page_code)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	account_page_action = _make_button("Sign in with Microsoft", _on_accounts_action, true)
@@ -684,8 +732,11 @@ func _render_accounts_page() -> void:
 	row.add_child(account_page_copy)
 	account_page_cancel = _make_button("Cancel", _cancel_account_login)
 	row.add_child(account_page_cancel)
-	workspace_body.add_child(row)
-	workspace_body.add_child(_make_label("VoxyQuest never displays or stores your Microsoft access token in Godot UI.", 15, true))
+	account.add_child(row)
+	var guide := _page_card(workspace_body, "Sign in from your headset")
+	_detail_row(guide, "01   Open Microsoft", "Start sign-in to open the browser on your headset.")
+	_detail_row(guide, "02   Enter your code", "Copy the code above, then paste or type it into the Microsoft page.")
+	_detail_row(guide, "03   Return to VoxyQuest", "Finish in the browser. Your account status updates automatically.")
 	_refresh_account_page_fields(runtime.get_microsoft_login_snapshot())
 
 func _refresh_account_page_fields(auth: Dictionary) -> void:
@@ -759,26 +810,26 @@ func _cancel_account_login() -> void:
 func _render_settings_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Settings"
-	workspace_subtitle.text = "Launcher and runtime status. Minecraft VR owns OpenXR only after launch."
-	var info: Dictionary = runtime.get_info()
-	var info_panel := VBoxContainer.new()
-	info_panel.add_theme_constant_override("separation", 6)
-	info_panel.add_child(_make_label("Runtime", 22))
-	info_panel.add_child(_make_label("Host engine: %s" % str(info.get("engine", "Godot")), 17, true))
-	info_panel.add_child(_make_label("Android bridge: %s" % str(info.get("bridge_version", "none")), 17, true))
-	info_panel.add_child(_make_label("Pojlib: %s" % str(info.get("pojlib", "not_loaded")), 17, true))
-	info_panel.add_child(_make_label("Selected instance: %s" % (selected_name if not selected_name.is_empty() else "None"), 17, true))
-	workspace_body.add_child(info_panel)
-	workspace_body.add_child(HSeparator.new())
+	workspace_subtitle.text = "Manage your launcher and check that everything is ready."
+	var selection := _page_card(workspace_body, "Game selection", "Choose which installed instance the Play button opens.")
+	_detail_row(selection, "Selected instance", selected_name if not selected_name.is_empty() else "None selected")
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	row.add_child(_make_button("Refresh launcher data", _refresh_launcher_data, true))
-	var clear_button := _make_button("Clear instance selection", _clear_instance_selection)
+	row.add_theme_constant_override("separation", 12)
+	selection.add_child(row)
+	row.add_child(_make_button("Choose instance", _open_section.bind("Instances"), true))
+	var clear_button := _make_button("Clear selection", _clear_instance_selection)
 	clear_button.disabled = selected_name.is_empty()
 	row.add_child(clear_button)
-	workspace_body.add_child(row)
+	var info: Dictionary = runtime.get_info()
+	var diagnostics := _page_card(workspace_body, "Launcher status")
+	_detail_row(diagnostics, "Host engine", str(info.get("engine", "Godot")))
+	_detail_row(diagnostics, "Android bridge", str(info.get("bridge_version", "Unavailable")))
+	_detail_row(diagnostics, "Pojlib runtime", str(info.get("pojlib", "Not loaded")))
+	var refresh := _make_button("Refresh launcher data", _refresh_launcher_data)
+	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	diagnostics.add_child(refresh)
 	settings_status = _make_label("", 16, true)
-	workspace_body.add_child(settings_status)
+	diagnostics.add_child(settings_status)
 
 func _refresh_launcher_data() -> void:
 	if runtime.is_available():
