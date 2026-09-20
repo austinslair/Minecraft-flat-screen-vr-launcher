@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: godot-${{ github.workflow }}-${{ github.ref }}
@@ -145,3 +145,31 @@ jobs:
           name: VoxyQuest-Quest-debug
           path: launcher/build/VoxyQuest-ci.apk
           if-no-files-found: error
+
+      - name: Publish VoxyQuest GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v0.1.0-alpha.1
+        run: |
+          cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
+          cd launcher/build
+          sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
+          cat > release-notes.md <<EOF
+          VoxyQuest alpha test build for Meta Quest.
+
+          Includes the latest launcher redesign and the current fixes on main, including instance selection/catalog handling, play readiness, instance repair/resume, VR/flatscreen launch modes, and Fabric mod import.
+
+          Built from commit: $GITHUB_SHA
+
+          This is a debug-signed prerelease intended for headset testing.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
+          else
+            gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
+              --title "VoxyQuest v0.1.0-alpha.1" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          fi
