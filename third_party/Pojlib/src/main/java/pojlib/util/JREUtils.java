@@ -210,6 +210,15 @@ public class JREUtils {
     }
 
     public static int launchJavaVM(final Activity activity, final List<String> JVMArgs, MinecraftInstances.Instance instance) throws Throwable {
+        // The embedded JVM loads filesystem paths, unlike ART's APK zip loader.
+        // Fail before entering native code if export did not extract these libraries.
+        for (String library : new String[]{"libpojavexec.so", "liblwjgl.so", "libjnidispatch.so"}) {
+            File nativeFile = new File(activity.getApplicationInfo().nativeLibraryDir, library);
+            if (!nativeFile.isFile() || !nativeFile.canRead()) {
+                throw new IOException("Required native library is not extracted: " + library +
+                        ". Install the complete APK with native library extraction enabled.");
+            }
+        }
         JREUtils.relocateLibPath(activity);
         setJavaEnvironment(activity, instance);
 
@@ -343,6 +352,8 @@ public class JREUtils {
                 "-Dorg.lwjgl.librarypath=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.boot.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.nosys=true",
+                "-Djna.nounpack=true",
+                "-Djna.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
                 "-Djava.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Dglfwstub.windowWidth=" + FlatDisplay.width,
                 "-Dglfwstub.windowHeight=" + FlatDisplay.height,

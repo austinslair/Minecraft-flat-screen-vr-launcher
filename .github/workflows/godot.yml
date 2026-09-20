@@ -140,6 +140,9 @@ jobs:
           GODOT="$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
           "$GODOT" --headless --path launcher --install-android-build-template --export-debug "Meta Quest" build/VoxyQuest-ci.apk
           test -s launcher/build/VoxyQuest-ci.apk
+          python3 scripts/verify_native_apk.py launcher/build/VoxyQuest-ci.apk
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4
