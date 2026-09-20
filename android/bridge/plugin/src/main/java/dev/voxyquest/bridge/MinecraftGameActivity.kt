@@ -1,8 +1,10 @@
 package dev.voxyquest.bridge
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import android.widget.TextView
 import pojlib.API
@@ -10,6 +12,7 @@ import pojlib.PojlibRuntime
 import pojlib.account.LoginHelper
 import pojlib.install.VoxyQuestInstaller
 import pojlib.util.JREUtils
+import pojlib.util.Logger
 import pojlib.util.VLoader
 import pojlib.util.json.MinecraftInstances
 
@@ -32,6 +35,9 @@ open class MinecraftGameActivity : Activity() {
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         isRunning = true
+        Logger.getInstance().appendToLog(
+            "VoxyQuest launch: game activity created (${if (this is MinecraftFlatActivity) "flat" else "vr"})",
+        )
         if (this is MinecraftFlatActivity) {
             val surface = android.view.SurfaceView(this)
             surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
@@ -59,11 +65,28 @@ open class MinecraftGameActivity : Activity() {
         }
     }
 
+    private fun configureJvmMemory() {
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val info = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(info)
+        val usableMb = ((info.availMem - info.threshold).coerceAtLeast(0L) / (1024L * 1024L))
+        // Minecraft also needs substantial native/OpenXR/GPU memory outside the Java heap.
+        // Keep roughly half of currently usable RAM outside the JVM and cap the heap so
+        // Android does not kill the whole process while Minecraft is still loading.
+        val heapMb = (usableMb / 2L).coerceIn(1024L, 2048L)
+        API.customRAMValue = true
+        API.memoryValue = heapMb.toString()
+        Logger.getInstance().appendToLog(
+            "VoxyQuest launch: usable RAM ${usableMb}MB, JVM heap ${heapMb}MB",
+        )
+    }
+
     private fun startGame(name: String, vr: Boolean) {
         if (started) return
         started = true
         Thread({
             try {
+                Logger.getInstance().appendToLog("VoxyQuest launch: initializing runtime")
                 PojlibRuntime.initialize(this)
                 val registry = VoxyQuestInstaller.readRegistry()
                 val instance = registry.toArray().firstOrNull { it.instanceName == name }
@@ -74,11 +97,23 @@ open class MinecraftGameActivity : Activity() {
                 MinecraftInstances.configurePlayMode(instance, vr)
                 API.currentInstance = instance
                 API.gameReady = false
-                if (vr) VLoader.setAndroidInitInfo(this)
+                configureJvmMemory()
+                if (vr) {
+                    Logger.getInstance().appendToLog("VoxyQuest launch: configuring OpenXR")
+                    VLoader.setAndroidInitInfo(this)
+                }
+                Logger.getInstance().appendToLog("VoxyQuest launch: starting Java VM")
                 val exitCode = JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
+                Logger.getInstance().appendToLog("VoxyQuest launch: Java VM returned $exitCode")
                 runOnUiThread { showExit("Minecraft stopped (exit code $exitCode).") }
-            } catch (_: Throwable) {
-                runOnUiThread { showExit("Minecraft could not start. Restart the launcher and check that the instance finished installing.") }
+            } catch (failure: Throwable) {
+                Logger.getInstance().appendToLog(
+                    "VoxyQuest launch failure: ${failure.javaClass.name}: ${failure.message ?: "no message"}",
+                )
+                Logger.getInstance().appendToLog(Log.getStackTraceString(failure))
+                runOnUiThread {
+                    showExit("Minecraft could not start. Restart the launcher and check that the instance finished installing.")
+                }
             }
         }, "VoxyQuest-Minecraft").start()
     }
