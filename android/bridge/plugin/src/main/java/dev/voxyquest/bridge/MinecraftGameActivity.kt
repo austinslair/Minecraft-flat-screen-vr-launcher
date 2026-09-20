@@ -6,7 +6,6 @@ import android.app.AlertDialog
 import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
-import android.widget.TextView
 import pojlib.API
 import pojlib.PojlibRuntime
 import pojlib.account.LoginHelper
@@ -38,31 +37,26 @@ open class MinecraftGameActivity : Activity() {
         Logger.getInstance().appendToLog(
             "VoxyQuest launch: game activity created (${if (this is MinecraftFlatActivity) "flat" else "vr"})",
         )
-        if (this is MinecraftFlatActivity) {
-            val surface = android.view.SurfaceView(this)
-            surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: android.view.SurfaceHolder) {}
-                override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
-                    if (!started && width > 0 && height > 0) {
-                        pojlib.util.FlatDisplay.attach(holder.surface, width, height)
-                        org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize(width, height)
-                        startGame(name, false)
-                    }
-                }
-                override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
-                    // A live JVM cannot safely be launched twice or reuse a destroyed EGL window.
-                    if (started) PojlibRuntime.restartSession(this@MinecraftGameActivity)
-                }
-            })
-            setContentView(surface)
-        } else {
-            setContentView(TextView(this).apply {
-                text = "Starting Minecraft VR…"
-                textSize = 24f
-                setPadding(48, 48, 48, 48)
-            })
-            startGame(name, true)
-        }
+        // Both modes need a visible surface while Minecraft starts. Vivecraft
+        // takes over headset presentation once its OpenXR session is ready.
+        val vr = this !is MinecraftFlatActivity
+        val surface = android.view.SurfaceView(this)
+        surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) {}
+            override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
+                if (width <= 0 || height <= 0) return
+                pojlib.util.FlatDisplay.attach(holder.surface, width, height)
+                org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize(width, height)
+                if (!started) startGame(name, vr)
+            }
+            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                // Do not restart the JVM during the Android-to-OpenXR handoff.
+                // Flat mode cannot reuse a destroyed native window.
+                if (vr) pojlib.util.FlatDisplay.detachNative()
+                if (started && !vr) PojlibRuntime.restartSession(this@MinecraftGameActivity)
+            }
+        })
+        setContentView(surface)
     }
 
     private fun configureJvmMemory() {
