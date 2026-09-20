@@ -159,6 +159,19 @@ func run_checks() -> void:
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 
+	for section in ["Home", "Instances", "Mods", "Accounts", "Settings"]:
+		ui._open_section(section)
+		await process_frame
+		await process_frame
+		assert(ui.get_node("Play").is_visible_in_tree())
+		assert(ui.get_node("PlayMode").is_visible_in_tree())
+		assert(ui.get_node("Play").get_global_rect().position.y >= ui.workspace.get_global_rect().end.y)
+		assert(ui.workspace_body.size.x <= ui.workspace.size.x)
+		assert(ui.get_node("PageTitle").text == ("Overview" if section == "Home" else section))
+	ui.get_node("PlayMode").item_selected.emit(1)
+	assert(ui.play_mode == "flat")
+	ui.get_node("PlayMode").item_selected.emit(0)
+	assert(ui.play_mode == "vr")
 	ui._navigate(ui.get_node("Accounts"))
 	assert(ui.current_section == "Accounts")
 	assert(ui.account_page_action != null)

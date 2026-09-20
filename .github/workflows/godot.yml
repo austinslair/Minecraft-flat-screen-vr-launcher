@@ -101,6 +101,21 @@ jobs:
           "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/home_smoke.gd
           "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --headless --path launcher --script res://tests/auth_flow.gd
 
+      - name: Capture launcher UI previews
+        env:
+          VOXYQUEST_PREVIEW_DIR: ${{ runner.temp }}/launcher-previews
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb
+          xvfb-run -a -s "-screen 0 1536x1024x24" "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" --path launcher --rendering-method gl_compatibility --script res://tests/ui_preview.gd
+
+      - name: Upload launcher UI previews
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-ui-previews
+          path: ${{ runner.temp }}/launcher-previews/*.png
+          if-no-files-found: error
+
       - name: Create CI debug keystore
         run: |
           keytool -genkeypair -noprompt \

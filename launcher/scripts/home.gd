@@ -9,10 +9,9 @@ signal change_instance_requested
 const AUTH_POLL_INTERVAL := 0.5
 const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
 const HOME_CONTENT_NODES := [
-	"InstancePanel", "InstanceHeading", "InstanceCard", "ChangeInstance",
-	"QuickInfoPanel", "QuickInfoTitle", "NewsPanel", "NewsHeading",
-	"InstanceEmpty", "InstanceDescription", "QuickEmpty", "NewsEmpty",
-	"NewsDescription", "Play", "FeatureBanner"
+	"Hero", "HeroShade", "HeroEyebrow", "HeroTitle", "LibraryEyebrow",
+	"InstancePanel", "InstanceEmpty", "InstanceDescription", "ChangeInstance",
+	"HomeHelpTitle", "HomeHelpBody"
 ]
 
 var nav_buttons: Array[Button] = []
@@ -68,12 +67,14 @@ func _ready() -> void:
 	for caption in [$AccountTitle, $AccountSubtitle]:
 		caption.clip_text = true
 		caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	get_viewport().gui_embed_subwindows = true
 	set_process(false)
 	for section in ["Home", "Instances", "Mods", "Accounts", "Settings"]:
 		var button := get_node(section) as Button
 		nav_buttons.append(button)
 		button.pressed.connect(_navigate.bind(button))
 
+	_build_play_mode()
 	_build_workspace()
 	_build_inline_account_status()
 	_build_remove_confirmation()
@@ -121,19 +122,21 @@ func style_box(fill: Color, border: Color, radius := 8) -> StyleBoxFlat:
 	return box
 
 func style_button(button: Button) -> void:
+	if button is OptionButton:
+		return
 	button.add_theme_stylebox_override("normal", style_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0)))
 	button.add_theme_stylebox_override("hover", style_box(Color(0.85, 0.88, 0.86, 0.07), Color(0.8, 0.85, 0.81, 0.22)))
 	button.add_theme_stylebox_override("pressed", style_box(Color(0.8, 0.85, 0.82, 0.12), Color(0.8, 0.85, 0.81, 0.35)))
 	button.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), Color(0.85, 0.9, 0.87, 0.8)))
 	button.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
-	if button == $ChangeInstance:
+	if button == $Play:
 		_style_primary_button(button)
 
 func _style_primary_button(button: Button) -> void:
-	button.add_theme_stylebox_override("normal", style_box(Color(0.08, 0.25, 0.08, 0.94), Color(0.55, 0.86, 0.36, 0.9)))
-	button.add_theme_stylebox_override("hover", style_box(Color(0.11, 0.32, 0.1, 0.98), Color(0.65, 0.94, 0.43, 1)))
-	button.add_theme_stylebox_override("pressed", style_box(Color(0.055, 0.19, 0.055, 1), Color(0.48, 0.78, 0.31, 1)))
-	button.add_theme_color_override("font_color", Color(0.84, 1.0, 0.72, 1))
+	button.add_theme_stylebox_override("normal", style_box(Color("639b48"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("hover", style_box(Color("79b35b"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("pressed", style_box(Color("52823c"), Color.TRANSPARENT))
+	button.add_theme_color_override("font_color", Color("10170d"))
 
 func _style_danger_button(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", style_box(Color(0.24, 0.07, 0.07, 0.72), Color(0.72, 0.31, 0.31, 0.75)))
@@ -146,7 +149,7 @@ func _make_button(text: String, callback: Callable, primary := false, danger := 
 	button.custom_minimum_size = Vector2(150, 48)
 	button.add_theme_font_size_override("font_size", 17)
 	style_button(button)
-	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("1d2b22"), Color("526558")))
+	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -165,14 +168,28 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	)
 	return label
 
+func _build_play_mode() -> void:
+	var mode := OptionButton.new()
+	mode.name = "PlayMode"
+	mode.position = Vector2(858, 937)
+	mode.size = Vector2(330, 48)
+	mode.add_item("Virtual reality")
+	mode.add_item("Flatscreen")
+	mode.tooltip_text = "Flatscreen currently uses a keyboard and mouse."
+	mode.item_selected.connect(func(index: int):
+		play_mode = "flat" if index == 1 else "vr"
+		_update_play()
+	)
+	add_child(mode)
+
 func _build_workspace() -> void:
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(290, 250)
-	workspace.size = Vector2(1211, 702)
+	workspace.position = Vector2(254, 112)
+	workspace.size = Vector2(1260, 766)
 	workspace.visible = false
 	workspace.clip_contents = true
-	workspace.add_theme_stylebox_override("panel", style_box(Color(0.045, 0.063, 0.049, 0.94), Color(0.42, 0.49, 0.4, 0.45), 12))
+	workspace.add_theme_stylebox_override("panel", style_box(Color.TRANSPARENT, Color.TRANSPARENT, 0))
 	add_child(workspace)
 
 	var margin := MarginContainer.new()
@@ -186,6 +203,7 @@ func _build_workspace() -> void:
 	margin.add_child(content)
 
 	workspace_title = _make_label("", 26)
+	workspace_title.visible = false
 	workspace_title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
 	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	content.add_child(workspace_title)
@@ -212,8 +230,8 @@ func _build_inline_account_status() -> void:
 	account_code = Label.new()
 	account_code.name = "AccountCode"
 	account_code.visible = false
-	account_code.position = Vector2(1213, 188)
-	account_code.size = Vector2(286, 40)
+	account_code.position = Vector2(780, 33)
+	account_code.size = Vector2(310, 40)
 	account_code.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	account_code.add_theme_font_size_override("font_size", 18)
 	account_code.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
@@ -283,6 +301,7 @@ func _open_section(section: String) -> void:
 	if nav_button is Button and nav_button in nav_buttons:
 		_select_nav(nav_button)
 	current_section = section
+	$PageTitle.text = "Overview" if section == "Home" else section
 	navigation_requested.emit(section)
 	if section == "Home":
 		workspace.visible = false
@@ -322,8 +341,7 @@ func _set_account_code(code: String) -> void:
 	var show_code := not code.is_empty()
 	account_code.visible = show_code
 	account_code.text = "Code: %s" % code if show_code else ""
-	$AccountPanel.offset_bottom = 244.0 if show_code else 208.0
-	$Account.offset_bottom = 244.0 if show_code else 208.0
+
 
 func _on_account_pressed() -> void:
 	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
@@ -437,14 +455,15 @@ func _selected_instance() -> Dictionary:
 func _update_play() -> void:
 	var selected := _selected_instance()
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false)))
-	$Play.modulate = Color(0.42, 0.46, 0.41) if $Play.disabled else Color.WHITE
+	$Play.modulate = Color.WHITE
 	$Play.tooltip_text = "Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
+	$PlaybarCaption.text = "INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else "READY TO PLAY"))
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("18271e"), Color("3e5143")))
+	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1a1d21"), Color("30353c")))
 	parent.add_child(panel)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 12)
@@ -482,61 +501,58 @@ func _render_instances_page() -> void:
 	workspace_subtitle.text = "Select an instance, repair it, or install another Minecraft version."
 	_refresh_instances()
 
-	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 12)
-	workspace_body.add_child(mode_row)
-	var mode_label := _make_label("Play mode", 17)
-	mode_label.custom_minimum_size.x = 120
-	mode_row.add_child(mode_label)
-	var mode := OptionButton.new()
-	mode.add_item("Virtual reality")
-	mode.add_item("Flatscreen · keyboard & mouse")
-	mode.selected = 1 if play_mode == "flat" else 0
-	mode.custom_minimum_size = Vector2(360, 46)
-	mode.item_selected.connect(func(index: int):
-		play_mode = "flat" if index == 1 else "vr"
-		_update_play()
-	)
-	mode_row.add_child(mode)
 
-	workspace_body.add_child(_make_label("Your instances", 20))
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 24)
+	workspace_body.add_child(columns)
+	var library := VBoxContainer.new()
+	library.custom_minimum_size.x = 540
+	library.add_theme_constant_override("separation", 12)
+	columns.add_child(library)
+	var editor := _page_card(columns, "Instance settings", "Select an installation from your library.")
+	library.add_child(_make_label("Installed instances", 20))
 	instance_empty_hint = _make_label("No instances yet. Install one below.", 16, true)
-	workspace_body.add_child(instance_empty_hint)
+	library.add_child(instance_empty_hint)
 
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 190)
+	instance_list.custom_minimum_size = Vector2(0, 254)
 	instance_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instance_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	instance_list.mouse_filter = Control.MOUSE_FILTER_STOP
 	instance_list.focus_mode = Control.FOCUS_ALL
-	instance_list.add_theme_font_size_override("font_size", 18)
-	instance_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.78), Color(0.35, 0.43, 0.34, 0.62)))
+	instance_list.add_theme_font_size_override("font_size", 17)
+	instance_list.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	instance_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
 	instance_list.item_selected.connect(_on_instance_selected)
-	workspace_body.add_child(instance_list)
+	library.add_child(instance_list)
 
 	var edit_row := HBoxContainer.new()
 	edit_row.add_theme_constant_override("separation", 8)
-	workspace_body.add_child(edit_row)
+	editor.add_child(edit_row)
 	instance_rename = LineEdit.new()
 	instance_rename.placeholder_text = "Select an instance to rename"
 	instance_rename.max_length = 48
 	instance_rename.custom_minimum_size = Vector2(300, 46)
 	instance_rename.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instance_rename.add_theme_font_size_override("font_size", 17)
-	edit_row.add_child(instance_rename)
+	_field(editor, "Instance name", instance_rename)
+	editor.move_child(edit_row, editor.get_child_count() - 1)
 	instance_rename_button = _make_button("Rename", _rename_selected_instance, true)
 	instance_rename_button.custom_minimum_size.x = 125
+	instance_rename_button.size_flags_vertical = Control.SIZE_SHRINK_END
 	edit_row.add_child(instance_rename_button)
 	instance_remove_button = _make_button("Remove", _request_remove_selected, false, true)
 	instance_remove_button.custom_minimum_size.x = 125
+	instance_remove_button.size_flags_vertical = Control.SIZE_SHRINK_END
 	edit_row.add_child(instance_remove_button)
 	var refresh := _make_button("Refresh", _refresh_instances_page)
 	refresh.custom_minimum_size.x = 125
+	refresh.size_flags_vertical = Control.SIZE_SHRINK_END
 	edit_row.add_child(refresh)
 
-	var action_row := HBoxContainer.new()
+	var action_row := VBoxContainer.new()
 	action_row.add_theme_constant_override("separation", 8)
-	workspace_body.add_child(action_row)
+	editor.add_child(action_row)
 	var repair := _make_button("Repair / resume selected", _repair_selected_instance)
 	repair.custom_minimum_size.x = 260
 	action_row.add_child(repair)
@@ -545,32 +561,32 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	workspace_body.add_child(HSeparator.new())
-	workspace_body.add_child(_make_label("Install an instance", 20))
+	var installer := _page_card(workspace_body, "New installation", "Install another Minecraft version without changing your existing instances.")
 
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
-	workspace_body.add_child(install_row)
+	installer.add_child(install_row)
 	install_name = LineEdit.new()
 	install_name.placeholder_text = "Instance name"
 	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
 	install_name.custom_minimum_size = Vector2(340, 46)
 	install_name.add_theme_font_size_override("font_size", 17)
-	install_row.add_child(install_name)
+	_field(install_row, "New instance name", install_name)
 	install_version = OptionButton.new()
 	install_version.custom_minimum_size = Vector2(250, 46)
 	install_version.add_theme_font_size_override("font_size", 17)
 	for version in runtime.get_install_versions():
 		install_version.add_item(str(version))
-	install_row.add_child(install_version)
+	_field(install_row, "Minecraft version", install_version)
 	install_submit = _make_button("Install", _start_install, true)
 	install_submit.custom_minimum_size = Vector2(170, 46)
+	install_submit.size_flags_vertical = Control.SIZE_SHRINK_END
 	install_row.add_child(install_submit)
 
 	install_status = _make_label("", 15, true)
 	install_status.custom_minimum_size.y = 22
-	workspace_body.add_child(install_status)
+	installer.add_child(install_status)
 	_populate_instance_list()
 	_poll_install()
 
@@ -588,7 +604,8 @@ func _populate_instance_list() -> void:
 		var name := str(instance.get("name", "Unnamed instance"))
 		var version := str(instance.get("version", "Unknown"))
 		var readiness := "Ready" if bool(instance.get("installed", false)) else "Needs repair"
-		instance_list.add_item("%s    ·    Minecraft %s    ·    %s" % [name, version, readiness])
+		instance_list.add_item("%s   ·   %s   ·   %s" % [name, version, readiness])
+		instance_list.set_item_tooltip(index, "%s\nMinecraft %s — %s" % [name, version, readiness])
 		if name == selected_name:
 			selected_index = index
 	if selected_index >= 0:
@@ -741,7 +758,7 @@ func _render_mods_page() -> void:
 	mods_list.custom_minimum_size = Vector2(0, 300)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
-	mods_list.add_theme_stylebox_override("panel", style_box(Color(0.015, 0.025, 0.018, 0.7), Color(0.35, 0.43, 0.34, 0.48)))
+	mods_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
