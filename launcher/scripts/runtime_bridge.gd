@@ -136,3 +136,9 @@ func get_instance_mods(instance_name: String) -> Dictionary:
 
 func launch_minecraft_vr(instance_name: String) -> bool:
 	return _plugin != null and _plugin.has_method("launchMinecraftVr") and bool(_plugin.launchMinecraftVr(instance_name))
+
+func launch_minecraft_flat(instance_name: String) -> bool:
+	return _plugin != null and _plugin.has_method("launchMinecraftFlat") and bool(_plugin.launchMinecraftFlat(instance_name))
+
+func add_instance_mod(instance_name: String) -> bool:
+	return _plugin != null and _plugin.has_method("addInstanceMod") and bool(_plugin.addInstanceMod(instance_name))

@@ -56,6 +56,16 @@ EGLSurface xrEglSurface;
 EGLConfig xrConfig;
 
 void* gbuffer;
+static ANativeWindow* flatWindow = NULL;
+
+JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_attach(JNIEnv* env, jclass clazz,
+        jobject surface, jint width, jint height) {
+    if (flatWindow != NULL) return;
+    flatWindow = ANativeWindow_fromSurface(env, surface);
+    savedWidth = width;
+    savedHeight = height;
+}
+
 
 void pojav_openGLOnLoad() {
 }
@@ -105,7 +115,7 @@ int xrEglInit() {
         return 0;
     }
 
-    static const EGLint attribs[] = {
+    const EGLint attribs[] = {
             EGL_RED_SIZE, 8,
             EGL_GREEN_SIZE, 8,
             EGL_BLUE_SIZE, 8,
@@ -113,7 +123,7 @@ int xrEglInit() {
             // Minecraft required on initial 24
             EGL_DEPTH_SIZE, 24,
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+            EGL_SURFACE_TYPE, flatWindow ? EGL_WINDOW_BIT : EGL_PBUFFER_BIT,
             EGL_NONE
     };
 
@@ -135,8 +145,15 @@ int xrEglInit() {
 
     eglBindAPI_p(EGL_OPENGL_ES_API);
 
-    xrEglSurface = eglCreatePbufferSurface_p(xrEglDisplay, xrConfig,
-                                           NULL);
+    if (flatWindow) {
+        ANativeWindow_setBuffersGeometry(flatWindow, 0, 0, vid);
+        EGLSurface (*createWindow)(EGLDisplay, EGLConfig, EGLNativeWindowType, const EGLint*) =
+            (EGLSurface (*)(EGLDisplay, EGLConfig, EGLNativeWindowType, const EGLint*)) eglGetProcAddress_p("eglCreateWindowSurface");
+        if (!createWindow) return 0;
+        xrEglSurface = createWindow(xrEglDisplay, xrConfig, flatWindow, NULL);
+    } else {
+        xrEglSurface = eglCreatePbufferSurface_p(xrEglDisplay, xrConfig, NULL);
+    }
     if (!xrEglSurface) {
         printf("EGLBridge: Error eglCreatePbufferSurface failed: %d\n", eglGetError_p());
         return 0;
@@ -156,8 +173,7 @@ int xrEglInit() {
 }
 
 int pojavInit() {
-    savedWidth = 1;
-    savedHeight = 1;
+    if (!flatWindow) { savedWidth = 1; savedHeight = 1; }
     printf("XREGLBridge: Thread name is %d\n", gettid());
 
     return xrEglInit();

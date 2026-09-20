@@ -183,14 +183,30 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
-    fun launchMinecraftVr(name: String): Boolean {
+    fun launchMinecraftVr(name: String): Boolean = launchMinecraft(name, true)
+
+    @UsedByGodot
+    fun launchMinecraftFlat(name: String): Boolean = launchMinecraft(name, false)
+
+    @UsedByGodot
+    fun addInstanceMod(name: String): Boolean {
+        val host = activity ?: return false
+        if (!PojlibRuntime.isInitialized() || LauncherOperations.isBusy() || MinecraftGameActivity.isRunning) return false
+        return runCatching {
+            check(VoxyQuestInstaller.readRegistry().toArray().any { it.instanceName == name })
+            host.startActivity(Intent(host, ModImportActivity::class.java).putExtra("instance_name", name))
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun launchMinecraft(name: String, vr: Boolean): Boolean {
         val host = activity ?: return false
         if (!LoginHelper.isSignedIn() || LauncherOperations.isBusy() || MinecraftGameActivity.isRunning) return false
         return runCatching {
             val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
                 ?: return false
             if (!VoxyQuestInstaller.isInstalled(instance)) return false
-            host.startActivity(Intent(host, MinecraftGameActivity::class.java).putExtra("instance_name", name))
+            host.startActivity(Intent(host, if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java).putExtra("instance_name", name))
             true
         }.getOrDefault(false)
     }

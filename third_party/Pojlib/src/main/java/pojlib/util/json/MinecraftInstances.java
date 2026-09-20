@@ -40,29 +40,27 @@ public class MinecraftInstances {
     }
 
     public static void CheckVivecraftConfig(MinecraftInstances.Instance instance) {
-        File config = new File(instance.gameDir + "/config/vivecraft-client-config.json");
-        if (!config.exists()) {
-            Logger.getInstance().appendToLog("Vivecraft config not found, skipping modification");
-            return;
-        }
+        try { configurePlayMode(instance, true); }
+        catch (IOException e) { throw new IllegalStateException("Could not configure VR", e); }
+    }
 
+    public static void configurePlayMode(Instance instance, boolean vr) throws IOException {
+        File config = new File(instance.gameDir, "config/vivecraft-client-config.json");
+        Files.createDirectories(config.getParentFile().toPath());
+        JsonObject obj = config.isFile()
+                ? GsonUtils.jsonFileToObject(config.getPath(), JsonObject.class) : new JsonObject();
+        if (obj == null) throw new IOException("Invalid Vivecraft config");
+        obj.addProperty("stereoProviderPluginID", "OPENXR");
+        obj.addProperty("vrEnabled", Boolean.toString(vr));
+        obj.addProperty("vrToggleButtonEnabled", "false");
+        obj.addProperty("vrHotswitchingEnabled", "false");
+        obj.addProperty("seated", "false");
+        File temp = File.createTempFile("vivecraft-", ".json", config.getParentFile());
         try {
-            Logger.getInstance().appendToLog("Modifying Vivecraft config for QuestCraft");
-            JsonObject obj = GsonUtils.jsonFileToObject(config.getAbsolutePath(), JsonObject.class);
-
-            obj.addProperty("stereoProviderPluginID", "OPENXR");
-            obj.addProperty("alwaysShowUpdates", "false");
-            obj.addProperty("vrEnabled", "true");
-            obj.addProperty("vrToggleButtonEnabled", "false");
-            obj.addProperty("disableGarbageCollectorMessage", "true");
-            obj.addProperty("vrHotswitchingEnabled", "false");
-            obj.addProperty("seated", "false");
-
-            GsonUtils.objectToJsonFile(config.getAbsolutePath(), obj);
-        } catch (Exception e) {
-            Logger.getInstance().appendToLog("Failed to modify Vivecraft config");
-            e.printStackTrace();
-        }
+            Files.write(temp.toPath(), GsonUtils.GLOBAL_GSON.toJson(obj)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Files.move(temp.toPath(), config.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally { Files.deleteIfExists(temp.toPath()); }
     }
 
     public static class Instance {

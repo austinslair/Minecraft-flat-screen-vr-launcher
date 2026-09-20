@@ -5,6 +5,12 @@
 
     <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="false" />
     <application>
+        <activity android:name="dev.voxyquest.bridge.ModImportActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+        <activity android:name="dev.voxyquest.bridge.MinecraftFlatActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density" />
         <activity android:name="dev.voxyquest.bridge.MinecraftGameActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"

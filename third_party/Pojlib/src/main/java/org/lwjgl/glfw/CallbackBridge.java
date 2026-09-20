@@ -158,6 +158,9 @@ public class CallbackBridge {
     @SuppressWarnings("unused")
     private static void onGrabStateChanged(final boolean grabbing) {
         isGrabbing = grabbing;
+        synchronized (grabListeners) {
+            for (GrabListener listener : grabListeners) listener.onGrabState(grabbing);
+        }
     }
 
     public static void restartRuntimeSession(Activity activity) {

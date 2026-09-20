@@ -5,6 +5,9 @@ class FakeRuntime extends RefCounted:
 	var auth := {"configured": true, "state": "idle", "signed_in": false, "device_code": "", "profile_name": ""}
 	var renamed := false
 	var removed := false
+	var last_mode := ""
+	var imported := ""
+	var install_args: Array = []
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -18,6 +21,7 @@ class FakeRuntime extends RefCounted:
 	func get_install_snapshot() -> Dictionary:
 		return {"state": "idle", "message": "", "installed_name": ""}
 	func install_instance(_name: String, _version: String) -> bool:
+		install_args = [_name, _version]
 		return true
 	func rename_instance(old_name: String, new_name: String) -> bool:
 		for item in snapshot.instances:
@@ -45,6 +49,13 @@ class FakeRuntime extends RefCounted:
 	func cancel_microsoft_login() -> void:
 		auth.state = "cancelled"
 	func launch_minecraft_vr(_name: String) -> bool:
+		last_mode = "vr"
+		return true
+	func launch_minecraft_flat(_name: String) -> bool:
+		last_mode = "flat"
+		return true
+	func add_instance_mod(name: String) -> bool:
+		imported = name
 		return true
 
 func _initialize() -> void:
@@ -95,10 +106,20 @@ func run_checks() -> void:
 	ui._sync_account({"signed_in": true, "profile_name": "Test player"})
 	assert(ui.get_node("AccountTitle").text == "Test player")
 	assert(not ui.get_node("Play").disabled)
+	ui.play_mode = "flat"
+	ui._on_play_pressed()
+	assert(fake.last_mode == "flat")
+	ui.play_mode = "vr"
+	ui._on_play_pressed()
+	assert(fake.last_mode == "vr")
+	ui._repair_selected_instance()
+	assert(fake.install_args == [ui.selected_name, "test"])
 
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
 	assert(ui.mods_list.get_item_count() == 2)
+	ui._add_mod()
+	assert(fake.imported == ui.selected_name)
 
 	ui._navigate(ui.get_node("Accounts"))
 	assert(ui.current_section == "Accounts")

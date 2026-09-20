@@ -14,11 +14,13 @@ import pojlib.util.VLoader
 import pojlib.util.json.MinecraftInstances
 
 /** Dedicated game host; the launcher itself never starts an OpenXR session. */
-class MinecraftGameActivity : Activity() {
+open class MinecraftGameActivity : Activity() {
     companion object {
         @Volatile var isRunning = false
             private set
     }
+
+    private var started = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,13 +31,37 @@ class MinecraftGameActivity : Activity() {
             return
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val status = TextView(this).apply {
-            text = "Starting Minecraft VR…"
-            textSize = 24f
-            setPadding(48, 48, 48, 48)
-        }
-        setContentView(status)
         isRunning = true
+        if (this is MinecraftFlatActivity) {
+            val surface = android.view.SurfaceView(this)
+            surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: android.view.SurfaceHolder) {}
+                override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
+                    if (!started && width > 0 && height > 0) {
+                        pojlib.util.FlatDisplay.attach(holder.surface, width, height)
+                        org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize(width, height)
+                        startGame(name, false)
+                    }
+                }
+                override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                    // A live JVM cannot safely be launched twice or reuse a destroyed EGL window.
+                    if (started) PojlibRuntime.restartSession(this@MinecraftGameActivity)
+                }
+            })
+            setContentView(surface)
+        } else {
+            setContentView(TextView(this).apply {
+                text = "Starting Minecraft VR…"
+                textSize = 24f
+                setPadding(48, 48, 48, 48)
+            })
+            startGame(name, true)
+        }
+    }
+
+    private fun startGame(name: String, vr: Boolean) {
+        if (started) return
+        started = true
         Thread({
             try {
                 PojlibRuntime.initialize(this)
@@ -45,10 +71,10 @@ class MinecraftGameActivity : Activity() {
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 val account = API.currentAcc ?: error("Sign in again")
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
-                MinecraftInstances.CheckVivecraftConfig(instance)
+                MinecraftInstances.configurePlayMode(instance, vr)
                 API.currentInstance = instance
                 API.gameReady = false
-                VLoader.setAndroidInitInfo(this)
+                if (vr) VLoader.setAndroidInitInfo(this)
                 val exitCode = JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
                 runOnUiThread { showExit("Minecraft stopped (exit code $exitCode).") }
             } catch (_: Throwable) {

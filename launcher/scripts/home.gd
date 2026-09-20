@@ -18,6 +18,7 @@ const HOME_CONTENT_NODES := [
 var nav_buttons: Array[Button] = []
 var runtime: RefCounted = VoxyQuestRuntimeBridge.new()
 var selected_name := ""
+var play_mode := "vr"
 var installed_instances: Array = []
 var signed_in := false
 var install_busy := false
@@ -306,7 +307,8 @@ func _show_message(heading: String, message: String) -> void:
 func _on_play_pressed() -> void:
 	if $Play.disabled:
 		return
-	if not runtime.launch_minecraft_vr(selected_name):
+	var launched: bool = runtime.launch_minecraft_flat(selected_name) if play_mode == "flat" else runtime.launch_minecraft_vr(selected_name)
+	if not launched:
 		_show_message("Could not start Minecraft", "Check your sign-in and installed instance, then try again.")
 
 func _set_account_code(code: String) -> void:
@@ -426,8 +428,8 @@ func _update_play() -> void:
 	var selected := _selected_instance()
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false)))
 	$Play.modulate = Color(0.42, 0.46, 0.41) if $Play.disabled else Color.WHITE
-	$Play.tooltip_text = "Sign in and select a fully installed instance to play Minecraft VR." if $Play.disabled else "Play Minecraft VR"
-	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · VR" % str(selected.get("version", ""))
+	$Play.tooltip_text = "Sign in and select a fully installed instance to play Minecraft VR." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
+	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
@@ -470,6 +472,20 @@ func _render_instances_page() -> void:
 	workspace_subtitle.text = "Install, select, and manage your Minecraft VR instances."
 	_refresh_instances()
 
+	var mode_row := HBoxContainer.new()
+	mode_row.add_theme_constant_override("separation", 14)
+	workspace_body.add_child(mode_row)
+	mode_row.add_child(_make_label("Play mode", 18))
+	var mode := OptionButton.new()
+	mode.add_item("Virtual reality")
+	mode.add_item("Flatscreen · keyboard & mouse")
+	mode.selected = 1 if play_mode == "flat" else 0
+	mode.custom_minimum_size = Vector2(380, 48)
+	mode.item_selected.connect(func(index: int):
+		play_mode = "flat" if index == 1 else "vr"
+		_update_play()
+	)
+	mode_row.add_child(mode)
 	var library := _page_card(workspace_body, "Your instances", "Select an installed instance to manage it or play.")
 	instance_empty_hint = _make_label("No instances yet. Create your first installation below.", 18, true)
 	library.add_child(instance_empty_hint)
@@ -496,6 +512,7 @@ func _render_instances_page() -> void:
 	instance_remove_button = _make_button("Remove", _request_remove_selected, false, true)
 	edit_row.add_child(instance_remove_button)
 	edit_row.add_child(_make_button("Refresh", _refresh_instances_page))
+	library.add_child(_make_button("Repair / resume selected", _repair_selected_instance))
 
 	instance_status = _make_label(instance_notice, 15, true)
 	instance_status.custom_minimum_size.y = 24
@@ -618,6 +635,16 @@ func _confirm_remove_instance() -> void:
 	if current_section == "Instances":
 		_render_instances_page()
 
+func _repair_selected_instance() -> void:
+	var selected := _selected_instance()
+	if selected.is_empty() or install_busy:
+		instance_status.text = "Select an instance first."
+		return
+	handled_install_name = ""
+	if runtime.install_instance(selected_name, str(selected.get("version", ""))):
+		install_timer.start()
+	_poll_install()
+
 func _start_install() -> void:
 	if not is_instance_valid(install_name) or not is_instance_valid(install_version):
 		return
@@ -690,8 +717,21 @@ func _render_mods_page() -> void:
 	collection.add_child(mods_status)
 	var refresh := _make_button("Refresh mods", _refresh_mods_page)
 	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	collection.add_child(refresh)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 12)
+	collection.add_child(actions)
+	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
+	actions.add_child(refresh)
+	collection.add_child(_make_label("Choose Fabric mods for this Minecraft version. Install any required dependencies too.", 16, true))
 	_refresh_mods_page()
+
+func _add_mod() -> void:
+	if selected_name.is_empty() or install_busy:
+		return
+	if runtime.add_instance_mod(selected_name):
+		mods_status.text = "Choose a mod in the file picker, then refresh this list when you return."
+	else:
+		mods_status.text = "Could not open mod import. Use the updated Android build and stop Minecraft first."
 
 func _refresh_mods_page() -> void:
 	if not is_instance_valid(mods_list):
