@@ -158,7 +158,7 @@ jobs:
           cat > release-notes.md <<EOF
           VoxyQuest alpha test build for Meta Quest.
 
-          Includes the latest launcher redesign and the current fixes on main, including instance selection/catalog handling, play readiness, instance repair/resume, VR/flatscreen launch modes, and Fabric mod import.
+          Includes the latest launcher redesign and current fixes on main, including instance selection/catalog handling, late Android bridge discovery for the installer, play readiness, instance repair/resume, VR/flatscreen launch modes, and Fabric mod import.
 
           Built from commit: $GITHUB_SHA
 
@@ -166,6 +166,7 @@ jobs:
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
               --title "VoxyQuest v0.1.0-alpha.1" \
