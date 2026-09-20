@@ -6,6 +6,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.ref.WeakReference;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
 /** Singleton class made to log on one file
  * The singleton part can be removed but will require more implementation from the end-dev
@@ -25,8 +27,29 @@ public class Logger {
 
     private Logger(String fileName){
         mLogFile = new File(Constants.USER_HOME, fileName);
-        // Make a new instance of the log file
-        mLogFile.delete();
+        File parent = mLogFile.getParentFile();
+        if (parent != null) parent.mkdirs();
+        if ("latestlog.txt".equals(fileName) && mLogFile.isFile() && mLogFile.length() > 0L) {
+            File previous = new File(Constants.USER_HOME, "previouslog.txt");
+            try {
+                Files.move(
+                        mLogFile.toPath(), previous.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (IOException moveFailure) {
+                try {
+                    Files.copy(
+                            mLogFile.toPath(), previous.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING
+                    );
+                } catch (IOException copyFailure) {
+                    copyFailure.printStackTrace();
+                }
+                mLogFile.delete();
+            }
+        } else {
+            mLogFile.delete();
+        }
         try {
             mLogFile.createNewFile();
             mLogStream = new PrintStream(mLogFile.getAbsolutePath());
@@ -50,14 +73,18 @@ public class Logger {
     }
 
     /** Print the text to the log file, no china censoring there */
-    public void appendToLogUnchecked(String text){
+    public synchronized void appendToLogUnchecked(String text){
+        if (mLogStream == null) return;
         mLogStream.println(text);
+        // Flush every launch breadcrumb so a native process crash does not erase the clue.
+        mLogStream.flush();
         notifyLogListener(text);
     }
 
     /** Reset the log file, effectively erasing any previous logs */
-    public void reset(){
+    public synchronized void reset(){
         try{
+            if (mLogStream != null) mLogStream.close();
             mLogFile.delete();
             mLogFile.createNewFile();
             mLogStream = new PrintStream(mLogFile.getAbsolutePath());
@@ -65,8 +92,8 @@ public class Logger {
     }
 
     /** Disables the printing */
-    public void shutdown(){
-        mLogStream.close();
+    public synchronized void shutdown(){
+        if (mLogStream != null) mLogStream.close();
     }
 
     /**
