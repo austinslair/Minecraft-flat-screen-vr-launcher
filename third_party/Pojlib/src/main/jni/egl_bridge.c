@@ -58,7 +58,7 @@ EGLConfig xrConfig;
 void* gbuffer;
 static ANativeWindow* flatWindow = NULL;
 
-JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_attach(JNIEnv* env, jclass clazz,
+JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_attachNative(JNIEnv* env, jclass clazz,
         jobject surface, jint width, jint height) {
     if (flatWindow != NULL) return;
     flatWindow = ANativeWindow_fromSurface(env, surface);
