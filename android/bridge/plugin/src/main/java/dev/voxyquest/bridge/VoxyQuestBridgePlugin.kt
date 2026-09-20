@@ -1,5 +1,9 @@
 package dev.voxyquest.bridge
 
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import java.io.File
@@ -7,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import pojlib.util.Constants
 import pojlib.util.GsonUtils
+import pojlib.util.Logger
 import pojlib.util.json.MinecraftInstances
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
@@ -18,6 +23,7 @@ import pojlib.account.LoginHelper
 
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     private var accountRestoreRequested = false
+    private var previousLaunchReportShown = false
 
     companion object {
         private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
@@ -39,6 +45,11 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         val hostActivity = activity ?: return false
         return runCatching {
             PojlibRuntime.initialize(hostActivity)
+            // Creating the logger rotates the previous process's latestlog.txt into
+            // previouslog.txt. This lets us recover the final launch breadcrumbs even
+            // when Android/native code killed the process without a Java exception.
+            Logger.getInstance()
+            maybeShowPreviousLaunchReport(hostActivity)
             if (!accountRestoreRequested && BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()) {
                 accountRestoreRequested = LoginHelper.restoreSession(
                     hostActivity,
@@ -47,6 +58,50 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             }
             PojlibRuntime.isInitialized()
         }.getOrDefault(false)
+    }
+
+    private fun maybeShowPreviousLaunchReport(hostActivity: android.app.Activity) {
+        if (previousLaunchReportShown) return
+        previousLaunchReportShown = true
+
+        val previous = File(Constants.USER_HOME, "previouslog.txt")
+        if (!previous.isFile || previous.length() <= 0L) return
+        val text = runCatching { previous.readText() }.getOrDefault("")
+        if (!text.contains("VoxyQuest launch: game activity created")) return
+        if (text.contains("VoxyQuest launch: Java VM returned") ||
+            text.contains("VoxyQuest launch failure:")) return
+
+        val usefulLines = text.lineSequence()
+            .map { it.trim() }
+            .filter { line ->
+                line.isNotEmpty() && (
+                    line.contains("VoxyQuest launch:") ||
+                    line.contains("QuestCraft: Setting JVM memory") ||
+                    line.contains("Java Exit code")
+                )
+            }
+            .toList()
+            .takeLast(24)
+
+        val details = if (usefulLines.isEmpty()) {
+            "The previous Minecraft process ended before it could write a normal exit or Java exception."
+        } else {
+            usefulLines.joinToString("\n")
+        }
+        val report = "The previous Minecraft launch ended unexpectedly. Copy this report and send it back so the exact crash stage can be fixed.\n\n$details"
+
+        hostActivity.runOnUiThread {
+            if (hostActivity.isFinishing || hostActivity.isDestroyed) return@runOnUiThread
+            AlertDialog.Builder(hostActivity)
+                .setTitle("Previous Minecraft crash")
+                .setMessage(report)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Copy report") { _, _ ->
+                    val clipboard = hostActivity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("VoxyQuest crash report", report))
+                }
+                .show()
+        }
     }
 
     @UsedByGodot
@@ -208,7 +263,13 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
                 ?: return false
             if (!VoxyQuestInstaller.isInstalled(instance)) return false
-            host.startActivity(Intent(host, if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java).putExtra("instance_name", name))
+            val intent = Intent(
+                host,
+                if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,
+            ).putExtra("instance_name", name)
+            host.startActivity(intent)
+            // Keep the Godot host Activity alive behind Minecraft. Finishing the Godot Activity
+            // tears down the process on Android, which also terminates the Minecraft Activity.
             true
         }.getOrDefault(false)
     }

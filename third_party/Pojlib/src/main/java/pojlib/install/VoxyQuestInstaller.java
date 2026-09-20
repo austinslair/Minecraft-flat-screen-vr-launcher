@@ -196,8 +196,7 @@ public final class VoxyQuestInstaller {
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
         instance.defaultMods = true;
 
-        progress.accept("Installing Java runtime…");
-        Installer.installJVM(activity);
+        VoxyQuestJavaRuntime.install(activity, progress);
         File server = new File(activity.getFilesDir(), "runtimes/JRE/lib/server/libjvm.so");
         File clientJvm = new File(activity.getFilesDir(), "runtimes/JRE/lib/client/libjvm.so");
         if (!server.isFile() && !clientJvm.isFile()) throw new IOException("Java runtime installation failed");
