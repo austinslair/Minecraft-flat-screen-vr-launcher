@@ -2,7 +2,7 @@ name: Godot Android smoke test
 
 on:
   push:
-    branches: [main, fix/game-display]
+    branches: [main, fix/vr-refresh-rate]
   pull_request:
   workflow_dispatch:
 
@@ -44,7 +44,10 @@ jobs:
           gradle-version: "8.14.3"
 
       - name: Build Godot + Pojlib Android runtime
-        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
+        run: |
+          export VOXYQUEST_VIVECRAFT_TEST_JAR="$RUNNER_TEMP/vivecraft-original.jar"
+          curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          gradle -p android/bridge :plugin:syncToGodot :pojlib:testDebugUnitTest --tests pojlib.util.VivecraftRefreshRateFixTest --no-daemon
 
       - name: Verify launcher and account runtime
         run: |

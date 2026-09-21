@@ -41,6 +41,9 @@ open class MinecraftGameActivity : Activity() {
         // takes over headset presentation once its OpenXR session is ready.
         val vr = this !is MinecraftFlatActivity
         val surface = android.view.SurfaceView(this)
+        surface.holder.setFormat(android.graphics.PixelFormat.OPAQUE)
+        surface.isFocusable = true
+        surface.isFocusableInTouchMode = true
         surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
             override fun surfaceCreated(holder: android.view.SurfaceHolder) {}
             override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -57,6 +60,7 @@ open class MinecraftGameActivity : Activity() {
             }
         })
         setContentView(surface)
+        surface.requestFocus()
     }
 
     private fun configureJvmMemory() {
@@ -89,6 +93,9 @@ open class MinecraftGameActivity : Activity() {
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 val account = API.currentAcc ?: error("Sign in again")
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
+                if (vr && pojlib.util.VivecraftRefreshRateFix.apply(java.io.File(instance.gameDir))) {
+                    Logger.getInstance().appendToLog("VoxyQuest launch: applied Vivecraft refresh-rate compatibility fix")
+                }
                 MinecraftInstances.configurePlayMode(instance, vr)
                 API.currentInstance = instance
                 API.gameReady = false
