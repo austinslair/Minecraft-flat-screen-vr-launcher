@@ -557,7 +557,7 @@ func _render_instances_page() -> void:
 	library.add_child(instance_empty_hint)
 
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 275)
+	instance_list.custom_minimum_size = Vector2(0, 210)
 	instance_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instance_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	instance_list.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -806,7 +806,7 @@ func _poll_install() -> void:
 
 func _render_mods_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Manage mods"
+	workspace_title.text = "Your mods"
 	workspace_subtitle.text = "Keep your Fabric mods organized by instance."
 	if selected_name.is_empty():
 		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
@@ -858,7 +858,7 @@ func _refresh_mods_page() -> void:
 
 func _render_accounts_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Accounts"
+	workspace_title.text = "Connect your account"
 	workspace_subtitle.text = "Connect your Minecraft: Java Edition account to play."
 	var account := _page_card(workspace_body, "Your account")
 	account_page_title = _make_label("Microsoft account", 23)
@@ -961,7 +961,7 @@ func _cancel_account_login() -> void:
 
 func _render_settings_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Settings"
+	workspace_title.text = "Preferences & status"
 	workspace_subtitle.text = "Your selected profile and launcher diagnostics."
 	var selection := _page_card(workspace_body, "Game selection", "Choose which installed instance the Play button opens.")
 	_detail_row(selection, "Selected instance", selected_name if not selected_name.is_empty() else "None selected")
