@@ -218,7 +218,7 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
-	assert(ui.workspace_title.text == "Settings")
+	assert(ui.workspace_title.text == "Preferences & status")
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")
