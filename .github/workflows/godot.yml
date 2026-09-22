@@ -25,6 +25,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Check supported Minecraft versions and mods
+        run: python3 launcher/tests/catalog_check.py
+
       - name: Install Android SDK components
         run: |
           SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"

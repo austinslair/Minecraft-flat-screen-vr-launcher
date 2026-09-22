@@ -1,12 +1,16 @@
 package dev.voxyquest.bridge
 
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import org.lwjgl.glfw.CallbackBridge
+import pojlib.input.EfficientAndroidLWJGLKeycode
 
 /** Android window mode, controlled with a keyboard and mouse. */
 class MinecraftFlatActivity : MinecraftGameActivity() {
     private var grabbing = false
+    private var pressedButtons = 0
+    private val heldKeys = mutableSetOf<Int>()
     private val grabListener = pojlib.input.GrabListener { active ->
         runOnUiThread {
             grabbing = active
@@ -17,47 +21,53 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        window.decorView.setOnCapturedPointerListener { _, event ->
-            CallbackBridge.sendCursorPos(CallbackBridge.mouseX + event.x, CallbackBridge.mouseY + event.y)
-            handleMouse(event)
-            true
-        }
+        window.decorView.setOnCapturedPointerListener { _, event -> handleMouse(event, true) }
         CallbackBridge.addGrabListener(grabListener)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && grabbing) window.decorView.requestPointerCapture()
+        if (!hasFocus) {
+            window.decorView.releasePointerCapture()
+            releaseInput()
+        }
     }
 
     override fun onDestroy() {
+        releaseInput()
         CallbackBridge.removeGrabListener(grabListener)
         super.onDestroy()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val key = when (event.keyCode) {
-            in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> 65 + event.keyCode - KeyEvent.KEYCODE_A
-            in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> 48 + event.keyCode - KeyEvent.KEYCODE_0
-            KeyEvent.KEYCODE_SPACE -> 32
-            KeyEvent.KEYCODE_ESCAPE -> 256
-            KeyEvent.KEYCODE_ENTER -> 257
-            KeyEvent.KEYCODE_TAB -> 258
-            KeyEvent.KEYCODE_DEL -> 259
-            KeyEvent.KEYCODE_SHIFT_LEFT -> 340
-            KeyEvent.KEYCODE_CTRL_LEFT -> 341
-            KeyEvent.KEYCODE_ALT_LEFT -> 342
-            else -> return super.dispatchKeyEvent(event)
-        }
-        if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return true
-        CallbackBridge.sendKeyPress(key, CallbackBridge.getCurrentMods(), event.action == KeyEvent.ACTION_DOWN)
-        if (event.action == KeyEvent.ACTION_DOWN && event.unicodeChar > 0) {
+        if (event.source and InputDevice.SOURCE_KEYBOARD != InputDevice.SOURCE_KEYBOARD)
+            return super.dispatchKeyEvent(event)
+        val index = EfficientAndroidLWJGLKeycode.getIndexByKey(event.keyCode)
+        if (index < 0) return super.dispatchKeyEvent(event)
+        val key = EfficientAndroidLWJGLKeycode.getValueByIndex(index).toInt()
+        if (key < 0) return super.dispatchKeyEvent(event)
+        val down = event.action == KeyEvent.ACTION_DOWN
+        if (!down && event.action != KeyEvent.ACTION_UP) return super.dispatchKeyEvent(event)
+        if (down && !heldKeys.add(key)) return true
+        if (!down && !heldKeys.remove(key)) return true
+        CallbackBridge.holdingAlt = event.isAltPressed
+        CallbackBridge.holdingCapslock = event.isCapsLockOn
+        CallbackBridge.holdingCtrl = event.isCtrlPressed
+        CallbackBridge.holdingNumlock = event.isNumLockOn
+        CallbackBridge.holdingShift = event.isShiftPressed
+        CallbackBridge.sendKeyPress(key, CallbackBridge.getCurrentMods(), down)
+        if (down && event.unicodeChar > 0 && !Character.isISOControl(event.unicodeChar)) {
             CallbackBridge.sendChar(event.unicodeChar.toChar(), CallbackBridge.getCurrentMods())
         }
         return true
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.source and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE) {
+            if (window.decorView.hasPointerCapture()) return true
+            return handleMouse(event, false)
+        }
         CallbackBridge.sendCursorPos(event.x, event.y)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> CallbackBridge.sendMouseButton(0, true)
@@ -67,25 +77,45 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        CallbackBridge.sendCursorPos(event.x, event.y)
-        return handleMouse(event)
+        if (event.source and InputDevice.SOURCE_MOUSE != InputDevice.SOURCE_MOUSE)
+            return super.onGenericMotionEvent(event)
+        if (window.decorView.hasPointerCapture()) return true
+        return handleMouse(event, false)
     }
 
-    private fun handleMouse(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_SCROLL -> CallbackBridge.sendScroll(
+    private fun handleMouse(event: MotionEvent, captured: Boolean): Boolean {
+        if (captured) {
+            CallbackBridge.sendCursorPos(
+                CallbackBridge.mouseX + event.getAxisValue(MotionEvent.AXIS_RELATIVE_X),
+                CallbackBridge.mouseY + event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y))
+        } else {
+            CallbackBridge.sendCursorPos(event.x, event.y)
+        }
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            CallbackBridge.sendScroll(
                 event.getAxisValue(MotionEvent.AXIS_HSCROLL).toDouble(),
                 event.getAxisValue(MotionEvent.AXIS_VSCROLL).toDouble())
-            MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
-                val button = when (event.actionButton) {
-                    MotionEvent.BUTTON_PRIMARY -> 0
-                    MotionEvent.BUTTON_SECONDARY -> 1
-                    MotionEvent.BUTTON_TERTIARY -> 2
-                    else -> return super.onGenericMotionEvent(event)
-                }
-                CallbackBridge.sendMouseButton(button, event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS)
-            }
         }
+        for ((mask, button) in arrayOf(MotionEvent.BUTTON_PRIMARY to 0,
+                MotionEvent.BUTTON_SECONDARY to 1, MotionEvent.BUTTON_TERTIARY to 2)) {
+            val wasDown = pressedButtons and mask != 0
+            val isDown = event.buttonState and mask != 0
+            if (wasDown != isDown) CallbackBridge.sendMouseButton(button, isDown)
+        }
+        pressedButtons = event.buttonState
         return true
+    }
+
+    private fun releaseInput() {
+        for (key in heldKeys) CallbackBridge.sendKeyPress(key, 0, false)
+        heldKeys.clear()
+        for ((mask, button) in arrayOf(MotionEvent.BUTTON_PRIMARY to 0,
+                MotionEvent.BUTTON_SECONDARY to 1, MotionEvent.BUTTON_TERTIARY to 2)) {
+            if (pressedButtons and mask != 0) CallbackBridge.sendMouseButton(button, false)
+        }
+        pressedButtons = 0
+        CallbackBridge.holdingAlt = false
+        CallbackBridge.holdingCtrl = false
+        CallbackBridge.holdingShift = false
     }
 }
