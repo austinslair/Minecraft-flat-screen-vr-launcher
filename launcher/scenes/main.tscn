@@ -19,18 +19,18 @@
 [ext_resource type="Texture2D" path="res://assets/textures/nav_settings.svg" id="settings"]
 
 [sub_resource type="StyleBoxFlat" id="panel"]
-bg_color = Color(0.102, 0.114, 0.129, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_left = 8
-corner_radius_bottom_right = 8
+bg_color = Color(0.115, 0.16, 0.12, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_left = 14
+corner_radius_bottom_right = 14
 
 [sub_resource type="StyleBoxFlat" id="line"]
-bg_color = Color(0.17, 0.184, 0.204, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_left = 8
-corner_radius_bottom_right = 8
+bg_color = Color(0.19, 0.25, 0.20, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_left = 14
+corner_radius_bottom_right = 14
 
 [node name="Launcher" type="Control"]
 layout_mode = 3
@@ -45,60 +45,60 @@ offset_left = 0.0
 offset_top = 0.0
 offset_right = 1536.0
 offset_bottom = 1024.0
-color = Color(0.067, 0.075, 0.086, 1)
+color = Color(0.055, 0.078, 0.062, 1)
 mouse_filter = 2
 
 [node name="Sidebar" type="ColorRect" parent="."]
 offset_left = 0.0
 offset_top = 0.0
-offset_right = 232.0
+offset_right = 248.0
 offset_bottom = 1024.0
-color = Color(0.087, 0.098, 0.11, 1)
+color = Color(0.075, 0.103, 0.081, 1)
 mouse_filter = 2
 
 [node name="SidebarRule" type="ColorRect" parent="."]
-offset_left = 231.0
+offset_left = 247.0
 offset_top = 0.0
-offset_right = 232.0
+offset_right = 248.0
 offset_bottom = 1024.0
-color = Color(0.17, 0.184, 0.204, 1)
+color = Color(0.19, 0.25, 0.20, 1)
 mouse_filter = 2
 
 [node name="Brand" type="Label" parent="."]
-offset_left = 28.0
-offset_top = 30.0
-offset_right = 220.0
-offset_bottom = 72.0
+offset_left = 29.0
+offset_top = 27.0
+offset_right = 227.0
+offset_bottom = 67.0
 text = "VOXYQUEST"
-theme_override_font_sizes/font_size = 25
+theme_override_font_sizes/font_size = 26
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.80, 0.95, 0.67, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="BrandCaption" type="Label" parent="."]
-offset_left = 28.0
-offset_top = 74.0
-offset_right = 218.0
-offset_bottom = 100.0
-text = "MINECRAFT LAUNCHER"
+offset_left = 29.0
+offset_top = 72.0
+offset_right = 227.0
+offset_bottom = 95.0
+text = "JAVA EDITION  /  QUEST LAUNCHER"
 theme_override_font_sizes/font_size = 11
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="NavigationLabel" type="Label" parent="."]
-offset_left = 28.0
-offset_top = 142.0
-offset_right = 208.0
+offset_left = 29.0
+offset_top = 145.0
+offset_right = 210.0
 offset_bottom = 166.0
-text = "LIBRARY"
+text = "YOUR LIBRARY"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
@@ -106,7 +106,7 @@ mouse_filter = 2
 [node name="Home" type="Button" parent="."]
 offset_left = 16.0
 offset_top = 188.0
-offset_right = 216.0
+offset_right = 232.0
 offset_bottom = 240.0
 mouse_default_cursor_shape = 2
 
@@ -119,17 +119,17 @@ texture = ExtResource("home")
 expand_mode = 1
 stretch_mode = 5
 mouse_filter = 2
-modulate = Color(0.7, 0.74, 0.77, 1)
+modulate = Color(0.70, 0.83, 0.68, 1)
 
 [node name="HomeText" type="Label" parent="."]
 offset_left = 72.0
 offset_top = 188.0
-offset_right = 204.0
+offset_right = 227.0
 offset_bottom = 240.0
 text = "Home"
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 vertical_alignment = 1
@@ -138,7 +138,7 @@ mouse_filter = 2
 [node name="Instances" type="Button" parent="."]
 offset_left = 16.0
 offset_top = 252.0
-offset_right = 216.0
+offset_right = 232.0
 offset_bottom = 304.0
 mouse_default_cursor_shape = 2
 
@@ -151,17 +151,17 @@ texture = ExtResource("instances")
 expand_mode = 1
 stretch_mode = 5
 mouse_filter = 2
-modulate = Color(0.7, 0.74, 0.77, 1)
+modulate = Color(0.70, 0.83, 0.68, 1)
 
 [node name="InstancesText" type="Label" parent="."]
 offset_left = 72.0
 offset_top = 252.0
-offset_right = 204.0
+offset_right = 227.0
 offset_bottom = 304.0
 text = "Instances"
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 vertical_alignment = 1
@@ -170,7 +170,7 @@ mouse_filter = 2
 [node name="Mods" type="Button" parent="."]
 offset_left = 16.0
 offset_top = 316.0
-offset_right = 216.0
+offset_right = 232.0
 offset_bottom = 368.0
 mouse_default_cursor_shape = 2
 
@@ -183,17 +183,17 @@ texture = ExtResource("mods")
 expand_mode = 1
 stretch_mode = 5
 mouse_filter = 2
-modulate = Color(0.7, 0.74, 0.77, 1)
+modulate = Color(0.70, 0.83, 0.68, 1)
 
 [node name="ModsText" type="Label" parent="."]
 offset_left = 72.0
 offset_top = 316.0
-offset_right = 204.0
+offset_right = 227.0
 offset_bottom = 368.0
 text = "Mods"
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 vertical_alignment = 1
@@ -202,7 +202,7 @@ mouse_filter = 2
 [node name="Accounts" type="Button" parent="."]
 offset_left = 16.0
 offset_top = 754.0
-offset_right = 216.0
+offset_right = 232.0
 offset_bottom = 806.0
 mouse_default_cursor_shape = 2
 
@@ -215,17 +215,17 @@ texture = ExtResource("accounts")
 expand_mode = 1
 stretch_mode = 5
 mouse_filter = 2
-modulate = Color(0.7, 0.74, 0.77, 1)
+modulate = Color(0.70, 0.83, 0.68, 1)
 
 [node name="AccountsText" type="Label" parent="."]
 offset_left = 72.0
 offset_top = 754.0
-offset_right = 204.0
+offset_right = 227.0
 offset_bottom = 806.0
 text = "Accounts"
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 vertical_alignment = 1
@@ -234,7 +234,7 @@ mouse_filter = 2
 [node name="Settings" type="Button" parent="."]
 offset_left = 16.0
 offset_top = 818.0
-offset_right = 216.0
+offset_right = 232.0
 offset_bottom = 870.0
 mouse_default_cursor_shape = 2
 
@@ -247,87 +247,87 @@ texture = ExtResource("settings")
 expand_mode = 1
 stretch_mode = 5
 mouse_filter = 2
-modulate = Color(0.7, 0.74, 0.77, 1)
+modulate = Color(0.70, 0.83, 0.68, 1)
 
 [node name="SettingsText" type="Label" parent="."]
 offset_left = 72.0
 offset_top = 818.0
-offset_right = 204.0
+offset_right = 227.0
 offset_bottom = 870.0
 text = "Settings"
 theme_override_font_sizes/font_size = 18
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 vertical_alignment = 1
 mouse_filter = 2
 
 [node name="SidebarFooter" type="Label" parent="."]
-offset_left = 28.0
-offset_top = 954.0
-offset_right = 218.0
-offset_bottom = 978.0
-text = "VoxyQuest  /  Preview"
+offset_left = 29.0
+offset_top = 953.0
+offset_right = 224.0
+offset_bottom = 977.0
+text = "VOXYQUEST  •  ALPHA"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="PageTitle" type="Label" parent="."]
-offset_left = 272.0
-offset_top = 25.0
-offset_right = 772.0
-offset_bottom = 77.0
-text = "Overview"
+offset_left = 280.0
+offset_top = 24.0
+offset_right = 760.0
+offset_bottom = 76.0
+text = "Home"
 theme_override_font_sizes/font_size = 26
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="AccountPanel" type="Panel" parent="."]
-offset_left = 1120.0
+offset_left = 1122.0
 offset_top = 14.0
 offset_right = 1424.0
-offset_bottom = 84.0
+offset_bottom = 83.0
 theme_override_styles/panel = SubResource("panel")
 mouse_filter = 2
 
 [node name="AccountTitle" type="Label" parent="."]
-offset_left = 1138.0
-offset_top = 21.0
-offset_right = 1403.0
-offset_bottom = 50.0
+offset_left = 1143.0
+offset_top = 19.0
+offset_right = 1400.0
+offset_bottom = 48.0
 text = "Not Signed In"
 theme_override_font_sizes/font_size = 16
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="AccountSubtitle" type="Label" parent="."]
-offset_left = 1138.0
-offset_top = 50.0
-offset_right = 1403.0
+offset_left = 1143.0
+offset_top = 48.0
+offset_right = 1400.0
 offset_bottom = 74.0
 text = "Sign in with Microsoft"
 theme_override_font_sizes/font_size = 13
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="Account" type="Button" parent="."]
-offset_left = 1120.0
+offset_left = 1122.0
 offset_top = 14.0
 offset_right = 1424.0
-offset_bottom = 84.0
+offset_bottom = 83.0
 mouse_default_cursor_shape = 2
 
 [node name="Minimize" type="Button" parent="."]
@@ -347,187 +347,187 @@ text = "×"
 theme_override_font_sizes/font_size = 23
 
 [node name="HeaderRule" type="ColorRect" parent="."]
-offset_left = 232.0
+offset_left = 248.0
 offset_top = 95.0
 offset_right = 1536.0
 offset_bottom = 96.0
-color = Color(0.17, 0.184, 0.204, 1)
+color = Color(0.19, 0.25, 0.20, 1)
 mouse_filter = 2
 
 [node name="Hero" type="TextureRect" parent="."]
-offset_left = 272.0
-offset_top = 128.0
-offset_right = 1496.0
-offset_bottom = 456.0
+offset_left = 280.0
+offset_top = 122.0
+offset_right = 1508.0
+offset_bottom = 493.0
 texture = ExtResource("bg")
 expand_mode = 1
 stretch_mode = 6
 mouse_filter = 2
 
 [node name="HeroShade" type="ColorRect" parent="."]
-offset_left = 272.0
-offset_top = 350.0
-offset_right = 1496.0
-offset_bottom = 456.0
-color = Color(0.04, 0.06, 0.05, 0.88)
+offset_left = 280.0
+offset_top = 367.0
+offset_right = 1508.0
+offset_bottom = 493.0
+color = Color(0.025, 0.055, 0.035, 0.90)
 mouse_filter = 2
 
 [node name="HeroEyebrow" type="Label" parent="."]
-offset_left = 300.0
-offset_top = 366.0
-offset_right = 1100.0
-offset_bottom = 390.0
-text = "JAVA EDITION"
+offset_left = 310.0
+offset_top = 387.0
+offset_right = 1120.0
+offset_bottom = 411.0
+text = "JAVA EDITION  /  VR + FLATSCREEN"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.73, 0.91, 0.64, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="HeroTitle" type="Label" parent="."]
-offset_left = 298.0
-offset_top = 391.0
-offset_right = 1298.0
-offset_bottom = 443.0
-text = "Minecraft"
-theme_override_font_sizes/font_size = 36
+offset_left = 307.0
+offset_top = 418.0
+offset_right = 1408.0
+offset_bottom = 478.0
+text = "Your next world starts here."
+theme_override_font_sizes/font_size = 37
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="LibraryEyebrow" type="Label" parent="."]
-offset_left = 272.0
-offset_top = 491.0
-offset_right = 972.0
-offset_bottom = 521.0
-text = "SELECTED INSTANCE"
+offset_left = 280.0
+offset_top = 520.0
+offset_right = 980.0
+offset_bottom = 548.0
+text = "CURRENT INSTANCE"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="InstancePanel" type="Panel" parent="."]
-offset_left = 272.0
-offset_top = 538.0
-offset_right = 1496.0
-offset_bottom = 724.0
+offset_left = 280.0
+offset_top = 552.0
+offset_right = 1508.0
+offset_bottom = 719.0
 theme_override_styles/panel = SubResource("panel")
 mouse_filter = 2
 
 [node name="InstanceEmpty" type="Label" parent="."]
-offset_left = 300.0
-offset_top = 561.0
-offset_right = 1400.0
-offset_bottom = 603.0
+offset_left = 311.0
+offset_top = 575.0
+offset_right = 1198.0
+offset_bottom = 619.0
 text = "No instances installed"
 theme_override_font_sizes/font_size = 27
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="InstanceDescription" type="Label" parent="."]
-offset_left = 300.0
-offset_top = 608.0
-offset_right = 1390.0
-offset_bottom = 646.0
+offset_left = 311.0
+offset_top = 624.0
+offset_right = 1380.0
+offset_bottom = 656.0
 text = "Create an instance to choose your Minecraft version and mods."
 theme_override_font_sizes/font_size = 17
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="ChangeInstance" type="Button" parent="."]
-offset_left = 300.0
-offset_top = 661.0
-offset_right = 568.0
-offset_bottom = 705.0
-text = "Manage instances"
+offset_left = 311.0
+offset_top = 663.0
+offset_right = 556.0
+offset_bottom = 704.0
+text = "Browse instances  →"
 theme_override_font_sizes/font_size = 16
 mouse_default_cursor_shape = 2
 
 [node name="HomeHelpTitle" type="Label" parent="."]
-offset_left = 272.0
-offset_top = 758.0
-offset_right = 1432.0
-offset_bottom = 790.0
-text = "Your launcher. Your installations."
+offset_left = 309.0
+offset_top = 763.0
+offset_right = 850.0
+offset_bottom = 795.0
+text = "Make it yours"
 theme_override_font_sizes/font_size = 19
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="HomeHelpBody" type="Label" parent="."]
-offset_left = 272.0
-offset_top = 798.0
-offset_right = 1432.0
-offset_bottom = 828.0
-text = "Install versions in Instances. Add compatible Fabric mods from Mods."
+offset_left = 309.0
+offset_top = 801.0
+offset_right = 854.0
+offset_bottom = 855.0
+text = "Create a version, add Fabric mods, and jump back in whenever you like."
 theme_override_font_sizes/font_size = 16
 theme_override_fonts/font = ExtResource("font")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="Playbar" type="ColorRect" parent="."]
-offset_left = 232.0
+offset_left = 248.0
 offset_top = 900.0
 offset_right = 1536.0
 offset_bottom = 1024.0
-color = Color(0.087, 0.098, 0.11, 1)
+color = Color(0.075, 0.103, 0.081, 1)
 mouse_filter = 2
 
 [node name="PlaybarRule" type="ColorRect" parent="."]
-offset_left = 232.0
+offset_left = 248.0
 offset_top = 900.0
 offset_right = 1536.0
 offset_bottom = 901.0
-color = Color(0.17, 0.184, 0.204, 1)
+color = Color(0.19, 0.25, 0.20, 1)
 mouse_filter = 2
 
 [node name="PlaybarCaption" type="Label" parent="."]
-offset_left = 272.0
-offset_top = 922.0
-offset_right = 832.0
-offset_bottom = 944.0
+offset_left = 280.0
+offset_top = 921.0
+offset_right = 835.0
+offset_bottom = 945.0
 text = "READY TO PLAY"
 theme_override_font_sizes/font_size = 11
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.60, 0.65, 0.70, 1)
+theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="QuickEmpty" type="Label" parent="."]
-offset_left = 272.0
+offset_left = 280.0
 offset_top = 948.0
-offset_right = 822.0
-offset_bottom = 986.0
+offset_right = 826.0
+offset_bottom = 992.0
 text = "No version selected"
 theme_override_font_sizes/font_size = 20
 theme_override_fonts/font = ExtResource("bold")
-theme_override_colors/font_color = Color(0.92, 0.94, 0.95, 1)
+theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
 clip_text = true
 text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="Play" type="Button" parent="."]
-offset_left = 1216.0
-offset_top = 927.0
-offset_right = 1496.0
-offset_bottom = 991.0
-text = "Play"
+offset_left = 1228.0
+offset_top = 925.0
+offset_right = 1508.0
+offset_bottom = 993.0
+text = "PLAY NOW  →"
 disabled = true
 theme_override_font_sizes/font_size = 24
 mouse_default_cursor_shape = 2
