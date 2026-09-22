@@ -207,7 +207,7 @@ func run_checks() -> void:
 		assert(ui.get_node("PlayMode").is_visible_in_tree())
 		assert(ui.get_node("Play").get_global_rect().position.y >= ui.workspace.get_global_rect().end.y)
 		assert(ui.workspace_body.size.x <= ui.workspace.size.x)
-		assert(ui.get_node("PageTitle").text == ("Overview" if section == "Home" else section))
+		assert(ui.get_node("PageTitle").text == section)
 	ui.get_node("PlayMode").item_selected.emit(1)
 	assert(ui.play_mode == "flat")
 	ui.get_node("PlayMode").item_selected.emit(0)
