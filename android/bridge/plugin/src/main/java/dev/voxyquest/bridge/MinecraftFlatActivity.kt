@@ -38,8 +38,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         writeController()
         gameView.setOnCapturedPointerListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_MOVE) {
-                val dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
-                val dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+                var dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+                var dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+                // Some Android mouse drivers put captured deltas in x/y instead.
+                if (dx == 0f && dy == 0f) { dx = event.x; dy = event.y }
                 CallbackBridge.sendCursorPos(CallbackBridge.mouseX + dx, CallbackBridge.mouseY + dy)
             }
             handleMouse(event)
@@ -119,6 +121,19 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
             axisIds.forEachIndexed { i, axis ->
                 controllerAxes[i] = if (device?.getMotionRange(axis, InputDevice.SOURCE_JOYSTICK) != null)
                     event.getAxisValue(axis).coerceIn(-1f, 1f) else 0f
+            }
+            if (device?.getMotionRange(MotionEvent.AXIS_Z, InputDevice.SOURCE_JOYSTICK) == null) {
+                controllerAxes[2] = event.getAxisValue(MotionEvent.AXIS_RX).coerceIn(-1f, 1f)
+                controllerAxes[3] = event.getAxisValue(MotionEvent.AXIS_RY).coerceIn(-1f, 1f)
+            }
+            val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+            val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            if (device?.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_JOYSTICK) != null) {
+                controllerButtons = controllerButtons and (0x7800).inv()
+                if (hatY < -0.5f) controllerButtons = controllerButtons or (1 shl 11)
+                if (hatX > 0.5f) controllerButtons = controllerButtons or (1 shl 12)
+                if (hatY > 0.5f) controllerButtons = controllerButtons or (1 shl 13)
+                if (hatX < -0.5f) controllerButtons = controllerButtons or (1 shl 14)
             }
             for (i in 4..5) controllerAxes[i] = controllerAxes[i] * 2f - 1f
             writeController()
