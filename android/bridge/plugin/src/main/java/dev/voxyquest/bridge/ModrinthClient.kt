@@ -35,7 +35,10 @@ internal object ModrinthClient {
             val id = hit.optString("project_id")
             if (!projectId.matches(id)) continue
             results.put(JSONObject().put("id", id).put("title", hit.optString("title"))
-                .put("description", hit.optString("description")).put("downloads", hit.optLong("downloads")))
+                .put("description", hit.optString("description"))
+                .put("author", hit.optString("author"))
+                .put("icon_url", hit.optString("icon_url"))
+                .put("downloads", hit.optLong("downloads")))
         }
         return results
     }
@@ -62,13 +65,18 @@ internal object ModrinthClient {
                 require(projectId.matches(id))
                 val list = JSONArray(read("$API/project/$id/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22$gameVersion%22%5D&include_changelog=false"))
                 check(list.length() > 0) { "No Fabric build for Minecraft $gameVersion." }
+                // The API may return featured versions first; choose the most recently published
+                // compatible build regardless of how the response is ordered.
                 (0 until list.length()).map { list.getJSONObject(it) }
-                    .firstOrNull { it.optString("version_type") == "release" } ?: list.getJSONObject(0)
+                    .maxByOrNull { it.optString("date_published") }!!
             }
             val versionId = version.getString("id")
             if (!seen.add(versionId)) return
-            check(version.getJSONArray("game_versions").toString().contains("\"$gameVersion\"") &&
-                version.getJSONArray("loaders").toString().contains("\"fabric\"")) {
+            check(version.getJSONArray("game_versions").let { values ->
+                (0 until values.length()).any { values.getString(it) == gameVersion }
+            } && version.getJSONArray("loaders").let { values ->
+                (0 until values.length()).any { values.getString(it) == "fabric" }
+            }) {
                 "A required mod does not support this Minecraft version."
             }
             for (i in 0 until version.optJSONArray("dependencies").let { it?.length() ?: 0 }) {

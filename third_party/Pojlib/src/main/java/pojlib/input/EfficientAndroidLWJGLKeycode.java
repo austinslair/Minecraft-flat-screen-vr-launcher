@@ -203,7 +203,11 @@ public class EfficientAndroidLWJGLKeycode {
     }
 
     public static int getIndexByKey(int key){
-        return Arrays.binarySearch(sAndroidKeycodes, key);
+        // The mapping is registered by key groups, not in numeric order.
+        for (int i = 0; i < mTmpCount; i++) {
+            if (sAndroidKeycodes[i] == key) return i;
+        }
+        return -1;
     }
 
     /** @return the index at which the key is in the array, searching linearly */

@@ -55,7 +55,8 @@ var mods_list: ItemList
 var mods_status: Label
 var modrinth_search: LineEdit
 var modrinth_search_button: Button
-var modrinth_results: ItemList
+var modrinth_results: VBoxContainer
+var modrinth_selected := -1
 var modrinth_install_button: Button
 var modrinth_status: Label
 var modrinth_hits: Array = []
@@ -852,11 +853,14 @@ func _render_mods_page() -> void:
 	search_row.add_child(modrinth_search)
 	modrinth_search_button = _make_button("Search", _search_modrinth, true)
 	search_row.add_child(modrinth_search_button)
-	modrinth_results = ItemList.new()
-	modrinth_results.custom_minimum_size.y = 330
-	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
-	modrinth_results.item_selected.connect(func(_index: int): _update_modrinth_install_button())
-	browser.add_child(modrinth_results)
+	var results_scroll := ScrollContainer.new()
+	results_scroll.custom_minimum_size.y = 360
+	results_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	browser.add_child(results_scroll)
+	modrinth_results = VBoxContainer.new()
+	modrinth_results.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_results.add_theme_constant_override("separation", 10)
+	results_scroll.add_child(modrinth_results)
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 12)
 	browser.add_child(install_row)
@@ -890,7 +894,9 @@ func _search_modrinth() -> void:
 		return
 	last_modrinth_results = ""
 	modrinth_hits.clear()
-	modrinth_results.clear()
+	modrinth_selected = -1
+	for child in modrinth_results.get_children():
+		child.queue_free()
 	_update_modrinth_install_button()
 	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
 		modrinth_status.text = "Searching Modrinth…"
@@ -901,15 +907,12 @@ func _search_modrinth() -> void:
 func _update_modrinth_install_button() -> void:
 	if not is_instance_valid(modrinth_install_button):
 		return
-	modrinth_install_button.disabled = install_busy or not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty()
+	modrinth_install_button.disabled = install_busy or modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size()
 
 func _install_modrinth() -> void:
-	if not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty():
+	if modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size():
 		return
-	var index := modrinth_results.get_selected_items()[0]
-	if index >= modrinth_hits.size():
-		return
-	var id := str(modrinth_hits[index].get("id", ""))
+	var id := str(modrinth_hits[modrinth_selected].get("id", ""))
 	if runtime.install_modrinth_mod(selected_name, id):
 		modrinth_status.text = "Resolving dependencies and downloading…"
 		modrinth_install_button.disabled = true
@@ -929,10 +932,23 @@ func _poll_modrinth() -> void:
 	if search_state == "ready" and signature != last_modrinth_results:
 		last_modrinth_results = signature
 		modrinth_hits = results
-		modrinth_results.clear()
-		for hit in results:
-			modrinth_results.add_item("%s    ·    %s" % [str(hit.get("title", "Mod")), str(hit.get("description", "")).left(105)])
-			modrinth_results.set_item_tooltip(modrinth_results.item_count - 1, str(hit.get("description", "")))
+		modrinth_selected = -1
+		for child in modrinth_results.get_children():
+			child.queue_free()
+		for index in results.size():
+			var hit: Dictionary = results[index]
+			var card := Button.new()
+			card.custom_minimum_size.y = 94
+			card.toggle_mode = true
+			card.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			card.text = "%s\n%s · %s downloads\n%s" % [
+				str(hit.get("title", "Mod")), str(hit.get("author", "Modrinth")),
+				str(hit.get("downloads", 0)), str(hit.get("description", "")).left(145)]
+			card.tooltip_text = str(hit.get("description", ""))
+			card.add_theme_font_size_override("font_size", 16)
+			card.pressed.connect(_select_modrinth_result.bind(index))
+			modrinth_results.add_child(card)
+			_load_modrinth_icon(str(hit.get("icon_url", "")), card)
 		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching Fabric mods for this version."
 	elif search_state == "searching":
 		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
@@ -953,6 +969,33 @@ func _poll_modrinth() -> void:
 		modrinth_timer.stop()
 		_update_modrinth_install_button()
 
+func _select_modrinth_result(index: int) -> void:
+	modrinth_selected = index
+	for i in modrinth_results.get_child_count():
+		var card := modrinth_results.get_child(i) as Button
+		card.button_pressed = i == index
+	modrinth_status.text = str(modrinth_hits[index].get("description", ""))
+	_update_modrinth_install_button()
+
+func _load_modrinth_icon(url: String, card: Button) -> void:
+	if not url.begins_with("https://cdn.modrinth.com/"):
+		return
+	var request := HTTPRequest.new()
+	card.add_child(request)
+	request.request_completed.connect(func(result: int, response: int, _headers: PackedStringArray, body: PackedByteArray):
+		if result == HTTPRequest.RESULT_SUCCESS and response == 200 and body.size() < 524288:
+			var picture := Image.new()
+			var format_error := picture.load_png_from_buffer(body)
+			if format_error != OK:
+				format_error = picture.load_webp_from_buffer(body)
+			if format_error == OK:
+				picture.resize(48, 48)
+				card.icon = ImageTexture.create_from_image(picture)
+		request.queue_free()
+	)
+	if request.request(url) != OK:
+		request.queue_free()
+
 func _add_mod() -> void:
 	if selected_name.is_empty() or install_busy:
 		return
@@ -971,8 +1014,15 @@ func _refresh_mods_page() -> void:
 	if not error.is_empty():
 		mods_status.text = error
 		return
-	for mod_name in mods:
-		mods_list.add_item(str(mod_name))
+	var profiles: Array = snapshot.get("profiles", [])
+	for index in mods.size():
+		var mod_name := str(mods[index])
+		var profile: Dictionary = profiles[index] if index < profiles.size() and profiles[index] is Dictionary else {}
+		var title := str(profile.get("title", mod_name))
+		var version := str(profile.get("version", ""))
+		var description := str(profile.get("description", ""))
+		mods_list.add_item("%s  %s\n%s" % [title, version, description.left(85)] if not profile.is_empty() else mod_name)
+		mods_list.set_item_tooltip(index, "%s\n%s" % [description, mod_name])
 	mods_status.text = "%d mod file(s) found." % mods.size() if not mods.is_empty() else "No mod JARs found in this instance."
 
 func _render_accounts_page() -> void:

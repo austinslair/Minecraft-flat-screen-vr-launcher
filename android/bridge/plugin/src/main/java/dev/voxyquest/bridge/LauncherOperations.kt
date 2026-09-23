@@ -6,6 +6,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.Locale
+import java.util.jar.JarFile
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -216,19 +217,39 @@ object LauncherOperations {
     }
 
     fun mods(name: String): String = runCatching {
-        val result = JSONObject().put("available", true).put("mods", JSONArray()).put("error", "")
+        val result = JSONObject().put("available", true).put("mods", JSONArray())
+            .put("profiles", JSONArray()).put("error", "")
         val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
             ?: return JSONObject().put("available", true).put("mods", JSONArray())
                 .put("error", "Instance not found").toString()
         val modsDirectory = File(instance.gameDir ?: "", "mods")
         val mods = JSONArray()
+        val profiles = JSONArray()
         if (modsDirectory.isDirectory) {
             modsDirectory.listFiles()
                 ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
                 ?.sortedBy { it.name.lowercase(Locale.ROOT) }
-                ?.forEach { mods.put(it.name) }
+                ?.forEach { file ->
+                    mods.put(file.name)
+                    val profile = JSONObject().put("filename", file.name)
+                    runCatching {
+                        JarFile(file).use { jar ->
+                            val entry = jar.getJarEntry("fabric.mod.json") ?: return@use
+                            jar.getInputStream(entry).use { input ->
+                                val data = input.readNBytes(65537)
+                                if (data.size <= 65536) {
+                                    val metadata = JSONObject(String(data, Charsets.UTF_8))
+                                    profile.put("title", metadata.optString("name", file.name))
+                                        .put("description", metadata.optString("description"))
+                                        .put("version", metadata.optString("version"))
+                                }
+                            }
+                        }
+                    }
+                    profiles.put(profile)
+                }
         }
-        result.put("mods", mods).toString()
+        result.put("mods", mods).put("profiles", profiles).toString()
     }.getOrElse {
         JSONObject().put("available", false).put("mods", JSONArray())
             .put("error", "Could not read instance mods").toString()
