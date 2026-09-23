@@ -350,7 +350,7 @@ public class JREUtils {
                 "-Dos.name=Linux",
                 "-Dos.version=Android-" + Build.VERSION.RELEASE,
                 "-Dorg.lwjgl.librarypath=" + ctx.getApplicationInfo().nativeLibraryDir,
-                "-Djna.boot.library.path=" + JnaNativeInstaller.prepare(ctx, instance.classpath),
+                "-Djna.boot.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.nosys=true",
                 "-Djna.nounpack=true",
                 "-Djna.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),

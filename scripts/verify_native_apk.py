@@ -14,6 +14,8 @@ def verify(path):
             header = apk.read(entry)[:20]
             if header[:5] != b"\x7fELF\x02" or int.from_bytes(header[18:20], "little") != 183:
                 raise ValueError(f"{name} is not an arm64 ELF library")
+            if name == "libjnidispatch.so" and b"7.0.2" not in apk.read(entry):
+                raise ValueError("JNA native must match JNA 5.15.0 (native interface 7.0.2)")
     print("PASS: required ARM64 libraries packaged for extraction")
 
 
