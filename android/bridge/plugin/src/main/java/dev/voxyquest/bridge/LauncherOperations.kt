@@ -44,14 +44,15 @@ object LauncherOperations {
             VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
         }.getOrNull() ?: return false
         val version = instance.versionName ?: return false
+        val loader = instance.loaderId()
         val generation = ++searchGeneration
         modrinthSearchInstance = name
         modrinthSearchState = "searching"
-        modrinthSearchMessage = "Searching Fabric mods for Minecraft $version…"
+        modrinthSearchMessage = "Searching ${if (loader == "neoforge") "NeoForge" else "Fabric"} mods for Minecraft $version…"
         modrinthResults = "[]"
         searchWorker.execute {
             try {
-                val result = ModrinthClient.search(query.trim(), version, sort, category).toString()
+                val result = ModrinthClient.search(query.trim(), version, sort, category, loader).toString()
                 if (generation == searchGeneration) {
                     modrinthResults = result
                     modrinthSearchMessage = ""
@@ -71,7 +72,7 @@ object LauncherOperations {
     fun installModrinth(name: String, projectId: String): Boolean {
         if (isBusy() || MinecraftGameActivity.isRunning || !projectId.matches(Regex("[A-Za-z0-9]{8,16}"))) return false
         modrinthInstallState = "installing"
-        modrinthInstallMessage = "Resolving compatible Fabric version…"
+        modrinthInstallMessage = "Resolving compatible mod version…"
         state = "installing_mod"
         worker.execute {
             try {
@@ -234,7 +235,12 @@ object LauncherOperations {
                     val profile = JSONObject().put("filename", file.name)
                     runCatching {
                         JarFile(file).use { jar ->
-                            val entry = jar.getJarEntry("fabric.mod.json") ?: return@use
+                            val entry = jar.getJarEntry(if (instance.loaderId() == "neoforge")
+                                "META-INF/neoforge.mods.toml" else "fabric.mod.json") ?: return@use
+                            if (instance.loaderId() == "neoforge") {
+                                profile.put("title", file.name.removeSuffix(".jar"))
+                                return@use
+                            }
                             jar.getInputStream(entry).use { input ->
                                 val data = input.readNBytes(65537)
                                 if (data.size <= 65536) {
@@ -286,21 +292,13 @@ object LauncherOperations {
                 }
             }
             java.util.jar.JarFile(temp).use { jar ->
-                val entry = jar.getJarEntry("fabric.mod.json") ?: return "This is not a Fabric mod JAR."
-                val metadata = jar.getInputStream(entry).use { stream ->
-                    val bytes = readDescriptor(stream)
-                    check(bytes.size <= 1024 * 1024)
-                    JSONObject(String(bytes, Charsets.UTF_8))
-                }
-                val id = metadata.optString("id")
-                check(id.isNotBlank())
+                val loader = instance.loaderId()
+                val id = ModrinthClient.modId(jar, loader)
+                    ?: return "This is not a $loader mod JAR."
                 for (existing in mods.listFiles().orEmpty().filter { it.extension.equals("jar", true) }) {
                     val sameId = runCatching {
                         java.util.jar.JarFile(existing).use { installed ->
-                            val descriptor = installed.getJarEntry("fabric.mod.json")
-                            descriptor != null && installed.getInputStream(descriptor).use { stream ->
-                                JSONObject(String(readDescriptor(stream), Charsets.UTF_8)).optString("id") == id
-                            }
+                            ModrinthClient.modId(installed, loader) == id
                         }
                     }.getOrDefault(false)
                     if (sameId) return "This mod is already installed. Duplicate mod IDs cannot be added."
@@ -312,18 +310,6 @@ object LauncherOperations {
             temp.delete()
             state = "idle"
         }
-    }
-
-    private fun readDescriptor(input: java.io.InputStream): ByteArray {
-        val output = java.io.ByteArrayOutputStream()
-        val buffer = ByteArray(8192)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            check(output.size() + count <= 1024 * 1024) { "Mod metadata is too large" }
-            output.write(buffer, 0, count)
-        }
-        return output.toByteArray()
     }
 
     private fun moveDirectory(source: File, destination: File) {

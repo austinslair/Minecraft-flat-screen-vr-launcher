@@ -485,7 +485,7 @@ func _refresh_library_home() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
 	library_inspector.add_child(title)
-	var detail := _make_label("Minecraft %s · Fabric" % str(selected.get("version", "")) if not selected.is_empty() else "Choose a tile in your library", 14, true)
+	var detail := _make_label("Minecraft %s · %s" % [str(selected.get("version", "")), _loader_label(selected)] if not selected.is_empty() else "Choose a tile in your library", 14, true)
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	library_inspector.add_child(detail)
 	library_inspector.add_child(HSeparator.new())
@@ -725,7 +725,7 @@ func _refresh_instances() -> void:
 	else:
 		var selected := _selected_instance()
 		$InstanceEmpty.text = selected_name
-		$InstanceDescription.text = "Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", ""))
+		$InstanceDescription.text = "Minecraft %s · %s · Vivecraft" % [str(selected.get("version", "")), _loader_label(selected)]
 
 	_update_play()
 	_populate_instance_list()
@@ -737,6 +737,9 @@ func _has_instance(name: String) -> bool:
 		if str(instance.get("name", "")) == name:
 			return true
 	return false
+
+func _loader_label(instance: Dictionary) -> String:
+	return "NeoForge" if str(instance.get("loader", "fabric")).to_lower() == "neoforge" else "Fabric"
 
 func _selected_instance() -> Dictionary:
 	for instance in installed_instances:
@@ -1078,7 +1081,7 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Browse compatible Fabric mods from Modrinth or import a local JAR."
+	workspace_subtitle.text = "Browse compatible mods from Modrinth or import a local JAR."
 	if selected_name.is_empty():
 		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
 		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
@@ -1087,10 +1090,11 @@ func _render_mods_page() -> void:
 		return
 
 	var selected := _selected_instance()
+	var loader := _loader_label(selected)
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 20)
 	workspace_body.add_child(columns)
-	var browser := _page_card(columns, "Discover mods", "Modrinth · Fabric · Minecraft %s" % str(selected.get("version", "")))
+	var browser := _page_card(columns, "Discover mods", "Modrinth · %s · Minecraft %s" % [loader, str(selected.get("version", ""))])
 	browser.custom_minimum_size.x = 850
 	last_modrinth_results = ""
 	var search_row := HBoxContainer.new()
@@ -1122,7 +1126,7 @@ func _render_mods_page() -> void:
 	modrinth_category.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	modrinth_category.item_selected.connect(func(_index: int): _search_modrinth())
 	filters.add_child(modrinth_category)
-	var compatibility := _make_label("Fabric · Minecraft %s" % str(selected.get("version", "")), 14, true)
+	var compatibility := _make_label("%s · Minecraft %s" % [loader, str(selected.get("version", ""))], 14, true)
 	compatibility.custom_minimum_size = Vector2(230, 46)
 	compatibility.autowrap_mode = TextServer.AUTOWRAP_OFF
 	compatibility.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1237,7 +1241,7 @@ func _poll_modrinth() -> void:
 			card.pressed.connect(_select_modrinth_result.bind(index))
 			modrinth_results.add_child(card)
 			_load_modrinth_icon(str(hit.get("icon_url", "")), card)
-		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching Fabric mods for this version."
+		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching %s mods for this version." % _loader_label(_selected_instance())
 	elif search_state == "searching":
 		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
 	elif search_state == "error":

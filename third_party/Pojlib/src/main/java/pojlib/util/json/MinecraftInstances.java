@@ -67,6 +67,8 @@ public class MinecraftInstances {
         public String instanceName;
         public String instanceImageURL;
         public String versionName;
+        // Missing in existing saved profiles; those profiles were all installed with Fabric.
+        public String modLoader;
         public String versionType;
         public String classpath;
         public String gameDir;
@@ -75,6 +77,10 @@ public class MinecraftInstances {
         public String mainClass;
         public ProjectInfo[] extProjects;
         public boolean defaultMods;
+
+        public String loaderId() {
+            return "neoforge".equalsIgnoreCase(modLoader) ? "neoforge" : "fabric";
+        }
 
         public List<String> generateLaunchArgs(MinecraftAccount account) {
             String[] mcArgs = {"--username", account.username, "--version", versionName, "--gameDir", gameDir,

@@ -79,6 +79,9 @@ public final class VoxyQuestInstaller {
         ModsJson.Version selected = findCatalogVersion(activity, version);
 
         if (existing != null) {
+            if ("neoforge".equals(existing.loaderId())) {
+                throw new IOException("This NeoForge profile cannot be repaired with the Fabric installer");
+            }
             if (existing.versionName != null && !existing.versionName.isEmpty()
                     && !version.equals(existing.versionName)) {
                 throw new IOException("Incomplete instance uses a different Minecraft version");
@@ -146,6 +149,7 @@ public final class VoxyQuestInstaller {
 
         instance.instanceName = name;
         instance.versionName = version;
+        instance.modLoader = "fabric";
         instance.versionType = minecraft.type;
         instance.mainClass = fabric.mainClass;
         instance.gameDir = gameDirectory.getPath();

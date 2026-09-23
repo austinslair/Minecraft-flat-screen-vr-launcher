@@ -193,6 +193,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
                     items.put(JSONObject()
                         .put("name", instance.instanceName ?: "Unnamed instance")
                         .put("version", instance.versionName ?: "")
+                        .put("loader", instance.loaderId())
                         .put("installed", VoxyQuestInstaller.isInstalled(instance)))
                 }
                 result.put("instances", items)
