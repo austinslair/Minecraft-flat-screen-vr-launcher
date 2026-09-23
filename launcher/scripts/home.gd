@@ -896,6 +896,7 @@ func _search_modrinth() -> void:
 	modrinth_hits.clear()
 	modrinth_selected = -1
 	for child in modrinth_results.get_children():
+		modrinth_results.remove_child(child)
 		child.queue_free()
 	_update_modrinth_install_button()
 	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
@@ -934,6 +935,7 @@ func _poll_modrinth() -> void:
 		modrinth_hits = results
 		modrinth_selected = -1
 		for child in modrinth_results.get_children():
+			modrinth_results.remove_child(child)
 			child.queue_free()
 		for index in results.size():
 			var hit: Dictionary = results[index]
