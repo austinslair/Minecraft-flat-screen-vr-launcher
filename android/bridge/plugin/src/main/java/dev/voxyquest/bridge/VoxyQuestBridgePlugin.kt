@@ -243,9 +243,9 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     fun getModrinthSnapshotJson(): String = LauncherOperations.modrinthSnapshot()
 
     @UsedByGodot
-    fun searchModrinthMods(instanceName: String, query: String): Boolean {
+    fun searchModrinthMods(instanceName: String, query: String, sort: String, category: String): Boolean {
         if (!PojlibRuntime.isInitialized()) return false
-        return LauncherOperations.searchModrinth(instanceName, query)
+        return LauncherOperations.searchModrinth(instanceName, query, sort, category)
     }
 
     @UsedByGodot

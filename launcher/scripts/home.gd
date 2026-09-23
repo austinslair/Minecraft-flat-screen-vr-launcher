@@ -59,6 +59,10 @@ var mods_list: ItemList
 var mods_status: Label
 var modrinth_search: LineEdit
 var modrinth_search_button: Button
+var modrinth_sort: OptionButton
+var modrinth_category: OptionButton
+var installed_mod_search: LineEdit
+var installed_mod_sort: OptionButton
 var modrinth_results: VBoxContainer
 var modrinth_selected := -1
 var modrinth_install_button: Button
@@ -166,6 +170,8 @@ func _style_primary_button(button: Button) -> void:
 	button.add_theme_color_override("font_color", Color.WHITE)
 	button.add_theme_color_override("font_hover_color", Color.WHITE)
 	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_focus_color", Color.WHITE)
 	for state in ["normal", "hover", "pressed"]:
 		var box := button.get_theme_stylebox(state)
 		box.content_margin_left = 16
@@ -175,6 +181,8 @@ func _style_danger_button(button: Button) -> void:
 	button.add_theme_stylebox_override("normal", style_box(Color(0.24, 0.07, 0.07, 0.72), Color(0.72, 0.31, 0.31, 0.75)))
 	button.add_theme_stylebox_override("hover", style_box(Color(0.32, 0.09, 0.09, 0.9), Color(0.88, 0.4, 0.4, 0.95)))
 	button.add_theme_color_override("font_color", Color(1.0, 0.83, 0.83, 1))
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
 
 func _make_button(text: String, callback: Callable, primary := false, danger := false) -> Button:
 	var button := Button.new()
@@ -188,6 +196,9 @@ func _make_button(text: String, callback: Callable, primary := false, danger := 
 	button.add_theme_color_override("font_color", Color("26382b"))
 	button.add_theme_color_override("font_hover_color", Color("1b4253"))
 	button.add_theme_color_override("font_pressed_color", Color("1b4253"))
+	button.add_theme_color_override("font_hover_pressed_color", Color("1b4253"))
+	button.add_theme_color_override("font_focus_color", Color("1b4253"))
+	button.add_theme_color_override("font_disabled_color", Color("657880"))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -534,6 +545,10 @@ func _clear_workspace() -> void:
 	mods_status = null
 	modrinth_search = null
 	modrinth_search_button = null
+	modrinth_sort = null
+	modrinth_category = null
+	installed_mod_search = null
+	installed_mod_sort = null
 	modrinth_results = null
 	modrinth_install_button = null
 	modrinth_status = null
@@ -777,31 +792,44 @@ func _detail_row(parent: Control, caption: String, value: String) -> void:
 func _render_instances_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Select an instance, repair it, or install another Minecraft version."
+	workspace_subtitle.text = "Your Minecraft library · Fabric, Vivecraft and Fabric API included with each install."
 	_refresh_instances()
 
+	var top_actions := HBoxContainer.new()
+	top_actions.add_theme_constant_override("separation", 12)
+	workspace_body.add_child(top_actions)
+	top_actions.add_child(_make_button("+  Add instance", func():
+		if is_instance_valid(install_name):
+			install_name.grab_focus()
+	, true))
+	top_actions.add_child(_make_button("Refresh library", _refresh_instances_page))
 
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 24)
 	workspace_body.add_child(columns)
-	var library := _page_card(columns, "Your instances", "Choose a profile to manage or play.")
-	library.custom_minimum_size.x = 455
+	var library := _page_card(columns, "Your instances", "Select a tile to manage or launch that Minecraft version.")
+	library.custom_minimum_size.x = 875
 	library.add_theme_constant_override("separation", 12)
 	var tools := VBoxContainer.new()
 	tools.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tools.add_theme_constant_override("separation", 16)
 	columns.add_child(tools)
-	var editor := _page_card(tools, "Profile settings", "Rename, repair, or remove the selected profile.")
+	var editor := _page_card(tools, "Selected instance", "Edit your profile or repair its runtime.")
 	instance_empty_hint = _make_label("No instances yet. Install one below.", 16, true)
 	library.add_child(instance_empty_hint)
 
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 254)
+	instance_list.custom_minimum_size = Vector2(0, 465)
 	instance_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instance_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	instance_list.mouse_filter = Control.MOUSE_FILTER_STOP
 	instance_list.focus_mode = Control.FOCUS_ALL
-	instance_list.add_theme_font_size_override("font_size", 17)
+	instance_list.add_theme_font_size_override("font_size", 15)
+	instance_list.icon_mode = ItemList.ICON_MODE_TOP
+	instance_list.fixed_icon_size = Vector2i(80, 80)
+	instance_list.fixed_column_width = 190
+	instance_list.max_columns = 4
+	instance_list.same_column_width = true
 	instance_list.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	instance_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	instance_list.item_selected.connect(_on_instance_selected)
@@ -842,16 +870,16 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(tools, "Create an instance", "Install a version with Fabric and Vivecraft.")
+	var installer := _page_card(tools, "Create an instance", "Minecraft, Fabric Loader, Vivecraft, and Fabric API are installed together.")
 
-	var install_row := HBoxContainer.new()
+	var install_row := VBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
 	installer.add_child(install_row)
 	install_name = LineEdit.new()
 	install_name.placeholder_text = "Optional — automatic name"
 	install_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	install_name.max_length = 48
-	install_name.custom_minimum_size = Vector2(340, 46)
+	install_name.custom_minimum_size = Vector2(260, 46)
 	install_name.add_theme_font_size_override("font_size", 17)
 	_field(install_row, "New instance name", install_name)
 	install_version = OptionButton.new()
@@ -863,6 +891,7 @@ func _render_instances_page() -> void:
 	install_submit = _make_button("Install", _start_install, true)
 	install_submit.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	install_submit.custom_minimum_size = Vector2(170, 46)
+	install_submit.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	install_submit.size_flags_vertical = Control.SIZE_SHRINK_END
 	install_row.add_child(install_submit)
 
@@ -886,7 +915,10 @@ func _populate_instance_list() -> void:
 		var name := str(instance.get("name", "Unnamed instance"))
 		var version := str(instance.get("version", "Unknown"))
 		var readiness := "Ready" if bool(instance.get("installed", false)) else "Needs repair"
-		instance_list.add_item("%s   ·   %s   ·   %s" % [name, version, readiness])
+		var icon := Image.create(80, 80, false, Image.FORMAT_RGBA8)
+		var colors: Array[Color] = [Color("b4e7e8"), Color("f1d6ab"), Color("dad5f1"), Color("cde4ba")]
+		icon.fill(colors[int(abs(name.hash())) % colors.size()])
+		instance_list.add_item("%s\n%s · %s" % [name, version, readiness], ImageTexture.create_from_image(icon))
 		instance_list.set_item_tooltip(index, "%s\nMinecraft %s — %s" % [name, version, readiness])
 		if name == selected_name:
 			selected_index = index
@@ -1072,6 +1104,22 @@ func _render_mods_page() -> void:
 	search_row.add_child(modrinth_search)
 	modrinth_search_button = _make_button("Search", _search_modrinth, true)
 	search_row.add_child(modrinth_search_button)
+	var filters := HBoxContainer.new()
+	filters.add_theme_constant_override("separation", 10)
+	browser.add_child(filters)
+	modrinth_sort = OptionButton.new()
+	for label in ["Relevance", "Most downloaded", "Most followed", "Newest", "Recently updated"]:
+		modrinth_sort.add_item(label)
+	modrinth_sort.custom_minimum_size.x = 230
+	modrinth_sort.item_selected.connect(func(_index: int): _search_modrinth())
+	filters.add_child(modrinth_sort)
+	modrinth_category = OptionButton.new()
+	for label in ["All categories", "Optimization", "Utility", "Adventure", "Library", "Decoration"]:
+		modrinth_category.add_item(label)
+	modrinth_category.custom_minimum_size.x = 230
+	modrinth_category.item_selected.connect(func(_index: int): _search_modrinth())
+	filters.add_child(modrinth_category)
+	filters.add_child(_make_label("Fabric · Minecraft %s" % str(selected.get("version", "")), 14, true))
 	var results_scroll := ScrollContainer.new()
 	results_scroll.custom_minimum_size.y = 360
 	results_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1091,6 +1139,15 @@ func _render_mods_page() -> void:
 	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	install_row.add_child(modrinth_status)
 	var collection := _page_card(columns, "Installed mods", selected_name)
+	installed_mod_search = LineEdit.new()
+	installed_mod_search.placeholder_text = "Filter installed mods…"
+	installed_mod_search.text_changed.connect(func(_text: String): _refresh_mods_page())
+	collection.add_child(installed_mod_search)
+	installed_mod_sort = OptionButton.new()
+	installed_mod_sort.add_item("Name A–Z")
+	installed_mod_sort.add_item("Name Z–A")
+	installed_mod_sort.item_selected.connect(func(_index: int): _refresh_mods_page())
+	collection.add_child(installed_mod_sort)
 	mods_list = ItemList.new()
 	mods_list.custom_minimum_size = Vector2(0, 280)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -1118,7 +1175,10 @@ func _search_modrinth() -> void:
 		modrinth_results.remove_child(child)
 		child.queue_free()
 	_update_modrinth_install_button()
-	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
+	var sorts := ["relevance", "downloads", "follows", "newest", "updated"]
+	var categories := ["all", "optimization", "utility", "adventure", "library", "decoration"]
+	if runtime.search_modrinth_mods(selected_name, modrinth_search.text,
+			sorts[modrinth_sort.selected], categories[modrinth_category.selected]):
 		modrinth_status.text = "Searching Modrinth…"
 		modrinth_timer.start()
 	else:
@@ -1236,15 +1296,26 @@ func _refresh_mods_page() -> void:
 		mods_status.text = error
 		return
 	var profiles: Array = snapshot.get("profiles", [])
+	var entries: Array = []
 	for index in mods.size():
 		var mod_name := str(mods[index])
 		var profile: Dictionary = profiles[index] if index < profiles.size() and profiles[index] is Dictionary else {}
 		var title := str(profile.get("title", mod_name))
 		var version := str(profile.get("version", ""))
 		var description := str(profile.get("description", ""))
-		mods_list.add_item("%s  %s\n%s" % [title, version, description.left(85)] if not profile.is_empty() else mod_name)
-		mods_list.set_item_tooltip(index, "%s\n%s" % [description, mod_name])
-	mods_status.text = "%d mod file(s) found." % mods.size() if not mods.is_empty() else "No mod JARs found in this instance."
+		if is_instance_valid(installed_mod_search) and not installed_mod_search.text.is_empty() and \
+			installed_mod_search.text.to_lower() not in (title + " " + mod_name + " " + description).to_lower():
+			continue
+		entries.append({"title": title, "filename": mod_name, "version": version, "description": description})
+	entries.sort_custom(func(a: Dictionary, b: Dictionary):
+		return str(a.title).nocasecmp_to(str(b.title)) < 0
+	)
+	if is_instance_valid(installed_mod_sort) and installed_mod_sort.selected == 1:
+		entries.reverse()
+	for entry in entries:
+		mods_list.add_item("%s  %s\n%s" % [entry.title, entry.version, str(entry.description).left(85)])
+		mods_list.set_item_tooltip(mods_list.item_count - 1, "%s\n%s" % [entry.description, entry.filename])
+	mods_status.text = "%d of %d mod file(s) shown." % [entries.size(), mods.size()] if not mods.is_empty() else "No mod JARs found in this instance."
 
 func _render_accounts_page() -> void:
 	_clear_workspace()

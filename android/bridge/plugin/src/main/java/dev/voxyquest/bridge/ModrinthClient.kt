@@ -22,12 +22,15 @@ internal object ModrinthClient {
     private val projectId = Regex("[A-Za-z0-9]{8,16}")
     private val safeFilename = Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar", RegexOption.IGNORE_CASE)
 
-    fun search(query: String, gameVersion: String): JSONArray {
+    fun search(query: String, gameVersion: String, sort: String, category: String): JSONArray {
         require(query.length <= 80 && gameVersion.matches(Regex("[0-9.]+")))
+        require(sort in setOf("relevance", "downloads", "follows", "newest", "updated"))
+        require(category in setOf("all", "optimization", "utility", "adventure", "library", "decoration"))
         val facets = JSONArray().put(JSONArray().put("project_type:mod"))
             .put(JSONArray().put("categories:fabric"))
             .put(JSONArray().put("versions:$gameVersion"))
-        val url = "$API/search?query=${Uri.encode(query)}&facets=${Uri.encode(facets.toString())}&limit=20"
+        if (category != "all") facets.put(JSONArray().put("categories:$category"))
+        val url = "$API/search?query=${Uri.encode(query)}&facets=${Uri.encode(facets.toString())}&index=$sort&limit=20"
         val hits = JSONObject(read(url)).getJSONArray("hits")
         val results = JSONArray()
         for (i in 0 until hits.length()) {

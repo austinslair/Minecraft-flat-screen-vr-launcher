@@ -219,9 +219,9 @@ func get_modrinth_snapshot() -> Dictionary:
 	var parsed: Variant = JSON.parse_string(str(plugin.getModrinthSnapshotJson()))
 	return parsed if parsed is Dictionary else {"search_state": "error", "search_message": "Invalid Modrinth response.", "results": [], "install_state": "idle", "install_message": ""}
 
-func search_modrinth_mods(instance_name: String, query: String) -> bool:
+func search_modrinth_mods(instance_name: String, query: String, sort := "relevance", category := "all") -> bool:
 	var plugin: Object = _refresh_plugin()
-	return _plugin_has_method(plugin, &"searchModrinthMods") and bool(plugin.searchModrinthMods(instance_name, query))
+	return _plugin_has_method(plugin, &"searchModrinthMods") and bool(plugin.searchModrinthMods(instance_name, query, sort, category))
 
 func install_modrinth_mod(instance_name: String, project_id: String) -> bool:
 	var plugin: Object = _refresh_plugin()

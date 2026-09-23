@@ -47,7 +47,7 @@ class FakeRuntime extends RefCounted:
 		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
 	func get_modrinth_snapshot() -> Dictionary:
 		return {"search_state": "ready", "search_instance": "My saved world", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
-	func search_modrinth_mods(_name: String, query: String) -> bool:
+	func search_modrinth_mods(_name: String, query: String, _sort := "relevance", _category := "all") -> bool:
 		searched = query
 		return true
 	func install_modrinth_mod(_name: String, project: String) -> bool:

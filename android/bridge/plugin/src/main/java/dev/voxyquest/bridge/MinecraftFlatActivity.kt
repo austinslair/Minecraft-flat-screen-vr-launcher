@@ -4,16 +4,41 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.os.Handler
+import android.os.Looper
 import java.io.DataOutputStream
 import java.io.File
 import org.lwjgl.glfw.CallbackBridge
 import pojlib.input.EfficientAndroidLWJGLKeycode
+import pojlib.input.LwjglGlfwKeycode
 
 /** Physical keyboard and mouse input is delivered to the focused game surface. */
 class MinecraftFlatActivity : MinecraftGameActivity() {
     private var grabbing = false
     private val keys = mutableSetOf<Int>()
     private var buttons = 0
+    private val virtualKeys = mutableSetOf<Int>()
+    private var virtualButtons = 0
+    private val inputHandler = Handler(Looper.getMainLooper())
+    private val controllerTick = object : Runnable {
+        override fun run() {
+            if (!isFinishing && !isDestroyed) {
+                if (controllerId >= 0 && InputDevice.getDevice(controllerId) == null) {
+                    controllerId = -1
+                    controllerAxes.fill(0f)
+                    controllerButtons = 0
+                    updateControllerControls()
+                    writeController()
+                }
+                if (hasWindowFocus() && controllerId >= 0 &&
+                    (kotlin.math.abs(controllerAxes[2]) > 0.16f || kotlin.math.abs(controllerAxes[3]) > 0.16f)) {
+                    CallbackBridge.sendCursorPos(CallbackBridge.mouseX + controllerAxes[2] * 11f,
+                        CallbackBridge.mouseY + controllerAxes[3] * 11f)
+                }
+                inputHandler.postDelayed(this, 16)
+            }
+        }
+    }
     private var controllerId = -1
     private var controllerButtons = 0
     private val controllerAxes = FloatArray(6)
@@ -22,8 +47,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private val grabListener = pojlib.input.GrabListener { active ->
         runOnUiThread {
             grabbing = active
-            if (active && hasWindowFocus()) gameView.requestPointerCapture()
-            else gameView.releasePointerCapture()
+            if (hasWindowFocus()) gameView.requestPointerCapture()
         }
     }
 
@@ -32,10 +56,13 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         if (isFinishing) return
         gameView.isFocusableInTouchMode = true
         gameView.requestFocus()
+        gameView.setOnKeyListener { _, _, event -> handleHardwareKey(event) }
+        gameView.setOnGenericMotionListener { _, event -> handleHardwareMotion(event) }
         controllerId = InputDevice.getDeviceIds().firstOrNull { id ->
             InputDevice.getDevice(id)?.sources?.and(InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
         } ?: -1
         writeController()
+        inputHandler.post(controllerTick)
         gameView.setOnCapturedPointerListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                 var dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
@@ -60,21 +87,25 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         }
         else if (!isFinishing) {
             gameView.requestFocus()
-            if (grabbing) gameView.requestPointerCapture()
+            gameView.requestPointerCapture()
         }
     }
 
     private fun releaseInputs() {
         keys.forEach { CallbackBridge.sendKeyPress(it, 0, false) }
         keys.clear()
+        virtualKeys.forEach { CallbackBridge.sendKeyPress(it, 0, false) }
+        virtualKeys.clear()
         for (button in 0..4) CallbackBridge.sendMouseButton(button, false)
         buttons = 0
+        virtualButtons = 0
         CallbackBridge.holdingAlt = false
         CallbackBridge.holdingCtrl = false
         CallbackBridge.holdingShift = false
     }
 
     override fun onDestroy() {
+        inputHandler.removeCallbacks(controllerTick)
         CallbackBridge.removeGrabListener(grabListener)
         releaseInputs()
         controllerId = -1
@@ -83,6 +114,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        return handleHardwareKey(event) || super.dispatchKeyEvent(event)
+    }
+
+    private fun handleHardwareKey(event: KeyEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
             val button = when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> 0; KeyEvent.KEYCODE_BUTTON_B -> 1
@@ -99,20 +134,26 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                 controllerButtons = if (event.action == KeyEvent.ACTION_DOWN)
                     controllerButtons or (1 shl button) else controllerButtons and (1 shl button).inv()
                 writeController()
+                updateControllerControls()
                 return true
             }
-            return super.dispatchKeyEvent(event)
+            return false
         }
         val index = EfficientAndroidLWJGLKeycode.getIndexByKey(event.keyCode)
-        if (index < 0 || event.keyCode == KeyEvent.KEYCODE_UNKNOWN) return super.dispatchKeyEvent(event)
-        if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return super.dispatchKeyEvent(event)
+        if (index < 0 || event.keyCode == KeyEvent.KEYCODE_UNKNOWN) return false
+        if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
         val key = EfficientAndroidLWJGLKeycode.getValueByIndex(index).toInt()
         if (event.action == KeyEvent.ACTION_DOWN) keys.add(key) else keys.remove(key)
-        EfficientAndroidLWJGLKeycode.execKey(event, index)
+        if (event.action == KeyEvent.ACTION_DOWN || key !in virtualKeys)
+            EfficientAndroidLWJGLKeycode.execKey(event, index)
         return true
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        return handleHardwareMotion(event) || super.dispatchGenericMotionEvent(event)
+    }
+
+    private fun handleHardwareMotion(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
             controllerId = event.deviceId
             val device = event.device
@@ -126,6 +167,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                 controllerAxes[2] = event.getAxisValue(MotionEvent.AXIS_RX).coerceIn(-1f, 1f)
                 controllerAxes[3] = event.getAxisValue(MotionEvent.AXIS_RY).coerceIn(-1f, 1f)
             }
+            if (device?.getMotionRange(MotionEvent.AXIS_LTRIGGER, InputDevice.SOURCE_JOYSTICK) == null)
+                controllerAxes[4] = event.getAxisValue(MotionEvent.AXIS_BRAKE).coerceIn(0f, 1f)
+            if (device?.getMotionRange(MotionEvent.AXIS_RTRIGGER, InputDevice.SOURCE_JOYSTICK) == null)
+                controllerAxes[5] = event.getAxisValue(MotionEvent.AXIS_GAS).coerceIn(0f, 1f)
             val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             if (device?.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_JOYSTICK) != null) {
@@ -137,13 +182,41 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
             }
             for (i in 4..5) controllerAxes[i] = controllerAxes[i] * 2f - 1f
             writeController()
+            updateControllerControls()
             return true
         }
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE) && !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE))
-            return super.dispatchGenericMotionEvent(event)
+            return false
         if (!grabbing) moveAbsolute(event)
         handleMouse(event)
         return true
+    }
+
+    /** Controller controls remain usable in vanilla flatscreen even without a controller mod. */
+    private fun updateControllerControls() {
+        if (!hasWindowFocus()) return
+        val mappings = intArrayOf(LwjglGlfwKeycode.GLFW_KEY_W.toInt(), LwjglGlfwKeycode.GLFW_KEY_S.toInt(),
+            LwjglGlfwKeycode.GLFW_KEY_A.toInt(), LwjglGlfwKeycode.GLFW_KEY_D.toInt(),
+            LwjglGlfwKeycode.GLFW_KEY_SPACE.toInt(), LwjglGlfwKeycode.GLFW_KEY_ESCAPE.toInt(),
+            LwjglGlfwKeycode.GLFW_KEY_E.toInt(), LwjglGlfwKeycode.GLFW_KEY_Q.toInt(),
+            LwjglGlfwKeycode.GLFW_KEY_LEFT_SHIFT.toInt(), LwjglGlfwKeycode.GLFW_KEY_LEFT_CONTROL.toInt())
+        val down = booleanArrayOf(controllerAxes[1] < -0.3f, controllerAxes[1] > 0.3f,
+            controllerAxes[0] < -0.3f, controllerAxes[0] > 0.3f,
+            controllerButtons and 1 != 0, controllerButtons and (1 shl 1) != 0,
+            controllerButtons and (1 shl 2) != 0, controllerButtons and (1 shl 3) != 0,
+            controllerButtons and (1 shl 4) != 0, controllerButtons and (1 shl 8) != 0)
+        mappings.forEachIndexed { index, key ->
+            if (down[index] && virtualKeys.add(key) && key !in keys) CallbackBridge.sendKeyPress(key, 0, true)
+            if (!down[index] && virtualKeys.remove(key) && key !in keys) CallbackBridge.sendKeyPress(key, 0, false)
+        }
+        val next = (if (controllerAxes[5] > 0.25f || controllerButtons and (1 shl 5) != 0) 1 else 0) or
+            (if (controllerAxes[4] > 0.25f) 2 else 0)
+        for (index in 0..1) {
+            val mask = 1 shl index
+            if ((virtualButtons xor next) and mask != 0 && (buttons and mask) == 0)
+                CallbackBridge.sendMouseButton(index, next and mask != 0)
+        }
+        virtualButtons = next
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -192,7 +265,8 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         val masks = intArrayOf(MotionEvent.BUTTON_PRIMARY, MotionEvent.BUTTON_SECONDARY,
             MotionEvent.BUTTON_TERTIARY, MotionEvent.BUTTON_BACK, MotionEvent.BUTTON_FORWARD)
         masks.forEachIndexed { button, mask ->
-            if ((buttons xor next) and mask != 0) CallbackBridge.sendMouseButton(button, next and mask != 0)
+            if ((buttons xor next) and mask != 0 && (virtualButtons and (1 shl button)) == 0)
+                CallbackBridge.sendMouseButton(button, next and mask != 0)
         }
         buttons = next
     }

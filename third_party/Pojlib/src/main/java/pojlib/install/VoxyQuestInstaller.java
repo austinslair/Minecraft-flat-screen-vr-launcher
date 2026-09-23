@@ -175,6 +175,7 @@ public final class VoxyQuestInstaller {
         projects.addAll(Arrays.asList(selected.coreMods));
         if (selected.defaultMods != null) projects.addAll(Arrays.asList(selected.defaultMods));
         boolean hasVivecraft = false;
+        boolean hasFabricApi = false;
         Files.createDirectories(new File(instance.gameDir, "mods").toPath());
         for (ProjectInfo project : projects) {
             if (project.slug == null || !project.slug.matches("[A-Za-z0-9_-]+")) {
@@ -191,8 +192,10 @@ public final class VoxyQuestInstaller {
             }
             project.type = "mod";
             if (project.slug.equalsIgnoreCase("Vivecraft")) hasVivecraft = true;
+            if (project.slug.equalsIgnoreCase("Fabric-API")) hasFabricApi = true;
         }
         if (!hasVivecraft) throw new IOException("VR runtime catalog has no Vivecraft entry");
+        if (!hasFabricApi) throw new IOException("VR runtime catalog has no Fabric API entry");
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
         instance.defaultMods = true;
 
@@ -230,6 +233,7 @@ public final class VoxyQuestInstaller {
             if (path.isEmpty() || !new File(path).isFile()) return false;
         }
         if (!new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
+        if (!new File(instance.gameDir, "mods/Fabric-API.jar").isFile()) return false;
         if (instance.assetsDir == null || !new File(instance.assetsDir).isDirectory()) return false;
         for (ProjectInfo project : instance.toArray()) {
             if (project.slug == null || !project.slug.matches("[A-Za-z0-9_-]+")) return false;

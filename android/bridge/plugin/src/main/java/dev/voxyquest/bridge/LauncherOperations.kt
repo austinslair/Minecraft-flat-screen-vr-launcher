@@ -39,7 +39,7 @@ object LauncherOperations {
         .put("install_message", modrinthInstallMessage).toString()
 
     @Synchronized
-    fun searchModrinth(name: String, query: String): Boolean {
+    fun searchModrinth(name: String, query: String, sort: String, category: String): Boolean {
         val instance = runCatching {
             VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
         }.getOrNull() ?: return false
@@ -51,7 +51,7 @@ object LauncherOperations {
         modrinthResults = "[]"
         searchWorker.execute {
             try {
-                val result = ModrinthClient.search(query.trim(), version).toString()
+                val result = ModrinthClient.search(query.trim(), version, sort, category).toString()
                 if (generation == searchGeneration) {
                     modrinthResults = result
                     modrinthSearchMessage = ""
