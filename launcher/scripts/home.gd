@@ -109,8 +109,6 @@ func _ready() -> void:
 	if OS.get_name() == "Android":
 		$Minimize.hide()
 		$Close.hide()
-	$Hero.hide()
-	$HeroShade.hide()
 
 	$ChangeInstance.pressed.connect(_open_section.bind("Instances"))
 	$Account.pressed.connect(_on_account_pressed)
