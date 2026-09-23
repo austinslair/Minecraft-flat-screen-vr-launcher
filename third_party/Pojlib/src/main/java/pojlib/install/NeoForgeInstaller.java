@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.function.Consumer;
 import java.util.jar.JarFile;
 import pojlib.PojlibRuntime;
+import pojlib.util.ClasspathUtils;
 import pojlib.util.Constants;
 import pojlib.util.GsonUtils;
 import pojlib.util.download.DownloadUtils;
@@ -80,9 +81,8 @@ final class NeoForgeInstaller {
         // Both artifacts are produced by NeoForge's client installer processors.
         // The patched NeoForge client contains Minecraft classes also present in the
         // vanilla client. Put it first so the vanilla jar cannot shadow those patches.
-        instance.classpath = patched + File.pathSeparator + universal + File.pathSeparator +
-                neoLibraries + File.pathSeparator + client + File.pathSeparator + libraries +
-                File.pathSeparator + lwjgl;
+        instance.classpath = ClasspathUtils.unique(patched.toString(), universal.toString(),
+                neoLibraries, client, libraries, lwjgl);
         instance.jvmLaunchArgs = expandArguments(neoforge.arguments.jvm, neoforge.id);
         instance.gameLaunchArgs = expandArguments(neoforge.arguments.game, neoforge.id);
 

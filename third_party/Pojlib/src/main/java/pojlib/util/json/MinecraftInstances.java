@@ -14,6 +14,7 @@ import pojlib.account.MinecraftAccount;
 import pojlib.API;
 import pojlib.InstanceHandler;
 import pojlib.util.Constants;
+import pojlib.util.ClasspathUtils;
 import pojlib.util.download.DownloadManager;
 import pojlib.util.download.DownloadUtils;
 import pojlib.util.GsonUtils;
@@ -92,7 +93,8 @@ public class MinecraftInstances {
             List<String> allArgs = new ArrayList<>();
             if (jvmLaunchArgs != null) allArgs.addAll(Arrays.asList(jvmLaunchArgs));
             allArgs.add("-cp");
-            allArgs.add(classpath);
+            // Saved NeoForge instances may contain duplicate vanilla/loader JARs.
+            allArgs.add("neoforge".equals(loaderId()) ? ClasspathUtils.unique(classpath) : classpath);
             allArgs.add(mainClass);
             if (gameLaunchArgs != null) allArgs.addAll(Arrays.asList(gameLaunchArgs));
             allArgs.addAll(Arrays.asList(mcArgs));
