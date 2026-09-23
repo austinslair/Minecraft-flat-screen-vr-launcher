@@ -28,4 +28,14 @@ func capture() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(output.path_join("library.png"))
+	ui._open_section("Home")
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("dashboard.png"))
+	ui._open_section("Mods")
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("mod_browser.png"))
 	quit()

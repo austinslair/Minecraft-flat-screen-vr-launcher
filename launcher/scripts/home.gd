@@ -9,9 +9,9 @@ signal change_instance_requested
 const AUTH_POLL_INTERVAL := 0.5
 const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
 const HOME_CONTENT_NODES := [
-	"Hero", "HeroShade", "HeroEyebrow", "HeroTitle", "LibraryEyebrow",
+	"HeroEyebrow", "HeroTitle", "LibraryEyebrow",
 	"InstancePanel", "InstanceEmpty", "InstanceDescription", "ChangeInstance",
-	"HomeHelpTitle", "HomeHelpBody"
+	"HomeHelpTitle", "HomeHelpBody", "HomeTools", "HomeToolsInstances", "HomeToolsMods", "HomeBadge"
 ]
 
 var nav_buttons: Array[Button] = []
@@ -96,6 +96,7 @@ func _ready() -> void:
 
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
+	_build_home_tools()
 
 	_select_nav($Home)
 	if has_node("AccountWindow"):
@@ -108,6 +109,8 @@ func _ready() -> void:
 	if OS.get_name() == "Android":
 		$Minimize.hide()
 		$Close.hide()
+	$Hero.hide()
+	$HeroShade.hide()
 
 	$ChangeInstance.pressed.connect(_open_section.bind("Instances"))
 	$Account.pressed.connect(_on_account_pressed)
@@ -142,17 +145,18 @@ func style_button(button: Button) -> void:
 	button.add_theme_stylebox_override("hover", style_box(Color(0.85, 0.88, 0.86, 0.07), Color(0.8, 0.85, 0.81, 0.22)))
 	button.add_theme_stylebox_override("pressed", style_box(Color(0.8, 0.85, 0.82, 0.12), Color(0.8, 0.85, 0.81, 0.35)))
 	button.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), Color(0.85, 0.9, 0.87, 0.8)))
-	button.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
+	button.add_theme_color_override("font_color", Color("f1f3eb"))
 	if button == $ChangeInstance:
-		button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
+		button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("dce8cb"), Color.TRANSPARENT))
+		button.add_theme_color_override("font_color", Color("233b2a"))
 	if button == $Play:
 		_style_primary_button(button)
 
 func _style_primary_button(button: Button) -> void:
-	button.add_theme_stylebox_override("normal", style_box(Color("639b48"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("hover", style_box(Color("79b35b"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("pressed", style_box(Color("52823c"), Color.TRANSPARENT))
-	button.add_theme_color_override("font_color", Color("10170d"))
+	button.add_theme_stylebox_override("normal", style_box(Color("dce8cb"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("hover", style_box(Color("ebf2e1"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("pressed", style_box(Color("b9d0a6"), Color.TRANSPARENT))
+	button.add_theme_color_override("font_color", Color("1c3725"))
 	for state in ["normal", "hover", "pressed"]:
 		var box := button.get_theme_stylebox(state)
 		box.content_margin_left = 16
@@ -169,7 +173,8 @@ func _make_button(text: String, callback: Callable, primary := false, danger := 
 	button.custom_minimum_size = Vector2(150, 48)
 	button.add_theme_font_size_override("font_size", 17)
 	style_button(button)
-	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
+	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("f6f8f2"), Color("c8d2c4")))
+	button.add_theme_color_override("font_color", Color("26382b"))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -184,15 +189,15 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override(
 		"font_color",
-		Color(0.73, 0.79, 0.75, 1) if muted else Color(0.95, 0.97, 0.94, 1)
+		Color("657469") if muted else Color("1f3026")
 	)
 	return label
 
 func _build_play_mode() -> void:
 	var mode := OptionButton.new()
 	mode.name = "PlayMode"
-	mode.position = Vector2(858, 937)
-	mode.size = Vector2(330, 48)
+	mode.position = Vector2(867, 929)
+	mode.size = Vector2(310, 54)
 	mode.add_item("Virtual reality")
 	mode.add_item("Flatscreen")
 	mode.tooltip_text = "Flatscreen currently uses a keyboard and mouse."
@@ -205,8 +210,8 @@ func _build_play_mode() -> void:
 func _build_workspace() -> void:
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(254, 112)
-	workspace.size = Vector2(1260, 766)
+	workspace.position = Vector2(24, 193)
+	workspace.size = Vector2(1488, 684)
 	workspace.visible = false
 	workspace.clip_contents = true
 	workspace.add_theme_stylebox_override("panel", style_box(Color.TRANSPARENT, Color.TRANSPARENT, 0))
@@ -214,18 +219,16 @@ func _build_workspace() -> void:
 
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 18)
+		margin.add_theme_constant_override("margin_" + side, 24)
 	workspace.add_child(margin)
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 6)
+	content.add_theme_constant_override("separation", 10)
 	margin.add_child(content)
 
-	workspace_title = _make_label("", 26)
-	workspace_title.visible = false
+	workspace_title = _make_label("", 32)
 	workspace_title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
-	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	content.add_child(workspace_title)
 	workspace_subtitle = _make_label("", 14, true)
 	workspace_subtitle.custom_minimum_size.y = 20
@@ -243,7 +246,7 @@ func _build_workspace() -> void:
 	workspace_body = VBoxContainer.new()
 	workspace_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	workspace_body.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	workspace_body.add_theme_constant_override("separation", 10)
+	workspace_body.add_theme_constant_override("separation", 16)
 	scroll.add_child(workspace_body)
 
 func _build_inline_account_status() -> void:
@@ -256,6 +259,34 @@ func _build_inline_account_status() -> void:
 	account_code.add_theme_font_size_override("font_size", 18)
 	account_code.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
 	add_child(account_code)
+
+func _build_home_tools() -> void:
+	var panel := Panel.new()
+	panel.name = "HomeTools"
+	panel.position = Vector2(974, 366)
+	panel.size = Vector2(514, 447)
+	panel.add_theme_stylebox_override("panel", style_box(Color("ffffff"), Color("d1dacb"), 16))
+	add_child(panel)
+	move_child(panel, $HomeHelpTitle.get_index())
+	var badge := _make_label("FABRIC  /  VIVECRAFT", 13)
+	badge.name = "HomeBadge"
+	badge.position = Vector2(80, 399)
+	badge.size = Vector2(420, 28)
+	badge.add_theme_color_override("font_color", Color("b8d7ab"))
+	badge.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	add_child(badge)
+	var browse := _make_button("Browse instances     →", _open_section.bind("Instances"))
+	browse.name = "HomeToolsInstances"
+	browse.position = Vector2(1006, 604)
+	browse.size = Vector2(450, 60)
+	browse.custom_minimum_size = Vector2.ZERO
+	add_child(browse)
+	var mods := _make_button("Discover Fabric mods     →", _open_section.bind("Mods"))
+	mods.name = "HomeToolsMods"
+	mods.position = Vector2(1006, 680)
+	mods.size = Vector2(450, 60)
+	mods.custom_minimum_size = Vector2.ZERO
+	add_child(mods)
 
 func _build_remove_confirmation() -> void:
 	remove_confirm = ConfirmationDialog.new()
@@ -310,13 +341,15 @@ func _set_home_content_visible(visible: bool) -> void:
 
 func _select_nav(button: Button) -> void:
 	for item in nav_buttons:
-		var selected := item == button and item != $Home
+		var selected := item == button
 		item.add_theme_stylebox_override("normal", style_box(
-			Color(0.85, 0.88, 0.86, 0.06) if selected else Color.TRANSPARENT,
-			Color(0.8, 0.85, 0.81, 0.15) if selected else Color.TRANSPARENT
+			Color("dce8cb") if selected else Color.TRANSPARENT,
+			Color.TRANSPARENT
 		))
 		var caption := get_node(str(item.name) + "Text") as Label
-		caption.modulate = Color.WHITE if item == button else Color(0.78, 0.82, 0.79)
+		caption.add_theme_color_override("font_color", Color("1b3324") if selected else Color("dce5db"))
+		var icon := get_node(str(item.name) + "Icon") as TextureRect
+		icon.modulate = Color("284d30") if selected else Color("b8c9bb")
 
 func _navigate(button: Button) -> void:
 	_open_section(str(button.name))
@@ -329,6 +362,7 @@ func _open_section(section: String) -> void:
 		_select_nav(nav_button)
 	current_section = section
 	$PageTitle.text = "Overview" if section == "Home" else section
+	$PageTitle.visible = false
 	navigation_requested.emit(section)
 	if section == "Home":
 		workspace.visible = false
@@ -490,7 +524,7 @@ func _update_play() -> void:
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1a1d21"), Color("30353c")))
+	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("ffffff"), Color("d1dacb")))
 	parent.add_child(panel)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 12)
@@ -532,12 +566,14 @@ func _render_instances_page() -> void:
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 24)
 	workspace_body.add_child(columns)
-	var library := VBoxContainer.new()
-	library.custom_minimum_size.x = 540
+	var library := _page_card(columns, "Your instances", "Choose a profile to manage or play.")
+	library.custom_minimum_size.x = 455
 	library.add_theme_constant_override("separation", 12)
-	columns.add_child(library)
-	var editor := _page_card(columns, "Instance settings", "Select an installation from your library.")
-	library.add_child(_make_label("Installed instances", 20))
+	var tools := VBoxContainer.new()
+	tools.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tools.add_theme_constant_override("separation", 16)
+	columns.add_child(tools)
+	var editor := _page_card(tools, "Profile settings", "Rename, repair, or remove the selected profile.")
 	instance_empty_hint = _make_label("No instances yet. Install one below.", 16, true)
 	library.add_child(instance_empty_hint)
 
@@ -549,7 +585,7 @@ func _render_instances_page() -> void:
 	instance_list.focus_mode = Control.FOCUS_ALL
 	instance_list.add_theme_font_size_override("font_size", 17)
 	instance_list.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	instance_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	instance_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	instance_list.item_selected.connect(_on_instance_selected)
 	library.add_child(instance_list)
 
@@ -588,7 +624,7 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(workspace_body, "New installation", "Install another Minecraft version without changing your existing instances.")
+	var installer := _page_card(tools, "Create an instance", "Install a version with Fabric and Vivecraft.")
 
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
@@ -801,7 +837,11 @@ func _render_mods_page() -> void:
 		return
 
 	var selected := _selected_instance()
-	var browser := _page_card(workspace_body, "Browse Modrinth", "Fabric mods compatible with Minecraft %s" % str(selected.get("version", "")))
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 20)
+	workspace_body.add_child(columns)
+	var browser := _page_card(columns, "Discover mods", "Modrinth · Fabric · Minecraft %s" % str(selected.get("version", "")))
+	browser.custom_minimum_size.x = 850
 	last_modrinth_results = ""
 	var search_row := HBoxContainer.new()
 	search_row.add_theme_constant_override("separation", 10)
@@ -815,8 +855,8 @@ func _render_mods_page() -> void:
 	modrinth_search_button = _make_button("Search", _search_modrinth, true)
 	search_row.add_child(modrinth_search_button)
 	modrinth_results = ItemList.new()
-	modrinth_results.custom_minimum_size.y = 210
-	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	modrinth_results.custom_minimum_size.y = 330
+	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	modrinth_results.item_selected.connect(func(_index: int): _update_modrinth_install_button())
 	browser.add_child(modrinth_results)
 	var install_row := HBoxContainer.new()
@@ -829,20 +869,20 @@ func _render_mods_page() -> void:
 	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	install_row.add_child(modrinth_status)
-	var collection := _page_card(workspace_body, "Installed in %s" % selected_name)
+	var collection := _page_card(columns, "Installed mods", selected_name)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 180)
+	mods_list.custom_minimum_size = Vector2(0, 280)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
-	mods_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 12)
 	collection.add_child(actions)
-	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
-	actions.add_child(_make_button("Refresh mods", _refresh_mods_page))
+	actions.add_child(_make_button("Import JAR", _add_mod, true))
+	actions.add_child(_make_button("Refresh", _refresh_mods_page))
 	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
 	_refresh_mods_page()
 	_poll_modrinth()

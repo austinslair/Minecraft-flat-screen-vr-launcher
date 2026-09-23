@@ -102,7 +102,10 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("Avatar") == null)
 	assert(ui.get_node_or_null("NewsCard0") == null)
 	assert(ui.get_node_or_null("Version") == null)
-	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a == 0)
+	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a > 0)
+	assert(ui.get_node("Home").position.y < 170)
+	assert(ui.get_node("Instances").position.x > ui.get_node("Home").position.x)
+	assert(ui.get_node("HomeTools").visible)
 	assert(ui.get_node("AccountTitle").clip_text)
 	ui._open_section("Instances")
 	assert(ui.install_version.item_count > 0)
@@ -110,6 +113,7 @@ func run_checks() -> void:
 	assert(ui.instance_empty_hint.text.contains("Android runtime"))
 	assert(ui.instance_list.visible)
 	ui._open_section("Home")
+	assert(ui.get_node("HomeTools").visible)
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -200,6 +204,7 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
+	assert(not ui.get_node("HomeTools").visible)
 	assert(ui.mods_list.get_item_count() == 2)
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
