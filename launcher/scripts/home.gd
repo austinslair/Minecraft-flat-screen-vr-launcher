@@ -1106,20 +1106,27 @@ func _render_mods_page() -> void:
 	search_row.add_child(modrinth_search_button)
 	var filters := HBoxContainer.new()
 	filters.add_theme_constant_override("separation", 10)
+	filters.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	browser.add_child(filters)
 	modrinth_sort = OptionButton.new()
 	for label in ["Relevance", "Most downloaded", "Most followed", "Newest", "Recently updated"]:
 		modrinth_sort.add_item(label)
-	modrinth_sort.custom_minimum_size.x = 230
+	modrinth_sort.custom_minimum_size = Vector2(225, 46)
+	modrinth_sort.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	modrinth_sort.item_selected.connect(func(_index: int): _search_modrinth())
 	filters.add_child(modrinth_sort)
 	modrinth_category = OptionButton.new()
 	for label in ["All categories", "Optimization", "Utility", "Adventure", "Library", "Decoration"]:
 		modrinth_category.add_item(label)
-	modrinth_category.custom_minimum_size.x = 230
+	modrinth_category.custom_minimum_size = Vector2(225, 46)
+	modrinth_category.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	modrinth_category.item_selected.connect(func(_index: int): _search_modrinth())
 	filters.add_child(modrinth_category)
-	filters.add_child(_make_label("Fabric · Minecraft %s" % str(selected.get("version", "")), 14, true))
+	var compatibility := _make_label("Fabric · Minecraft %s" % str(selected.get("version", "")), 14, true)
+	compatibility.custom_minimum_size = Vector2(230, 46)
+	compatibility.autowrap_mode = TextServer.AUTOWRAP_OFF
+	compatibility.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	filters.add_child(compatibility)
 	var results_scroll := ScrollContainer.new()
 	results_scroll.custom_minimum_size.y = 360
 	results_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL

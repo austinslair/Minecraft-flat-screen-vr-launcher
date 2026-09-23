@@ -12,6 +12,8 @@ class FakeRuntime extends RefCounted:
 	var accept_install := true
 	var install_calls := 0
 	var searched := ""
+	var last_sort := ""
+	var last_category := ""
 	var modrinth_installed := ""
 	func is_available() -> bool:
 		return true
@@ -47,8 +49,10 @@ class FakeRuntime extends RefCounted:
 		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
 	func get_modrinth_snapshot() -> Dictionary:
 		return {"search_state": "ready", "search_instance": "My saved world", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
-	func search_modrinth_mods(_name: String, query: String, _sort := "relevance", _category := "all") -> bool:
+	func search_modrinth_mods(_name: String, query: String, sort := "relevance", category := "all") -> bool:
 		searched = query
+		last_sort = sort
+		last_category = category
 		return true
 	func install_modrinth_mod(_name: String, project: String) -> bool:
 		modrinth_installed = project
@@ -211,13 +215,19 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
+	await process_frame
+	assert(ui.modrinth_sort.size.y < 65)
+	assert(ui.modrinth_category.size.y < 65)
 	assert(not ui.get_node("HomeTools").visible)
 	assert(ui.mods_list.get_item_count() == 2)
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 	ui.modrinth_search.text = "Sodium"
+	ui.modrinth_sort.select(1)
+	ui.modrinth_category.select(1)
 	ui._search_modrinth()
 	assert(fake.searched == "Sodium")
+	assert(fake.last_sort == "downloads" and fake.last_category == "optimization")
 	ui._poll_modrinth()
 	assert(ui.modrinth_results.get_child_count() == 1)
 	ui._select_modrinth_result(0)

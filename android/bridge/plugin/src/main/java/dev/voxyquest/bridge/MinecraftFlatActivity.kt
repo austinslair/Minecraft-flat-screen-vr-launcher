@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import java.io.DataOutputStream
 import java.io.File
 import org.lwjgl.glfw.CallbackBridge
@@ -18,6 +19,9 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private val keys = mutableSetOf<Int>()
     private var buttons = 0
     private val virtualKeys = mutableSetOf<Int>()
+    private var reportedKeyboard = false
+    private var reportedMouse = false
+    private var reportedController = false
     private var virtualButtons = 0
     private val inputHandler = Handler(Looper.getMainLooper())
     private val controllerTick = object : Runnable {
@@ -64,6 +68,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         writeController()
         inputHandler.post(controllerTick)
         gameView.setOnCapturedPointerListener { _, event ->
+            reportMouse(event)
             if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                 var dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
                 var dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
@@ -119,6 +124,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     private fun handleHardwareKey(event: KeyEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+            if (!reportedController) {
+                Log.i("VoxyQuestInput", "Controller key received from ${event.device?.name ?: "unknown"}")
+                reportedController = true
+            }
             val button = when (event.keyCode) {
                 KeyEvent.KEYCODE_BUTTON_A -> 0; KeyEvent.KEYCODE_BUTTON_B -> 1
                 KeyEvent.KEYCODE_BUTTON_X -> 2; KeyEvent.KEYCODE_BUTTON_Y -> 3
@@ -142,6 +151,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         val index = EfficientAndroidLWJGLKeycode.getIndexByKey(event.keyCode)
         if (index < 0 || event.keyCode == KeyEvent.KEYCODE_UNKNOWN) return false
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
+        if (!reportedKeyboard) {
+            Log.i("VoxyQuestInput", "Keyboard key received from ${event.device?.name ?: "unknown"}")
+            reportedKeyboard = true
+        }
         val key = EfficientAndroidLWJGLKeycode.getValueByIndex(index).toInt()
         if (event.action == KeyEvent.ACTION_DOWN) keys.add(key) else keys.remove(key)
         if (event.action == KeyEvent.ACTION_DOWN || key !in virtualKeys)
@@ -155,6 +168,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     private fun handleHardwareMotion(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+            if (!reportedController) {
+                Log.i("VoxyQuestInput", "Controller axes received from ${event.device?.name ?: "unknown"}")
+                reportedController = true
+            }
             controllerId = event.deviceId
             val device = event.device
             val axisIds = intArrayOf(MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z,
@@ -187,6 +204,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         }
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE) && !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE))
             return false
+        reportMouse(event)
         if (!grabbing) moveAbsolute(event)
         handleMouse(event)
         return true
@@ -221,6 +239,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            reportMouse(event)
             if (!grabbing) moveAbsolute(event)
             handleMouse(event)
             return true
@@ -237,6 +256,13 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         val offset = IntArray(2)
         gameView.getLocationInWindow(offset)
         CallbackBridge.sendCursorPos(event.x - offset[0], event.y - offset[1])
+    }
+
+    private fun reportMouse(event: MotionEvent) {
+        if (!reportedMouse) {
+            Log.i("VoxyQuestInput", "Mouse event received from ${event.device?.name ?: "unknown"}")
+            reportedMouse = true
+        }
     }
 
     private fun writeController() {

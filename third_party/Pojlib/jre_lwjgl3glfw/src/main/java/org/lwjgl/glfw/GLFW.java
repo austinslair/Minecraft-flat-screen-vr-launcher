@@ -28,6 +28,7 @@ public class GLFW
     private static final float[] gamepadAxes = new float[6];
     private static int gamepadButtons;
     private static boolean gamepadPresent;
+    private static boolean gamepadWasPresent;
     private static long gamepadReadAt;
     private static synchronized void readGamepad() {
         long now = System.currentTimeMillis();
@@ -1088,6 +1089,12 @@ public class GLFW
     public static void glfwSetWindowIcon(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWimage const *") GLFWImage.Buffer images) {}
 
     public static void glfwPollEvents() {
+        readGamepad();
+        if (gamepadPresent != gamepadWasPresent) {
+            gamepadWasPresent = gamepadPresent;
+            if (mGLFWJoystickCallback != null)
+                mGLFWJoystickCallback.invoke(0, gamepadPresent ? GLFW_CONNECTED : GLFW_DISCONNECTED);
+        }
         if (!mGLFWIsInputReady) {
             mGLFWIsInputReady = true;
             CallbackBridge.nativeSetInputReady(true);
@@ -1234,7 +1241,7 @@ public class GLFW
         return glfwJoystickPresent(jid);
     }
     public static String glfwGetJoystickGUID(int jid) {
-        return glfwJoystickPresent(jid) ? "03000000-android-gamepad" : null;
+        return glfwJoystickPresent(jid) ? "03000000000000000000000000000000" : null;
     }
     public static long glfwGetJoystickUserPointer(int jid) {
         return 0;
