@@ -358,6 +358,7 @@ public class JREUtils {
                 "-Dglfwstub.windowWidth=" + FlatDisplay.width,
                 "-Dglfwstub.windowHeight=" + FlatDisplay.height,
                 "-Dglfwstub.gamepadStateFile=" + new File(ctx.getFilesDir(), "flat-gamepad.bin").getAbsolutePath(),
+                "-Dvoxyquest.readyFile=" + new File(ctx.getFilesDir(), "minecraft-first-frame").getAbsolutePath(),
                 "-Dglfwstub.initEgl=false",
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
                 "-Dnet.minecraft.clientmodname=" + "VoxyQuest",

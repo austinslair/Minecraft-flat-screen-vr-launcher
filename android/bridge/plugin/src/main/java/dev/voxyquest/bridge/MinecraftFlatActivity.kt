@@ -47,7 +47,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private var controllerButtons = 0
     private val controllerAxes = FloatArray(6)
     private val controllerFile: File by lazy { File(filesDir, "flat-gamepad.bin") }
-    private val gameView: View get() = findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0)
+    private val gameView: View get() = gameSurface
     private val grabListener = pojlib.input.GrabListener { active ->
         runOnUiThread {
             grabbing = active

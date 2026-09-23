@@ -972,7 +972,20 @@ public class GLFW
     public static void glfwSwapBuffers(@NativeType("GLFWwindow *") long window) {
         long __functionAddress = Functions.SwapBuffers;
         invokePV(window, __functionAddress);
+        // Let the Android host reveal the surface after Minecraft presents its first frame.
+        // A marker is used because this class runs inside the embedded JVM.
+        if (!firstFrameReported) {
+            firstFrameReported = true;
+            String path = System.getProperty("voxyquest.readyFile");
+            if (path != null) {
+                try (FileOutputStream marker = new FileOutputStream(path)) {
+                    marker.write(1);
+                } catch (IOException ignored) { }
+            }
+        }
     }
+
+    private static boolean firstFrameReported;
 
     public static void glfwSwapInterval(int interval) {
         long __functionAddress = Functions.SwapInterval;
