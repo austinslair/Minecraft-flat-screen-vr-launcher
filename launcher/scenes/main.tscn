@@ -363,6 +363,7 @@ texture = ExtResource("bg")
 expand_mode = 1
 stretch_mode = 6
 mouse_filter = 2
+visible = false
 
 [node name="HeroShade" type="ColorRect" parent="."]
 offset_left = 280.0
@@ -371,13 +372,14 @@ offset_right = 1508.0
 offset_bottom = 493.0
 color = Color(0.025, 0.055, 0.035, 0.90)
 mouse_filter = 2
+visible = false
 
 [node name="HeroEyebrow" type="Label" parent="."]
-offset_left = 310.0
-offset_top = 387.0
-offset_right = 1120.0
-offset_bottom = 411.0
-text = "JAVA EDITION  /  VR + FLATSCREEN"
+offset_left = 282.0
+offset_top = 128.0
+offset_right = 1170.0
+offset_bottom = 157.0
+text = "INSTANCE LIBRARY"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("bold")
 theme_override_colors/font_color = Color(0.73, 0.91, 0.64, 1)
@@ -386,11 +388,11 @@ text_overrun_behavior = 3
 mouse_filter = 2
 
 [node name="HeroTitle" type="Label" parent="."]
-offset_left = 307.0
-offset_top = 418.0
-offset_right = 1408.0
-offset_bottom = 478.0
-text = "Your next world starts here."
+offset_left = 280.0
+offset_top = 163.0
+offset_right = 1380.0
+offset_bottom = 223.0
+text = "Ready when you are."
 theme_override_font_sizes/font_size = 37
 theme_override_fonts/font = ExtResource("bold")
 theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
@@ -400,10 +402,10 @@ mouse_filter = 2
 
 [node name="LibraryEyebrow" type="Label" parent="."]
 offset_left = 280.0
-offset_top = 520.0
-offset_right = 980.0
-offset_bottom = 548.0
-text = "CURRENT INSTANCE"
+offset_top = 245.0
+offset_right = 900.0
+offset_bottom = 269.0
+text = "SELECTED PROFILE"
 theme_override_font_sizes/font_size = 12
 theme_override_fonts/font = ExtResource("bold")
 theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)
@@ -413,17 +415,17 @@ mouse_filter = 2
 
 [node name="InstancePanel" type="Panel" parent="."]
 offset_left = 280.0
-offset_top = 552.0
+offset_top = 274.0
 offset_right = 1508.0
-offset_bottom = 719.0
+offset_bottom = 450.0
 theme_override_styles/panel = SubResource("panel")
 mouse_filter = 2
 
 [node name="InstanceEmpty" type="Label" parent="."]
 offset_left = 311.0
-offset_top = 575.0
+offset_top = 296.0
 offset_right = 1198.0
-offset_bottom = 619.0
+offset_bottom = 339.0
 text = "No instances installed"
 theme_override_font_sizes/font_size = 27
 theme_override_fonts/font = ExtResource("bold")
@@ -434,9 +436,9 @@ mouse_filter = 2
 
 [node name="InstanceDescription" type="Label" parent="."]
 offset_left = 311.0
-offset_top = 624.0
-offset_right = 1380.0
-offset_bottom = 656.0
+offset_top = 346.0
+offset_right = 1355.0
+offset_bottom = 378.0
 text = "Create an instance to choose your Minecraft version and mods."
 theme_override_font_sizes/font_size = 17
 theme_override_fonts/font = ExtResource("font")
@@ -447,19 +449,19 @@ mouse_filter = 2
 
 [node name="ChangeInstance" type="Button" parent="."]
 offset_left = 311.0
-offset_top = 663.0
-offset_right = 556.0
-offset_bottom = 704.0
+offset_top = 391.0
+offset_right = 560.0
+offset_bottom = 433.0
 text = "Browse instances  →"
 theme_override_font_sizes/font_size = 16
 mouse_default_cursor_shape = 2
 
 [node name="HomeHelpTitle" type="Label" parent="."]
 offset_left = 309.0
-offset_top = 763.0
-offset_right = 850.0
-offset_bottom = 795.0
-text = "Make it yours"
+offset_top = 487.0
+offset_right = 854.0
+offset_bottom = 521.0
+text = "Manage your game"
 theme_override_font_sizes/font_size = 19
 theme_override_fonts/font = ExtResource("bold")
 theme_override_colors/font_color = Color(0.95, 0.97, 0.92, 1)
@@ -469,10 +471,10 @@ mouse_filter = 2
 
 [node name="HomeHelpBody" type="Label" parent="."]
 offset_left = 309.0
-offset_top = 801.0
+offset_top = 526.0
 offset_right = 854.0
-offset_bottom = 855.0
-text = "Create a version. Add Fabric mods. Launch your worlds."
+offset_bottom = 565.0
+text = "Install versions, browse Fabric mods, and keep every profile separate."
 theme_override_font_sizes/font_size = 16
 theme_override_fonts/font = ExtResource("font")
 theme_override_colors/font_color = Color(0.66, 0.75, 0.66, 1)

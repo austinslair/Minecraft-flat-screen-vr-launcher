@@ -9,9 +9,9 @@ signal change_instance_requested
 const AUTH_POLL_INTERVAL := 0.5
 const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
 const HOME_CONTENT_NODES := [
-	"Hero", "HeroShade", "HeroEyebrow", "HeroTitle", "LibraryEyebrow",
+	"HeroEyebrow", "HeroTitle", "LibraryEyebrow",
 	"InstancePanel", "InstanceEmpty", "InstanceDescription", "InstanceBadge", "ChangeInstance",
-	"HomeHelpTitle", "HomeHelpBody", "HomeActions"
+	"HomeHelpTitle", "HomeHelpBody", "HomeActions", "HomeLibrary"
 ]
 
 var nav_buttons: Array[Button] = []
@@ -53,6 +53,16 @@ var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
+var modrinth_search: LineEdit
+var modrinth_search_button: Button
+var modrinth_results: ItemList
+var modrinth_install_button: Button
+var modrinth_status: Label
+var modrinth_hits: Array = []
+var modrinth_timer: Timer
+var home_library_items: VBoxContainer
+var last_modrinth_results := ""
+var last_modrinth_install_state := ""
 
 var account_page_title: Label
 var account_page_status: Label
@@ -85,6 +95,7 @@ func _ready() -> void:
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
 	_build_home_actions()
+	_build_home_library()
 
 	_select_nav($Home)
 	if has_node("AccountWindow"):
@@ -93,6 +104,10 @@ func _ready() -> void:
 		runtime.initialize()
 	_refresh_auth_ui()
 	_refresh_instances()
+	modrinth_timer = Timer.new()
+	modrinth_timer.wait_time = 0.5
+	modrinth_timer.timeout.connect(_poll_modrinth)
+	add_child(modrinth_timer)
 
 	if OS.get_name() == "Android":
 		$Minimize.hide()
@@ -198,26 +213,70 @@ func _build_play_mode() -> void:
 func _build_home_actions() -> void:
 	var actions := Panel.new()
 	actions.name = "HomeActions"
-	actions.position = Vector2(280, 745)
-	actions.size = Vector2(1228, 132)
+	actions.position = Vector2(280, 474)
+	actions.size = Vector2(1228, 114)
 	actions.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1e2b21"), Color("3c543d")))
 	add_child(actions)
 	move_child(actions, $HomeHelpTitle.get_index())
 	var create := _make_button("+  New instance", _open_section.bind("Instances"), true)
-	create.position = Vector2(746, 42)
+	create.position = Vector2(746, 30)
 	create.size = Vector2(208, 54)
 	create.custom_minimum_size = Vector2.ZERO
 	actions.add_child(create)
 	var mods := _make_button("Manage mods  →", _open_section.bind("Mods"))
-	mods.position = Vector2(970, 42)
+	mods.position = Vector2(970, 30)
 	mods.size = Vector2(216, 54)
 	mods.custom_minimum_size = Vector2.ZERO
 	actions.add_child(mods)
 
+func _build_home_library() -> void:
+	var library := Panel.new()
+	library.name = "HomeLibrary"
+	library.position = Vector2(280, 607)
+	library.size = Vector2(1228, 268)
+	library.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1b251e"), Color("354638")))
+	add_child(library)
+	var title := _make_label("INSTALLED PROFILES", 14, true)
+	title.position = Vector2(25, 17)
+	title.size = Vector2(440, 24)
+	library.add_child(title)
+	var browse := _make_button("All instances  →", _open_section.bind("Instances"))
+	browse.position = Vector2(978, 10)
+	browse.size = Vector2(216, 45)
+	browse.custom_minimum_size = Vector2.ZERO
+	library.add_child(browse)
+	home_library_items = VBoxContainer.new()
+	home_library_items.position = Vector2(25, 63)
+	home_library_items.size = Vector2(1178, 186)
+	home_library_items.add_theme_constant_override("separation", 8)
+	library.add_child(home_library_items)
+
+func _refresh_home_library() -> void:
+	if not is_instance_valid(home_library_items):
+		return
+	for row in home_library_items.get_children():
+		home_library_items.remove_child(row)
+		row.queue_free()
+	if installed_instances.is_empty():
+		home_library_items.add_child(_make_label("No profiles yet. Create your first instance to get started.", 17, true))
+		return
+	for index in range(mini(installed_instances.size(), 3)):
+		var item: Dictionary = installed_instances[index]
+		var name := str(item.get("name", "Instance"))
+		var ready := bool(item.get("installed", false))
+		var row := _make_button("%s    •    %s    •    %s" % [name, item.get("version", ""), "Ready" if ready else "Repair needed"], _select_home_instance.bind(name))
+		row.custom_minimum_size = Vector2(0, 52)
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		home_library_items.add_child(row)
+
+func _select_home_instance(name: String) -> void:
+	selected_name = name
+	_refresh_instances()
+
 func _build_instance_badge() -> void:
 	var badge := _make_label("NO PROFILE", 15)
 	badge.name = "InstanceBadge"
-	badge.position = Vector2(1235, 584)
+	badge.position = Vector2(1235, 307)
 	badge.size = Vector2(238, 34)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	badge.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
@@ -311,6 +370,11 @@ func _clear_workspace() -> void:
 	install_status = null
 	mods_list = null
 	mods_status = null
+	modrinth_search = null
+	modrinth_search_button = null
+	modrinth_results = null
+	modrinth_install_button = null
+	modrinth_status = null
 	account_page_title = null
 	account_page_status = null
 	account_page_code = null
@@ -343,6 +407,8 @@ func _open_section(section: String) -> void:
 	if nav_button is Button and nav_button in nav_buttons:
 		_select_nav(nav_button)
 	current_section = section
+	if is_instance_valid(modrinth_timer) and section != "Mods":
+		modrinth_timer.stop()
 	$PageTitle.text = "Home" if section == "Home" else section
 	navigation_requested.emit(section)
 	if section == "Home":
@@ -483,6 +549,7 @@ func _refresh_instances() -> void:
 	$InstanceBadge.text = "READY TO PLAY" if bool(chosen.get("installed", false)) else ("NEEDS REPAIR" if not chosen.is_empty() else "NO PROFILE")
 	$InstanceBadge.add_theme_color_override("font_color", Color("b9dfa4") if bool(chosen.get("installed", false)) else Color("e8c88a"))
 	_update_play()
+	_refresh_home_library()
 	_populate_instance_list()
 
 func _has_instance(name: String) -> bool:
@@ -806,8 +873,8 @@ func _poll_install() -> void:
 
 func _render_mods_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Your mods"
-	workspace_subtitle.text = "Keep your Fabric mods organized by instance."
+	workspace_title.text = "Mods"
+	workspace_subtitle.text = "Browse compatible Fabric mods from Modrinth or import a local JAR."
 	if selected_name.is_empty():
 		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
 		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
@@ -815,11 +882,38 @@ func _render_mods_page() -> void:
 		empty.add_child(choose)
 		return
 
-	var collection := _page_card(workspace_body, selected_name)
 	var selected := _selected_instance()
-	collection.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
+	var browser := _page_card(workspace_body, "Browse Modrinth", "Fabric mods compatible with Minecraft %s" % str(selected.get("version", "")))
+	last_modrinth_results = ""
+	var search_row := HBoxContainer.new()
+	search_row.add_theme_constant_override("separation", 10)
+	browser.add_child(search_row)
+	modrinth_search = LineEdit.new()
+	modrinth_search.placeholder_text = "Search mods by name…"
+	modrinth_search.custom_minimum_size.y = 50
+	modrinth_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_search.text_submitted.connect(func(_text: String): _search_modrinth())
+	search_row.add_child(modrinth_search)
+	modrinth_search_button = _make_button("Search", _search_modrinth, true)
+	search_row.add_child(modrinth_search_button)
+	modrinth_results = ItemList.new()
+	modrinth_results.custom_minimum_size.y = 210
+	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("17221b"), Color("415442"), 12))
+	modrinth_results.item_selected.connect(func(_index: int): _update_modrinth_install_button())
+	browser.add_child(modrinth_results)
+	var install_row := HBoxContainer.new()
+	install_row.add_theme_constant_override("separation", 12)
+	browser.add_child(install_row)
+	modrinth_install_button = _make_button("Install selected", _install_modrinth, true)
+	modrinth_install_button.disabled = true
+	install_row.add_child(modrinth_install_button)
+	modrinth_status = _make_label("Search to find mods for this instance.", 15, true)
+	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	install_row.add_child(modrinth_status)
+	var collection := _page_card(workspace_body, "Installed in %s" % selected_name)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 300)
+	mods_list.custom_minimum_size = Vector2(0, 180)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("17221b"), Color("415442"), 12))
@@ -831,8 +925,77 @@ func _render_mods_page() -> void:
 	collection.add_child(actions)
 	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
 	actions.add_child(_make_button("Refresh mods", _refresh_mods_page))
-	collection.add_child(_make_label("Use Fabric mods made for this Minecraft version and install required dependencies.", 16, true))
+	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
 	_refresh_mods_page()
+	_poll_modrinth()
+
+func _search_modrinth() -> void:
+	if not is_instance_valid(modrinth_search) or selected_name.is_empty():
+		return
+	last_modrinth_results = ""
+	modrinth_hits.clear()
+	modrinth_results.clear()
+	_update_modrinth_install_button()
+	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
+		modrinth_status.text = "Searching Modrinth…"
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Search is unavailable. Use the Android build with the Modrinth bridge."
+
+func _update_modrinth_install_button() -> void:
+	if not is_instance_valid(modrinth_install_button):
+		return
+	modrinth_install_button.disabled = install_busy or not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty()
+
+func _install_modrinth() -> void:
+	if not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty():
+		return
+	var index := modrinth_results.get_selected_items()[0]
+	if index >= modrinth_hits.size():
+		return
+	var id := str(modrinth_hits[index].get("id", ""))
+	if runtime.install_modrinth_mod(selected_name, id):
+		modrinth_status.text = "Resolving dependencies and downloading…"
+		modrinth_install_button.disabled = true
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Could not start the install. Wait for the current task to finish."
+
+func _poll_modrinth() -> void:
+	if current_section != "Mods" or not is_instance_valid(modrinth_status):
+		return
+	var snapshot: Dictionary = runtime.get_modrinth_snapshot()
+	if str(snapshot.get("search_instance", selected_name)) != selected_name:
+		return
+	var search_state := str(snapshot.get("search_state", "unavailable"))
+	var results: Array = snapshot.get("results", [])
+	var signature := JSON.stringify(results)
+	if search_state == "ready" and signature != last_modrinth_results:
+		last_modrinth_results = signature
+		modrinth_hits = results
+		modrinth_results.clear()
+		for hit in results:
+			modrinth_results.add_item("%s    ·    %s" % [str(hit.get("title", "Mod")), str(hit.get("description", "")).left(105)])
+			modrinth_results.set_item_tooltip(modrinth_results.item_count - 1, str(hit.get("description", "")))
+		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching Fabric mods for this version."
+	elif search_state == "searching":
+		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
+	elif search_state == "error":
+		modrinth_status.text = str(snapshot.get("search_message", "Search failed."))
+	var install_state := str(snapshot.get("install_state", "idle"))
+	install_busy = install_state == "installing"
+	_update_play()
+	if install_state == "installing":
+		modrinth_status.text = str(snapshot.get("install_message", "Installing…"))
+		modrinth_install_button.disabled = true
+	elif install_state in ["installed", "error"] and install_state != last_modrinth_install_state:
+		modrinth_status.text = str(snapshot.get("install_message", ""))
+		if install_state == "installed":
+			_refresh_mods_page()
+	last_modrinth_install_state = install_state
+	if search_state != "searching" and install_state != "installing":
+		modrinth_timer.stop()
+		_update_modrinth_install_button()
 
 func _add_mod() -> void:
 	if selected_name.is_empty() or install_busy:

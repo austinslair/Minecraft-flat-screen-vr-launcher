@@ -17,9 +17,74 @@ import pojlib.util.json.MinecraftInstances
 /** One install at a time, independently of Godot rendering and browser focus. */
 object LauncherOperations {
     private val worker = Executors.newSingleThreadExecutor()
+    private val searchWorker = Executors.newSingleThreadExecutor()
     @Volatile private var state = "idle"
     @Volatile private var message = ""
     @Volatile private var installedName = ""
+    @Volatile private var modrinthSearchState = "idle"
+    @Volatile private var modrinthSearchInstance = ""
+    @Volatile private var modrinthSearchMessage = ""
+    @Volatile private var modrinthResults = "[]"
+    @Volatile private var modrinthInstallState = "idle"
+    @Volatile private var modrinthInstallMessage = ""
+    @Volatile private var searchGeneration = 0
+
+    fun modrinthSnapshot(): String = JSONObject()
+        .put("search_state", modrinthSearchState)
+        .put("search_instance", modrinthSearchInstance)
+        .put("search_message", modrinthSearchMessage)
+        .put("results", JSONArray(modrinthResults))
+        .put("install_state", modrinthInstallState)
+        .put("install_message", modrinthInstallMessage).toString()
+
+    @Synchronized
+    fun searchModrinth(name: String, query: String): Boolean {
+        val instance = runCatching {
+            VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+        }.getOrNull() ?: return false
+        val version = instance.versionName ?: return false
+        val generation = ++searchGeneration
+        modrinthSearchInstance = name
+        modrinthSearchState = "searching"
+        modrinthSearchMessage = "Searching Fabric mods for Minecraft $version…"
+        modrinthResults = "[]"
+        searchWorker.execute {
+            try {
+                val result = ModrinthClient.search(query.trim(), version).toString()
+                if (generation == searchGeneration) {
+                    modrinthResults = result
+                    modrinthSearchMessage = ""
+                    modrinthSearchState = "ready"
+                }
+            } catch (failure: Exception) {
+                if (generation == searchGeneration) {
+                    modrinthSearchMessage = failure.message ?: "Search failed. Try again."
+                    modrinthSearchState = "error"
+                }
+            }
+        }
+        return true
+    }
+
+    @Synchronized
+    fun installModrinth(name: String, projectId: String): Boolean {
+        if (isBusy() || MinecraftGameActivity.isRunning || !projectId.matches(Regex("[A-Za-z0-9]{8,16}"))) return false
+        modrinthInstallState = "installing"
+        modrinthInstallMessage = "Resolving compatible Fabric version…"
+        state = "installing_mod"
+        worker.execute {
+            try {
+                modrinthInstallMessage = ModrinthClient.install(name, projectId) { modrinthInstallMessage = it }
+                modrinthInstallState = "installed"
+            } catch (failure: Exception) {
+                modrinthInstallMessage = failure.message ?: "Could not install this mod."
+                modrinthInstallState = "error"
+            } finally {
+                state = "idle"
+            }
+        }
+        return true
+    }
 
     @Synchronized
     fun install(activity: Activity, name: String, version: String): Boolean {
@@ -46,7 +111,7 @@ object LauncherOperations {
         return true
     }
 
-    fun isBusy(): Boolean = state == "installing" || state == "importing_mod"
+    fun isBusy(): Boolean = state == "installing" || state == "importing_mod" || state == "installing_mod"
 
     fun snapshot(): String = JSONObject().put("state", state)
         .put("message", message).put("installed_name", installedName).toString()

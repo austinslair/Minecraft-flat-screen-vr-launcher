@@ -11,6 +11,8 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var searched := ""
+	var modrinth_installed := ""
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -43,6 +45,14 @@ class FakeRuntime extends RefCounted:
 		return false
 	func get_instance_mods(_name: String) -> Dictionary:
 		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
+	func get_modrinth_snapshot() -> Dictionary:
+		return {"search_state": "ready", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
+	func search_modrinth_mods(_name: String, query: String) -> bool:
+		searched = query
+		return true
+	func install_modrinth_mod(_name: String, project: String) -> bool:
+		modrinth_installed = project
+		return true
 	func get_microsoft_login_snapshot() -> Dictionary:
 		return auth
 	func start_microsoft_login() -> bool:
@@ -196,6 +206,16 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
 	assert(ui.mods_list.get_item_count() == 2)
+	assert(ui.modrinth_results.get_item_count() == 1)
+	ui.modrinth_search.text = "sodium"
+	ui._search_modrinth()
+	assert(fake.searched == "sodium")
+	ui._poll_modrinth()
+	ui.modrinth_results.select(0)
+	ui._update_modrinth_install_button()
+	assert(not ui.modrinth_install_button.disabled)
+	ui._install_modrinth()
+	assert(fake.modrinth_installed == "AANobbMI")
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 
