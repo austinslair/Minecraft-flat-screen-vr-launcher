@@ -367,8 +367,8 @@ func _build_library_home() -> void:
 	library_home.visible = false
 
 func _library_icon(title: String, version: String, large := false) -> PanelContainer:
-	var swatches := [Color("b4e7e8"), Color("f1d6ab"), Color("dad5f1"), Color("cde4ba"), Color("e9d0d3")]
-	var accent := swatches[int(abs(title.hash())) % swatches.size()]
+	var swatches: Array[Color] = [Color("b4e7e8"), Color("f1d6ab"), Color("dad5f1"), Color("cde4ba"), Color("e9d0d3")]
+	var accent: Color = swatches[int(abs(title.hash())) % swatches.size()]
 	var tile := PanelContainer.new()
 	tile.custom_minimum_size = Vector2(112, 112) if large else Vector2(88, 88)
 	var surface := style_box(accent, accent.darkened(0.12), 13)
