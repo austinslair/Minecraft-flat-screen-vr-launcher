@@ -32,6 +32,10 @@ var workspace: Panel
 var workspace_title: Label
 var workspace_subtitle: Label
 var workspace_body: VBoxContainer
+var library_home: Control
+var library_grid: VBoxContainer
+var library_inspector: VBoxContainer
+var library_launch_button: Button
 
 var instance_empty_hint: Label
 var instance_list: ItemList
@@ -98,8 +102,12 @@ func _ready() -> void:
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
 	_build_home_tools()
+	_build_library_home()
+	_apply_library_shell()
 
 	_select_nav($Home)
+	_set_home_content_visible(false)
+	library_home.visible = true
 	if has_node("AccountWindow"):
 		$AccountWindow.queue_free()
 	if runtime.is_available():
@@ -152,10 +160,12 @@ func style_button(button: Button) -> void:
 		_style_primary_button(button)
 
 func _style_primary_button(button: Button) -> void:
-	button.add_theme_stylebox_override("normal", style_box(Color("dce8cb"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("hover", style_box(Color("ebf2e1"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("pressed", style_box(Color("b9d0a6"), Color.TRANSPARENT))
-	button.add_theme_color_override("font_color", Color("1c3725"))
+	button.add_theme_stylebox_override("normal", style_box(Color("3999bd"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("hover", style_box(Color("55adcc"), Color.TRANSPARENT))
+	button.add_theme_stylebox_override("pressed", style_box(Color("247d9d"), Color.TRANSPARENT))
+	button.add_theme_color_override("font_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
 	for state in ["normal", "hover", "pressed"]:
 		var box := button.get_theme_stylebox(state)
 		box.content_margin_left = 16
@@ -173,7 +183,11 @@ func _make_button(text: String, callback: Callable, primary := false, danger := 
 	button.add_theme_font_size_override("font_size", 17)
 	style_button(button)
 	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("f6f8f2"), Color("c8d2c4")))
+	button.add_theme_stylebox_override("hover", preload("res://scripts/ui_theme.gd").surface(Color("e7f1f5"), Color("9cbdca")))
+	button.add_theme_stylebox_override("pressed", preload("res://scripts/ui_theme.gd").surface(Color("d9eaf0"), Color("80adbd")))
 	button.add_theme_color_override("font_color", Color("26382b"))
+	button.add_theme_color_override("font_hover_color", Color("1b4253"))
+	button.add_theme_color_override("font_pressed_color", Color("1b4253"))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -199,7 +213,7 @@ func _build_play_mode() -> void:
 	mode.size = Vector2(310, 54)
 	mode.add_item("Virtual reality")
 	mode.add_item("Flatscreen")
-	mode.tooltip_text = "Flatscreen currently uses a keyboard and mouse."
+	mode.tooltip_text = "Choose VR or flatscreen for the selected instance."
 	mode.item_selected.connect(func(index: int):
 		play_mode = "flat" if index == 1 else "vr"
 		_update_play()
@@ -287,6 +301,200 @@ func _build_home_tools() -> void:
 	mods.custom_minimum_size = Vector2.ZERO
 	add_child(mods)
 
+func _apply_library_shell() -> void:
+	$Canvas.color = Color("ffffff")
+	$Sidebar.color = Color("edf1f5")
+	$SidebarRule.color = Color("edf1f5")
+	$HeaderRule.color = Color("cfd7dd")
+	$Brand.text = "VOXYQUEST"
+	$Brand.add_theme_color_override("font_color", Color("25353d"))
+	$BrandCaption.text = "MINECRAFT LAUNCHER  ·  QUEST"
+	$BrandCaption.add_theme_color_override("font_color", Color("687984"))
+	$AccountPanel.add_theme_stylebox_override("panel", style_box(Color("e2e8ed"), Color("ced7de")))
+	$AccountTitle.add_theme_color_override("font_color", Color("25353d"))
+	$AccountSubtitle.add_theme_color_override("font_color", Color("637580"))
+	$Playbar.color = Color("edf1f5")
+	$PlaybarRule.color = Color("cfd7dd")
+	$PlaybarCaption.add_theme_color_override("font_color", Color("687984"))
+	$QuickEmpty.add_theme_color_override("font_color", Color("25353d"))
+	$HomeText.text = "Library"
+	$InstancesText.text = "Add instance"
+	for button in nav_buttons:
+		var caption := get_node(str(button.name) + "Text") as Label
+		caption.add_theme_color_override("font_color", Color("25353d"))
+		(get_node(str(button.name) + "Icon") as TextureRect).modulate = Color("51717b")
+	$Play.text = "Launch  →"
+
+func _build_library_home() -> void:
+	library_home = HBoxContainer.new()
+	library_home.name = "LibraryHome"
+	library_home.position = Vector2(0, 169)
+	library_home.size = Vector2(1536, 721)
+	library_home.add_theme_constant_override("separation", 0)
+	add_child(library_home)
+	var area := PanelContainer.new()
+	area.custom_minimum_size.x = 1170
+	area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	area.add_theme_stylebox_override("panel", style_box(Color.WHITE, Color.TRANSPARENT, 0))
+	library_home.add_child(area)
+	var main_margin := MarginContainer.new()
+	main_margin.add_theme_constant_override("margin_left", 34)
+	main_margin.add_theme_constant_override("margin_top", 28)
+	main_margin.add_theme_constant_override("margin_right", 34)
+	main_margin.add_theme_constant_override("margin_bottom", 18)
+	area.add_child(main_margin)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_margin.add_child(scroll)
+	library_grid = VBoxContainer.new()
+	library_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	library_grid.add_theme_constant_override("separation", 26)
+	scroll.add_child(library_grid)
+	var sidebar := PanelContainer.new()
+	sidebar.custom_minimum_size.x = 348
+	sidebar.add_theme_stylebox_override("panel", style_box(Color("f5f7f9"), Color("d7dfe5"), 0))
+	library_home.add_child(sidebar)
+	var side_margin := MarginContainer.new()
+	for side in ["left", "right"]:
+		side_margin.add_theme_constant_override("margin_" + side, 25)
+	side_margin.add_theme_constant_override("margin_top", 28)
+	side_margin.add_theme_constant_override("margin_bottom", 20)
+	sidebar.add_child(side_margin)
+	library_inspector = VBoxContainer.new()
+	library_inspector.add_theme_constant_override("separation", 12)
+	side_margin.add_child(library_inspector)
+	library_home.visible = false
+
+func _library_icon(title: String, version: String, large := false) -> PanelContainer:
+	var swatches := [Color("b4e7e8"), Color("f1d6ab"), Color("dad5f1"), Color("cde4ba"), Color("e9d0d3")]
+	var accent := swatches[int(abs(title.hash())) % swatches.size()]
+	var tile := PanelContainer.new()
+	tile.custom_minimum_size = Vector2(112, 112) if large else Vector2(88, 88)
+	var surface := style_box(accent, accent.darkened(0.12), 13)
+	surface.content_margin_left = 5
+	surface.content_margin_right = 5
+	surface.content_margin_top = 5
+	surface.content_margin_bottom = 5
+	tile.add_theme_stylebox_override("panel", surface)
+	var mark := Label.new()
+	mark.text = "F" if not version.is_empty() else "M"
+	mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	mark.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	mark.add_theme_font_size_override("font_size", 46 if large else 38)
+	mark.add_theme_color_override("font_color", Color("2b555d"))
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(mark)
+	return tile
+
+func _library_section(heading: String, profiles: Array) -> void:
+	if profiles.is_empty():
+		return
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 16)
+	library_grid.add_child(line)
+	var caption := _make_label("⌄  " + heading, 18)
+	caption.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	line.add_child(caption)
+	var separator := HSeparator.new()
+	separator.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.add_child(separator)
+	var cards := GridContainer.new()
+	cards.columns = 5
+	cards.add_theme_constant_override("h_separation", 14)
+	cards.add_theme_constant_override("v_separation", 22)
+	library_grid.add_child(cards)
+	for instance in profiles:
+		var name := str(instance.get("name", "Unnamed instance"))
+		var version := str(instance.get("version", ""))
+		var card := VBoxContainer.new()
+		card.custom_minimum_size.x = 195
+		card.add_theme_constant_override("separation", 7)
+		cards.add_child(card)
+		var icon_row := CenterContainer.new()
+		icon_row.custom_minimum_size.y = 102
+		var icon := _library_icon(name, version)
+		icon.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		icon.gui_input.connect(func(event: InputEvent):
+			if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+				_select_library_instance(name)
+		)
+		icon_row.add_child(icon)
+		card.add_child(icon_row)
+		var select := _make_button(name, _select_library_instance.bind(name))
+		select.custom_minimum_size = Vector2(190, 48)
+		select.tooltip_text = "%s\nMinecraft %s" % [name, version]
+		select.clip_text = true
+		select.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		if name == selected_name:
+			_style_primary_button(select)
+		card.add_child(select)
+		var version_label := _make_label("Minecraft " + version, 13, true)
+		version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		card.add_child(version_label)
+
+func _select_library_instance(name: String) -> void:
+	selected_name = name
+	_refresh_instances()
+
+func _refresh_library_home() -> void:
+	if not is_instance_valid(library_grid):
+		return
+	for child in library_grid.get_children():
+		library_grid.remove_child(child)
+		child.queue_free()
+	for child in library_inspector.get_children():
+		library_inspector.remove_child(child)
+		child.queue_free()
+	var ready: Array = []
+	var repair: Array = []
+	for instance in installed_instances:
+		if bool(instance.get("installed", false)):
+			ready.append(instance)
+		else:
+			repair.append(instance)
+	_library_section("Your instances", ready)
+	_library_section("Needs repair", repair)
+	if installed_instances.is_empty():
+		library_grid.add_child(_make_label("No instances yet", 26))
+		library_grid.add_child(_make_label("Add a Minecraft version to start building your library.", 17, true))
+		library_grid.add_child(_make_button("+  Add instance", _open_section.bind("Instances"), true))
+	var selected := _selected_instance()
+	var preview := CenterContainer.new()
+	preview.custom_minimum_size.y = 125
+	library_inspector.add_child(preview)
+	preview.add_child(_library_icon(selected_name, str(selected.get("version", "")), true))
+	var title := _make_label(selected_name if not selected.is_empty() else "Select an instance", 21)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	library_inspector.add_child(title)
+	var detail := _make_label("Minecraft %s · Fabric" % str(selected.get("version", "")) if not selected.is_empty() else "Choose a tile in your library", 14, true)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	library_inspector.add_child(detail)
+	library_inspector.add_child(HSeparator.new())
+	var launch := _make_button("▷   Launch selected", _on_play_pressed, true)
+	launch.disabled = $Play.disabled
+	library_launch_button = launch
+	library_inspector.add_child(launch)
+	var mode := _make_label("Use the VR / Flatscreen selector below", 13, true)
+	library_inspector.add_child(mode)
+	library_inspector.add_child(HSeparator.new())
+	var manage := _make_button("▤   Edit instance", _open_section.bind("Instances"))
+	manage.disabled = selected.is_empty()
+	library_inspector.add_child(manage)
+	var mods := _make_button("◇   Browse mods", _open_section.bind("Mods"))
+	mods.disabled = selected.is_empty()
+	library_inspector.add_child(mods)
+	var fix := _make_button("↻   Repair instance", _repair_selected_instance)
+	fix.disabled = selected.is_empty() or install_busy
+	library_inspector.add_child(fix)
+	var remove := _make_button("✕   Remove instance", _request_remove_selected)
+	remove.disabled = selected.is_empty() or install_busy
+	library_inspector.add_child(remove)
+	library_inspector.add_spacer(false)
+	library_inspector.add_child(_make_label("%d saved instance(s)" % installed_instances.size(), 13, true))
+
 func _build_remove_confirmation() -> void:
 	remove_confirm = ConfirmationDialog.new()
 	remove_confirm.title = "Remove instance"
@@ -342,13 +550,13 @@ func _select_nav(button: Button) -> void:
 	for item in nav_buttons:
 		var selected := item == button
 		item.add_theme_stylebox_override("normal", style_box(
-			Color("dce8cb") if selected else Color.TRANSPARENT,
+			Color("dae8ef") if selected else Color.TRANSPARENT,
 			Color.TRANSPARENT
 		))
 		var caption := get_node(str(item.name) + "Text") as Label
-		caption.add_theme_color_override("font_color", Color("1b3324") if selected else Color("dce5db"))
+		caption.add_theme_color_override("font_color", Color("146e90") if selected else Color("34454e"))
 		var icon := get_node(str(item.name) + "Icon") as TextureRect
-		icon.modulate = Color("284d30") if selected else Color("b8c9bb")
+		icon.modulate = Color("2084a8") if selected else Color("526f7a")
 
 func _navigate(button: Button) -> void:
 	_open_section(str(button.name))
@@ -365,11 +573,13 @@ func _open_section(section: String) -> void:
 	navigation_requested.emit(section)
 	if section == "Home":
 		workspace.visible = false
-		_set_home_content_visible(true)
+		_set_home_content_visible(false)
+		library_home.visible = true
 		_refresh_instances()
 		return
 
 	_set_home_content_visible(false)
+	library_home.visible = false
 	workspace.visible = true
 	match section:
 		"Instances":
@@ -499,6 +709,8 @@ func _refresh_instances() -> void:
 
 	_update_play()
 	_populate_instance_list()
+	if current_section == "Home":
+		_refresh_library_home()
 
 func _has_instance(name: String) -> bool:
 	for instance in installed_instances:
@@ -519,6 +731,8 @@ func _update_play() -> void:
 	$Play.tooltip_text = "Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
 	$PlaybarCaption.text = "INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else ("REPAIR REQUIRED" if not bool(selected.get("installed", false)) else "READY TO PLAY")))
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
+	if is_instance_valid(library_launch_button):
+		library_launch_button.disabled = $Play.disabled
 
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
