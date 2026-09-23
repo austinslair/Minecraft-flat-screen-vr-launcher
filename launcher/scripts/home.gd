@@ -395,6 +395,8 @@ func _library_section(heading: String, profiles: Array) -> void:
 	line.add_theme_constant_override("separation", 16)
 	library_grid.add_child(line)
 	var caption := _make_label("⌄  " + heading, 18)
+	caption.custom_minimum_size.x = 210
+	caption.autowrap_mode = TextServer.AUTOWRAP_OFF
 	caption.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
 	line.add_child(caption)
 	var separator := HSeparator.new()
@@ -459,7 +461,10 @@ func _refresh_library_home() -> void:
 	if installed_instances.is_empty():
 		library_grid.add_child(_make_label("No instances yet", 26))
 		library_grid.add_child(_make_label("Add a Minecraft version to start building your library.", 17, true))
-		library_grid.add_child(_make_button("+  Add instance", _open_section.bind("Instances"), true))
+		var add_instance := _make_button("+  Add instance", _open_section.bind("Instances"), true)
+		add_instance.custom_minimum_size.x = 220
+		add_instance.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		library_grid.add_child(add_instance)
 	var selected := _selected_instance()
 	var preview := CenterContainer.new()
 	preview.custom_minimum_size.y = 125

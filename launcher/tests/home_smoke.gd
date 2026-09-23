@@ -133,6 +133,8 @@ func run_checks() -> void:
 	fake.snapshot.instances = [{"name": "My saved world", "version": "test", "installed": true}]
 	ui._refresh_instances()
 	assert(ui.library_grid.find_children("*", "Button", true, false).size() >= 1)
+	await process_frame
+	assert(ui.library_grid.get_child(0).get_child(0).size.y < 50)
 	ui._select_library_instance("My saved world")
 	assert(ui.library_launch_button.disabled)
 	ui.selected_name = ""
