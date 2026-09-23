@@ -10,6 +10,7 @@ import android.util.Log
 import java.io.DataOutputStream
 import java.io.File
 import org.lwjgl.glfw.CallbackBridge
+import pojlib.util.Logger
 import pojlib.input.EfficientAndroidLWJGLKeycode
 import pojlib.input.LwjglGlfwKeycode
 
@@ -34,6 +35,17 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                     updateControllerControls()
                     writeController()
                 }
+                if (controllerId < 0) {
+                    controllerId = InputDevice.getDeviceIds().firstOrNull { id ->
+                        val sources = InputDevice.getDevice(id)?.sources ?: 0
+                        sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+                            sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
+                    } ?: -1
+                    if (controllerId >= 0) {
+                        Logger.getInstance().appendToLog("VoxyQuest launch: controller connected (id $controllerId)")
+                        writeController()
+                    }
+                }
                 if (hasWindowFocus() && controllerId >= 0 &&
                     (kotlin.math.abs(controllerAxes[2]) > 0.16f || kotlin.math.abs(controllerAxes[3]) > 0.16f)) {
                     CallbackBridge.sendCursorPos(CallbackBridge.mouseX + controllerAxes[2] * 11f,
@@ -51,8 +63,13 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private val grabListener = pojlib.input.GrabListener { active ->
         runOnUiThread {
             grabbing = active
-            if (hasWindowFocus()) gameView.requestPointerCapture()
+            syncPointerCapture()
         }
+    }
+
+    private fun syncPointerCapture() {
+        if (grabbing && hasWindowFocus()) gameView.requestPointerCapture()
+        else if (gameView.hasPointerCapture()) gameView.releasePointerCapture()
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -63,8 +80,11 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         gameView.setOnKeyListener { _, _, event -> handleHardwareKey(event) }
         gameView.setOnGenericMotionListener { _, event -> handleHardwareMotion(event) }
         controllerId = InputDevice.getDeviceIds().firstOrNull { id ->
-            InputDevice.getDevice(id)?.sources?.and(InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+            val sources = InputDevice.getDevice(id)?.sources ?: 0
+            sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+                sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
         } ?: -1
+        Logger.getInstance().appendToLog("VoxyQuest launch: flatscreen input ready; controller id $controllerId")
         writeController()
         inputHandler.post(controllerTick)
         gameView.setOnCapturedPointerListener { _, event ->
@@ -92,7 +112,8 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         }
         else if (!isFinishing) {
             gameView.requestFocus()
-            gameView.requestPointerCapture()
+            syncPointerCapture()
+            updateControllerControls()
         }
     }
 
@@ -123,9 +144,10 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     }
 
     private fun handleHardwareKey(event: KeyEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+        if (isControllerEvent(event.device, event.source)) {
             if (!reportedController) {
                 Log.i("VoxyQuestInput", "Controller key received from ${event.device?.name ?: "unknown"}")
+                Logger.getInstance().appendToLog("VoxyQuest launch: Android controller buttons received")
                 reportedController = true
             }
             val button = when (event.keyCode) {
@@ -167,9 +189,12 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     }
 
     private fun handleHardwareMotion(event: MotionEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_JOYSTICK)) {
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE) &&
+            !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE) &&
+            isControllerEvent(event.device, event.source) && event.actionMasked == MotionEvent.ACTION_MOVE) {
             if (!reportedController) {
                 Log.i("VoxyQuestInput", "Controller axes received from ${event.device?.name ?: "unknown"}")
+                Logger.getInstance().appendToLog("VoxyQuest launch: Android controller axes received")
                 reportedController = true
             }
             controllerId = event.deviceId
@@ -261,8 +286,17 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private fun reportMouse(event: MotionEvent) {
         if (!reportedMouse) {
             Log.i("VoxyQuestInput", "Mouse event received from ${event.device?.name ?: "unknown"}")
+            Logger.getInstance().appendToLog("VoxyQuest launch: Android mouse received")
             reportedMouse = true
         }
+    }
+
+    private fun isControllerEvent(device: InputDevice?, source: Int): Boolean {
+        if (device?.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC) return false
+        val sources = source or (device?.sources ?: 0)
+        return sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+            sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK ||
+            sources and InputDevice.SOURCE_DPAD == InputDevice.SOURCE_DPAD
     }
 
     private fun writeController() {
