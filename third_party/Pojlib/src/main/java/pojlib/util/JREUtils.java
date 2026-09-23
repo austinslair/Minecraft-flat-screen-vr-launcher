@@ -332,7 +332,7 @@ public class JREUtils {
      * @param ctx The application context
      * @return A list filled with args.
      */
-    public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance) {
+    public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance) throws IOException {
         File resConfFile = new File(Constants.USER_HOME + "/hacks/resolv.conf");
         try {
             if(!resConfFile.exists()) {
@@ -350,7 +350,7 @@ public class JREUtils {
                 "-Dos.name=Linux",
                 "-Dos.version=Android-" + Build.VERSION.RELEASE,
                 "-Dorg.lwjgl.librarypath=" + ctx.getApplicationInfo().nativeLibraryDir,
-                "-Djna.boot.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
+                "-Djna.boot.library.path=" + JnaNativeInstaller.prepare(ctx, instance.classpath),
                 "-Djna.nosys=true",
                 "-Djna.nounpack=true",
                 "-Djna.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
