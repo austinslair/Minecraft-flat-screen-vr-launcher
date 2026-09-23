@@ -211,3 +211,18 @@ func launch_minecraft_flat(instance_name: String) -> bool:
 func add_instance_mod(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
 	return _plugin_has_method(plugin, &"addInstanceMod") and bool(plugin.addInstanceMod(instance_name))
+
+func get_modrinth_snapshot() -> Dictionary:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getModrinthSnapshotJson"):
+		return {"search_state": "unavailable", "search_message": "Modrinth search requires the Android build.", "results": [], "install_state": "idle", "install_message": ""}
+	var parsed: Variant = JSON.parse_string(str(plugin.getModrinthSnapshotJson()))
+	return parsed if parsed is Dictionary else {"search_state": "error", "search_message": "Invalid Modrinth response.", "results": [], "install_state": "idle", "install_message": ""}
+
+func search_modrinth_mods(instance_name: String, query: String) -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"searchModrinthMods") and bool(plugin.searchModrinthMods(instance_name, query))
+
+func install_modrinth_mod(instance_name: String, project_id: String) -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"installModrinthMod") and bool(plugin.installModrinthMod(instance_name, project_id))

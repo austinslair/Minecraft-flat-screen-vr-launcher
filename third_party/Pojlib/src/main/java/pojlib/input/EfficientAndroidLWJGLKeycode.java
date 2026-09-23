@@ -183,7 +183,7 @@ public class EfficientAndroidLWJGLKeycode {
         CallbackBridge.holdingNumlock = keyEvent.isNumLockOn();
         CallbackBridge.holdingShift = keyEvent.isShiftPressed();
 
-        System.out.println(keyEvent.getKeyCode() + " " +keyEvent.getDisplayLabel());
+
         char key = (char)(keyEvent.getUnicodeChar() != 0 ? keyEvent.getUnicodeChar() : '\u0000');
         sendKeyPress(
                 getValueByIndex(valueIndex),

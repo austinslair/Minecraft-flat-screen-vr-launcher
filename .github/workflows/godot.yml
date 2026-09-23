@@ -2,7 +2,7 @@ name: Godot Android smoke test
 
 on:
   push:
-    branches: [main, fix/game-display]
+    branches: [main, fix/vr-refresh-rate]
   pull_request:
   workflow_dispatch:
 
@@ -44,7 +44,16 @@ jobs:
           gradle-version: "8.14.3"
 
       - name: Build Godot + Pojlib Android runtime
-        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
+        run: |
+          export VOXYQUEST_VIVECRAFT_TEST_JAR="$RUNNER_TEMP/vivecraft-original.jar"
+          curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          gradle -p android/bridge :plugin:syncToGodot --no-daemon
+          mkdir -p "$RUNNER_TEMP/refresh-tests"
+          curl -fsSL https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar -o "$RUNNER_TEMP/refresh-tests/asm.jar"
+          curl -fsSL https://repo.maven.apache.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar -o "$RUNNER_TEMP/refresh-tests/junit.jar"
+          curl -fsSL https://repo.maven.apache.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar -o "$RUNNER_TEMP/refresh-tests/hamcrest.jar"
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/VivecraftRefreshRateFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftRefreshRateFixTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
 
       - name: Verify launcher and account runtime
         run: |

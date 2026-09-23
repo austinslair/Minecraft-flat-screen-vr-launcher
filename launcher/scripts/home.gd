@@ -53,6 +53,15 @@ var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
+var modrinth_search: LineEdit
+var modrinth_search_button: Button
+var modrinth_results: ItemList
+var modrinth_install_button: Button
+var modrinth_status: Label
+var modrinth_hits: Array = []
+var modrinth_timer: Timer
+var last_modrinth_results := ""
+var last_modrinth_install_state := ""
 
 var account_page_title: Label
 var account_page_status: Label
@@ -80,6 +89,10 @@ func _ready() -> void:
 	_build_inline_account_status()
 	_build_remove_confirmation()
 	_build_install_timer()
+	modrinth_timer = Timer.new()
+	modrinth_timer.wait_time = 0.5
+	modrinth_timer.timeout.connect(_poll_modrinth)
+	add_child(modrinth_timer)
 
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
@@ -276,6 +289,11 @@ func _clear_workspace() -> void:
 	install_status = null
 	mods_list = null
 	mods_status = null
+	modrinth_search = null
+	modrinth_search_button = null
+	modrinth_results = null
+	modrinth_install_button = null
+	modrinth_status = null
 	account_page_title = null
 	account_page_status = null
 	account_page_code = null
@@ -304,6 +322,8 @@ func _navigate(button: Button) -> void:
 	_open_section(str(button.name))
 
 func _open_section(section: String) -> void:
+	if is_instance_valid(modrinth_timer) and section != "Mods":
+		modrinth_timer.stop()
 	var nav_button := get_node_or_null(section)
 	if nav_button is Button and nav_button in nav_buttons:
 		_select_nav(nav_button)
@@ -772,7 +792,7 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Mods for your selected Minecraft instance."
+	workspace_subtitle.text = "Browse compatible Fabric mods from Modrinth or import a local JAR."
 	if selected_name.is_empty():
 		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
 		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
@@ -780,11 +800,38 @@ func _render_mods_page() -> void:
 		empty.add_child(choose)
 		return
 
-	var collection := _page_card(workspace_body, selected_name)
 	var selected := _selected_instance()
-	collection.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
+	var browser := _page_card(workspace_body, "Browse Modrinth", "Fabric mods compatible with Minecraft %s" % str(selected.get("version", "")))
+	last_modrinth_results = ""
+	var search_row := HBoxContainer.new()
+	search_row.add_theme_constant_override("separation", 10)
+	browser.add_child(search_row)
+	modrinth_search = LineEdit.new()
+	modrinth_search.placeholder_text = "Search mods by name…"
+	modrinth_search.custom_minimum_size.y = 50
+	modrinth_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_search.text_submitted.connect(func(_text: String): _search_modrinth())
+	search_row.add_child(modrinth_search)
+	modrinth_search_button = _make_button("Search", _search_modrinth, true)
+	search_row.add_child(modrinth_search_button)
+	modrinth_results = ItemList.new()
+	modrinth_results.custom_minimum_size.y = 210
+	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	modrinth_results.item_selected.connect(func(_index: int): _update_modrinth_install_button())
+	browser.add_child(modrinth_results)
+	var install_row := HBoxContainer.new()
+	install_row.add_theme_constant_override("separation", 12)
+	browser.add_child(install_row)
+	modrinth_install_button = _make_button("Install selected", _install_modrinth, true)
+	modrinth_install_button.disabled = true
+	install_row.add_child(modrinth_install_button)
+	modrinth_status = _make_label("Search to find mods for this instance.", 15, true)
+	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	install_row.add_child(modrinth_status)
+	var collection := _page_card(workspace_body, "Installed in %s" % selected_name)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 300)
+	mods_list.custom_minimum_size = Vector2(0, 180)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
@@ -796,8 +843,77 @@ func _render_mods_page() -> void:
 	collection.add_child(actions)
 	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
 	actions.add_child(_make_button("Refresh mods", _refresh_mods_page))
-	collection.add_child(_make_label("Use Fabric mods made for this Minecraft version and install required dependencies.", 16, true))
+	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
 	_refresh_mods_page()
+	_poll_modrinth()
+
+func _search_modrinth() -> void:
+	if not is_instance_valid(modrinth_search) or selected_name.is_empty():
+		return
+	last_modrinth_results = ""
+	modrinth_hits.clear()
+	modrinth_results.clear()
+	_update_modrinth_install_button()
+	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
+		modrinth_status.text = "Searching Modrinth…"
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Search is unavailable. Use the Android build with the Modrinth bridge."
+
+func _update_modrinth_install_button() -> void:
+	if not is_instance_valid(modrinth_install_button):
+		return
+	modrinth_install_button.disabled = install_busy or not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty()
+
+func _install_modrinth() -> void:
+	if not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty():
+		return
+	var index := modrinth_results.get_selected_items()[0]
+	if index >= modrinth_hits.size():
+		return
+	var id := str(modrinth_hits[index].get("id", ""))
+	if runtime.install_modrinth_mod(selected_name, id):
+		modrinth_status.text = "Resolving dependencies and downloading…"
+		modrinth_install_button.disabled = true
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Could not start the install. Wait for the current task to finish."
+
+func _poll_modrinth() -> void:
+	if current_section != "Mods" or not is_instance_valid(modrinth_status):
+		return
+	var snapshot: Dictionary = runtime.get_modrinth_snapshot()
+	if str(snapshot.get("search_instance", selected_name)) != selected_name:
+		return
+	var search_state := str(snapshot.get("search_state", "unavailable"))
+	var results: Array = snapshot.get("results", [])
+	var signature := JSON.stringify(results)
+	if search_state == "ready" and signature != last_modrinth_results:
+		last_modrinth_results = signature
+		modrinth_hits = results
+		modrinth_results.clear()
+		for hit in results:
+			modrinth_results.add_item("%s    ·    %s" % [str(hit.get("title", "Mod")), str(hit.get("description", "")).left(105)])
+			modrinth_results.set_item_tooltip(modrinth_results.item_count - 1, str(hit.get("description", "")))
+		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching Fabric mods for this version."
+	elif search_state == "searching":
+		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
+	elif search_state == "error":
+		modrinth_status.text = str(snapshot.get("search_message", "Search failed."))
+	var install_state := str(snapshot.get("install_state", "idle"))
+	install_busy = install_state == "installing"
+	_update_play()
+	if install_state == "installing":
+		modrinth_status.text = str(snapshot.get("install_message", "Installing…"))
+		modrinth_install_button.disabled = true
+	elif install_state in ["installed", "error"] and install_state != last_modrinth_install_state:
+		modrinth_status.text = str(snapshot.get("install_message", ""))
+		if install_state == "installed":
+			_refresh_mods_page()
+	last_modrinth_install_state = install_state
+	if search_state != "searching" and install_state != "installing":
+		modrinth_timer.stop()
+		_update_modrinth_install_button()
 
 func _add_mod() -> void:
 	if selected_name.is_empty() or install_busy:

@@ -240,6 +240,21 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
+    fun getModrinthSnapshotJson(): String = LauncherOperations.modrinthSnapshot()
+
+    @UsedByGodot
+    fun searchModrinthMods(instanceName: String, query: String): Boolean {
+        if (!PojlibRuntime.isInitialized()) return false
+        return LauncherOperations.searchModrinth(instanceName, query)
+    }
+
+    @UsedByGodot
+    fun installModrinthMod(instanceName: String, projectId: String): Boolean {
+        if (!PojlibRuntime.isInitialized()) return false
+        return LauncherOperations.installModrinth(instanceName, projectId)
+    }
+
+    @UsedByGodot
     fun launchMinecraftVr(name: String): Boolean = launchMinecraft(name, true)
 
     @UsedByGodot
