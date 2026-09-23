@@ -121,8 +121,9 @@ internal object ModrinthClient {
                     }
                 }
             }
+            val count = staged.size
             staged.forEach { (temp, destination) -> Files.move(temp.toPath(), destination.toPath()) }
-            return "Installed ${versions.size} mod file(s) for Minecraft $gameVersion."
+            return "Installed $count mod file(s) for Minecraft $gameVersion."
         } finally {
             staged.forEach { (temp, _) -> temp.delete() }
         }
