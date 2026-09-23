@@ -109,6 +109,34 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         if (PojlibRuntime.isInitialized()) "godot_host_ready" else "not_initialized"
 
     @UsedByGodot
+    fun copyInputReport(): Boolean {
+        val host = activity ?: return false
+        val candidates = listOf("previouslog.txt", "latestlog.txt")
+            .map { File(Constants.USER_HOME, it) }
+            .filter { it.isFile && it.length() > 0 }
+            .sortedByDescending { it.lastModified() }
+        val log = candidates.firstOrNull { file ->
+            runCatching { file.useLines { lines -> lines.any { it.contains("flatscreen input ready") } } }
+                .getOrDefault(false)
+        } ?: candidates.firstOrNull() ?: return false
+        val details = runCatching {
+            log.useLines { lines ->
+                lines.filter { line ->
+                    line.startsWith("VoxyQuest launch:") &&
+                        (line.contains("input", ignoreCase = true) ||
+                         line.contains("controller", ignoreCase = true) ||
+                         line.contains("mouse", ignoreCase = true))
+                }.toList().takeLast(30).joinToString("\n")
+            }
+        }.getOrDefault("")
+        val report = "VoxyQuest flatscreen input report\n" +
+            (details.ifBlank { "No Android input events were recorded in the latest launch." })
+        val clipboard = host.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("VoxyQuest input report", report))
+        return true
+    }
+
+    @UsedByGodot
     fun isMicrosoftLoginConfigured(): Boolean = BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()
 
     @UsedByGodot

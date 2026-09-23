@@ -64,6 +64,10 @@ func get_info() -> Dictionary:
 		"pojlib": str(plugin.getPojlibCompatibilityState())
 	}
 
+func copy_input_report() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return plugin != null and _plugin_has_method(plugin, &"copyInputReport") and bool(plugin.copyInputReport())
+
 func is_microsoft_login_configured() -> bool:
 	var plugin: Object = _refresh_plugin()
 	return plugin != null and bool(plugin.isMicrosoftLoginConfigured())

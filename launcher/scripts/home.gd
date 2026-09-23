@@ -1473,8 +1473,14 @@ func _render_settings_page() -> void:
 	var refresh := _make_button("Refresh launcher data", _refresh_launcher_data)
 	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	diagnostics.add_child(refresh)
+	var copy_input := _make_button("Copy input report", _copy_input_report)
+	copy_input.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	diagnostics.add_child(copy_input)
 	settings_status = _make_label("", 16, true)
 	diagnostics.add_child(settings_status)
+
+func _copy_input_report() -> void:
+	settings_status.text = "Input report copied. Paste it into your bug report." if runtime.copy_input_report() else "No input report is available yet. Launch a game first."
 
 func _refresh_launcher_data() -> void:
 	if runtime.is_available():
