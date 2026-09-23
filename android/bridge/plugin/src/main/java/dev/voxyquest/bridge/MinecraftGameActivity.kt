@@ -70,7 +70,7 @@ open class MinecraftGameActivity : Activity() {
         frame.addView(surface, FrameLayout.LayoutParams(-1, -1))
         val readyFile = File(filesDir, "minecraft-first-frame")
         readyFile.delete() // Never accept a frame marker left by a previous launch.
-        val loading = GameLoadingView(this, readyFile) {
+        val loading = GameLoadingView(this, readyFile, surface, !vr) {
             loadingView?.let { frame.removeView(it) }
             loadingView = null
             surface.requestFocus()

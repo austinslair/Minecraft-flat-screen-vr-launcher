@@ -78,8 +78,10 @@ final class NeoForgeInstaller {
         File patched = copyJar(activity, "client.jar", new File(neoRoot,
                 "neoforge-" + LOADER_VERSION + "-client.jar"));
         // Both artifacts are produced by NeoForge's client installer processors.
-        instance.classpath = client + File.pathSeparator + libraries + File.pathSeparator +
-                neoLibraries + File.pathSeparator + universal + File.pathSeparator + patched +
+        // The patched NeoForge client contains Minecraft classes also present in the
+        // vanilla client. Put it first so the vanilla jar cannot shadow those patches.
+        instance.classpath = patched + File.pathSeparator + universal + File.pathSeparator +
+                neoLibraries + File.pathSeparator + client + File.pathSeparator + libraries +
                 File.pathSeparator + lwjgl;
         instance.jvmLaunchArgs = expandArguments(neoforge.arguments.jvm, neoforge.id);
         instance.gameLaunchArgs = expandArguments(neoforge.arguments.game, neoforge.id);

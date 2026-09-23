@@ -1,9 +1,12 @@
 package dev.voxyquest.bridge
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.view.PixelCopy
+import android.view.SurfaceView
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -16,6 +19,7 @@ import pojlib.util.Constants
 
 /** Visible while the embedded JVM starts; reads only output from this launch. */
 internal class GameLoadingView(context: Context, private val readyFile: File,
+    private val gameSurface: SurfaceView, private val requireVisibleFrame: Boolean,
     private val onFirstFrame: () -> Unit) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val logFile = File(Constants.USER_HOME, "latestlog.txt")
@@ -23,15 +27,36 @@ internal class GameLoadingView(context: Context, private val readyFile: File,
     private val recent = ArrayDeque<String>()
     private val output: TextView
     private var running = true
+    private val preview = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
             readOutput()
             if (readyFile.isFile) {
-                stop()
-                onFirstFrame()
+                if (requireVisibleFrame) {
+                    PixelCopy.request(gameSurface, preview, { result ->
+                        if (!running) return@request
+                        if (result == PixelCopy.SUCCESS && hasVisiblePixels()) {
+                            stop()
+                            onFirstFrame()
+                        } else handler.postDelayed(this, 300)
+                    }, handler)
+                } else {
+                    stop()
+                    onFirstFrame()
+                }
             } else handler.postDelayed(this, 300)
         }
+    }
+
+    private fun hasVisiblePixels(): Boolean {
+        var visible = 0
+        for (y in 0 until preview.height) for (x in 0 until preview.width) {
+            val pixel = preview.getPixel(x, y)
+            if (Color.red(pixel) > 32 || Color.green(pixel) > 32 || Color.blue(pixel) > 32)
+                visible++
+        }
+        return visible >= 24
     }
 
     init {
