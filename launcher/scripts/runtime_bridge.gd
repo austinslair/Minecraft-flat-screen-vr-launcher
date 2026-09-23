@@ -159,7 +159,7 @@ func get_install_versions() -> Array:
 	# installer usable if the Android bridge returns an empty catalog response.
 	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
-func install_instance(instance_name: String, version: String) -> bool:
+func install_instance(instance_name: String, version: String, loader: String = "fabric") -> bool:
 	var plugin: Object = _refresh_plugin()
 	_install_request_error = ""
 	if plugin == null:
@@ -170,6 +170,11 @@ func install_instance(instance_name: String, version: String) -> bool:
 		return false
 	# Do not block the request on launcher-side initialization. The Android
 	# installer worker initializes Pojlib itself before downloading anything.
+	if loader == "neoforge":
+		if not _plugin_has_method(plugin, &"installInstanceWithLoader"):
+			_install_request_error = "This APK does not contain the NeoForge installer. Update the complete APK."
+			return false
+		return bool(plugin.installInstanceWithLoader(instance_name, version, loader))
 	return bool(plugin.installInstance(instance_name, version))
 
 func get_install_snapshot() -> Dictionary:

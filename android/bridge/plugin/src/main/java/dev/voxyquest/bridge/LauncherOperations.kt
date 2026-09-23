@@ -89,8 +89,9 @@ object LauncherOperations {
     }
 
     @Synchronized
-    fun install(activity: Activity, name: String, version: String): Boolean {
+    fun install(activity: Activity, name: String, version: String, loader: String = "fabric"): Boolean {
         if (isBusy() || MinecraftGameActivity.isRunning) return false
+        if (loader !in setOf("fabric", "neoforge")) return false
         try { VoxyQuestInstaller.directoryName(name) } catch (_: IllegalArgumentException) {
             state = "error"
             message = "Use 1–48 letters, numbers, spaces, underscores or hyphens."
@@ -101,7 +102,7 @@ object LauncherOperations {
         installedName = ""
         worker.execute {
             try {
-                val result = VoxyQuestInstaller.install(activity, name, version) { message = it }
+                val result = VoxyQuestInstaller.install(activity, name, version, loader) { message = it }
                 installedName = result.instanceName
                 message = "Installed ${result.instanceName}"
                 state = "installed"

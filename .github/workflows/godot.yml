@@ -43,6 +43,39 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: 612a11ca6a30791cae34d410328bc75d08246970
+          path: quest-vivecraft-openxr
+
+      - name: Prepare NeoForge VR runtime
+        run: |
+          cd quest-vivecraft-openxr
+          sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
+          bash ./gradlew :neoforge:remapJar --no-daemon
+          cd ..
+          ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          mkdir -p "$ASSETS" "$RUNNER_TEMP/neoforge-client"
+          cp quest-vivecraft-openxr/neoforge/build/libs/vivecraft-1.21.5-1.3.4-neoforge.jar "$ASSETS/vivecraft.jar"
+          curl -fsSL --retry 3 https://maven.neoforged.net/releases/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-installer.jar -o "$RUNNER_TEMP/neoforge-installer.jar"
+          printf '{"profiles":{}}' > "$RUNNER_TEMP/neoforge-client/launcher_profiles.json"
+          java -jar "$RUNNER_TEMP/neoforge-installer.jar" --installClient "$RUNNER_TEMP/neoforge-client"
+          cp "$RUNNER_TEMP/neoforge-client/versions/neoforge-21.5.2-beta/neoforge-21.5.2-beta.json" "$ASSETS/version.json"
+          cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-client.jar" "$ASSETS/client.jar"
+          cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-universal.jar" "$ASSETS/universal.jar"
+          unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Build Godot + Pojlib Android runtime
         run: |
           bash scripts/rebuild_glfw_bridge.sh

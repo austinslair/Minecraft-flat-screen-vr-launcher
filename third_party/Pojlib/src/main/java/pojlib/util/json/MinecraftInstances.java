@@ -75,6 +75,8 @@ public class MinecraftInstances {
         public String assetIndex;
         public String assetsDir;
         public String mainClass;
+        public String[] jvmLaunchArgs;
+        public String[] gameLaunchArgs;
         public ProjectInfo[] extProjects;
         public boolean defaultMods;
 
@@ -88,9 +90,11 @@ public class MinecraftInstances {
                     "--accessToken", account.accessToken, "--userType", account.userType, "--versionType", "release"};
 
             List<String> allArgs = new ArrayList<>();
+            if (jvmLaunchArgs != null) allArgs.addAll(Arrays.asList(jvmLaunchArgs));
             allArgs.add("-cp");
             allArgs.add(classpath);
             allArgs.add(mainClass);
+            if (gameLaunchArgs != null) allArgs.addAll(Arrays.asList(gameLaunchArgs));
             allArgs.addAll(Arrays.asList(mcArgs));
             if (account.isDemoMode) {
                 allArgs.add("--demo");

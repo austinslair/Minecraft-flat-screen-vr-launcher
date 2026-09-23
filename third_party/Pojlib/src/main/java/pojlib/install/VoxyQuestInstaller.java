@@ -61,6 +61,13 @@ public final class VoxyQuestInstaller {
 
     public static synchronized MinecraftInstances.Instance install(Activity activity, String name,
             String version, Consumer<String> progress) throws Exception {
+        return install(activity, name, version, "fabric", progress);
+    }
+
+    public static synchronized MinecraftInstances.Instance install(Activity activity, String name,
+            String version, String loader, Consumer<String> progress) throws Exception {
+        if (!"fabric".equals(loader) && !"neoforge".equals(loader))
+            throw new IOException("Unsupported mod loader");
         PojlibRuntime.ensureInitialized(activity);
         String cleanName = name == null ? "" : name.trim();
         String directory = directoryName(cleanName);
@@ -76,25 +83,27 @@ public final class VoxyQuestInstaller {
             }
         }
 
-        ModsJson.Version selected = findCatalogVersion(activity, version);
+        ModsJson.Version selected = "fabric".equals(loader) ? findCatalogVersion(activity, version) : null;
+        if ("neoforge".equals(loader) && !NeoForgeInstaller.VERSION.equals(version))
+            throw new IOException("NeoForge VR is currently available for Minecraft " + NeoForgeInstaller.VERSION);
 
         if (existing != null) {
-            if ("neoforge".equals(existing.loaderId())) {
-                throw new IOException("This NeoForge profile cannot be repaired with the Fabric installer");
-            }
+            if (!loader.equals(existing.loaderId())) throw new IOException("Instance uses a different mod loader");
             if (existing.versionName != null && !existing.versionName.isEmpty()
                     && !version.equals(existing.versionName)) {
                 throw new IOException("Incomplete instance uses a different Minecraft version");
             }
             progress.accept("Repairing incomplete instance…");
-            prepareAndDownload(activity, existing, cleanName, version, directory, selected, progress);
+            if ("neoforge".equals(loader)) NeoForgeInstaller.prepareAndDownload(activity, existing, cleanName, directory, progress);
+            else prepareAndDownload(activity, existing, cleanName, version, directory, selected, progress);
             progress.accept("Saving repaired instance…");
             saveRegistry(registry);
             return existing;
         }
 
         MinecraftInstances.Instance instance = new MinecraftInstances.Instance();
-        prepareAndDownload(activity, instance, cleanName, version, directory, selected, progress);
+        if ("neoforge".equals(loader)) NeoForgeInstaller.prepareAndDownload(activity, instance, cleanName, directory, progress);
+        else prepareAndDownload(activity, instance, cleanName, version, directory, selected, progress);
 
         progress.accept("Saving installed instance…");
         ArrayList<MinecraftInstances.Instance> all = new ArrayList<>(Arrays.asList(registry.toArray()));
@@ -152,6 +161,8 @@ public final class VoxyQuestInstaller {
         instance.modLoader = "fabric";
         instance.versionType = minecraft.type;
         instance.mainClass = fabric.mainClass;
+        instance.jvmLaunchArgs = null;
+        instance.gameLaunchArgs = null;
         instance.gameDir = gameDirectory.getPath();
 
         progress.accept("Downloading Minecraft…");
@@ -233,11 +244,14 @@ public final class VoxyQuestInstaller {
 
     public static boolean isInstalled(MinecraftInstances.Instance instance) {
         if (instance == null || instance.classpath == null || instance.mainClass == null || instance.gameDir == null) return false;
+        if ("neoforge".equals(instance.loaderId()) &&
+                (instance.jvmLaunchArgs == null || instance.gameLaunchArgs == null ||
+                 !"cpw.mods.bootstraplauncher.BootstrapLauncher".equals(instance.mainClass))) return false;
         for (String path : instance.classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
             if (path.isEmpty() || !new File(path).isFile()) return false;
         }
         if (!new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
-        if (!new File(instance.gameDir, "mods/Fabric-API.jar").isFile()) return false;
+        if ("fabric".equals(instance.loaderId()) && !new File(instance.gameDir, "mods/Fabric-API.jar").isFile()) return false;
         if (instance.assetsDir == null || !new File(instance.assetsDir).isDirectory()) return false;
         for (ProjectInfo project : instance.toArray()) {
             if (project.slug == null || !project.slug.matches("[A-Za-z0-9_-]+")) return false;

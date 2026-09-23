@@ -217,6 +217,12 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
+    fun installInstanceWithLoader(name: String, version: String, loader: String): Boolean {
+        val host = activity ?: return false
+        return LauncherOperations.install(host, name, version, loader)
+    }
+
+    @UsedByGodot
     fun getInstallSnapshotJson(): String = LauncherOperations.snapshot()
 
     @UsedByGodot

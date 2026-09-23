@@ -121,7 +121,8 @@ public class Installer {
 
             for (VersionInfo.Library library : versionInfo.libraries) {
                 if (!library.allowedOnAndroid() || (library.downloads != null && library.downloads.artifact == null)) continue;
-                if (library.name.contains("lwjgl") || (library.name.contains("org.ow2.asm")) & !versionInfo.id.contains("fabric")) {
+                if (library.name.contains("lwjgl") || (library.name.contains("org.ow2.asm") &&
+                        !versionInfo.id.contains("fabric") && !versionInfo.id.contains("neoforge"))) {
                     continue;
                 }
                 for (int i = 0; i < 5; i++) {

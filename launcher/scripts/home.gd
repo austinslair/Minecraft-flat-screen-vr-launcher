@@ -48,6 +48,7 @@ var pending_remove_name := ""
 var remove_confirm: ConfirmationDialog
 
 var install_name: LineEdit
+var install_loader: OptionButton
 var install_version: OptionButton
 var install_submit: Button
 var install_status: Label
@@ -795,7 +796,7 @@ func _detail_row(parent: Control, caption: String, value: String) -> void:
 func _render_instances_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Your Minecraft library · Fabric, Vivecraft and Fabric API included with each install."
+	workspace_subtitle.text = "Your Minecraft library · Create Fabric or NeoForge instances for VR and flatscreen."
 	_refresh_instances()
 
 	var top_actions := HBoxContainer.new()
@@ -873,7 +874,7 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(tools, "Create an instance", "Minecraft, Fabric Loader, Vivecraft, and Fabric API are installed together.")
+	var installer := _page_card(tools, "Create an instance", "Fabric includes Fabric API; NeoForge 1.21.5 includes a matching Vivecraft OpenXR build.")
 
 	var install_row := VBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
@@ -885,11 +886,17 @@ func _render_instances_page() -> void:
 	install_name.custom_minimum_size = Vector2(260, 46)
 	install_name.add_theme_font_size_override("font_size", 17)
 	_field(install_row, "New instance name", install_name)
+	install_loader = OptionButton.new()
+	install_loader.custom_minimum_size = Vector2(250, 46)
+	install_loader.add_theme_font_size_override("font_size", 17)
+	install_loader.add_item("Fabric")
+	install_loader.add_item("NeoForge")
+	install_loader.item_selected.connect(_on_install_loader_selected)
+	_field(install_row, "Mod loader", install_loader)
 	install_version = OptionButton.new()
 	install_version.custom_minimum_size = Vector2(250, 46)
 	install_version.add_theme_font_size_override("font_size", 17)
-	for version in runtime.get_install_versions():
-		install_version.add_item(str(version))
+	_on_install_loader_selected(0)
 	_field(install_row, "Minecraft version", install_version)
 	install_submit = _make_button("Install", _start_install, true)
 	install_submit.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
@@ -903,6 +910,16 @@ func _render_instances_page() -> void:
 	installer.add_child(install_status)
 	_populate_instance_list()
 	_poll_install()
+
+func _on_install_loader_selected(index: int) -> void:
+	if not is_instance_valid(install_version):
+		return
+	install_version.clear()
+	var versions: Array = ["1.21.5"] if index == 1 else runtime.get_install_versions()
+	for version in versions:
+		install_version.add_item(str(version))
+	if install_version.item_count > 0:
+		install_version.select(0)
 
 func _populate_instance_list() -> void:
 	if not is_instance_valid(instance_list):
@@ -1005,7 +1022,9 @@ func _repair_selected_instance() -> void:
 			instance_status.text = "Select an instance first."
 		return
 	handled_install_name = ""
-	if runtime.install_instance(selected_name, str(selected.get("version", ""))):
+	var loader := str(selected.get("loader", "fabric"))
+	var started := runtime.install_instance(selected_name, str(selected.get("version", "")), loader) if loader == "neoforge" else runtime.install_instance(selected_name, str(selected.get("version", "")))
+	if started:
 		install_timer.start()
 	_poll_install()
 
@@ -1022,13 +1041,15 @@ func _start_install() -> void:
 	if install_version.selected < 0:
 		install_version.select(0)
 	var version := install_version.get_item_text(install_version.selected)
+	var loader := "neoforge" if install_loader.selected == 1 else "fabric"
 	var new_name := install_name.text.strip_edges()
 	if new_name.is_empty():
-		new_name = "Minecraft %s" % version.replace(".", "-")
+		new_name = "%s %s" % ["NeoForge" if loader == "neoforge" else "Minecraft", version.replace(".", "-")]
 		install_name.text = new_name
 
 	handled_install_name = ""
-	if runtime.install_instance(new_name, version):
+	var started := runtime.install_instance(new_name, version, loader) if loader == "neoforge" else runtime.install_instance(new_name, version)
+	if started:
 		install_feedback = "Preparing installation…"
 		install_status.text = install_feedback
 		install_timer.start()
