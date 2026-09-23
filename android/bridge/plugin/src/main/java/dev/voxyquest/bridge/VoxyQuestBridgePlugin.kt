@@ -1,11 +1,14 @@
 package dev.voxyquest.bridge
 
 import android.app.AlertDialog
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.content.pm.PackageManager
+import android.provider.Settings
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,6 +30,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
 
     companion object {
         private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
+        private const val MICROPHONE_PERMISSION_REQUEST = 2471
     }
 
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
@@ -107,6 +111,33 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     @UsedByGodot
     fun getPojlibCompatibilityState(): String =
         if (PojlibRuntime.isInitialized()) "godot_host_ready" else "not_initialized"
+
+    @UsedByGodot
+    fun getMicrophonePermissionState(): String {
+        val host = activity ?: return "unavailable"
+        return if (host.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            "granted" else "denied"
+    }
+
+    @UsedByGodot
+    fun requestMicrophoneAccess(): Boolean {
+        val host = activity ?: return false
+        if (getMicrophonePermissionState() == "granted") return true
+        host.runOnUiThread {
+            host.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MICROPHONE_PERMISSION_REQUEST)
+        }
+        return true
+    }
+
+    @UsedByGodot
+    fun openMicrophoneAppSettings(): Boolean {
+        val host = activity ?: return false
+        return runCatching {
+            host.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", host.packageName, null)))
+            true
+        }.getOrDefault(false)
+    }
 
     @UsedByGodot
     fun copyInputReport(): Boolean {

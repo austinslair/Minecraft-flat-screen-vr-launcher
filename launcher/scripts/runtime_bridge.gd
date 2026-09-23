@@ -68,6 +68,20 @@ func copy_input_report() -> bool:
 	var plugin: Object = _refresh_plugin()
 	return plugin != null and _plugin_has_method(plugin, &"copyInputReport") and bool(plugin.copyInputReport())
 
+func get_microphone_permission_state() -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getMicrophonePermissionState"):
+		return "unavailable"
+	return str(plugin.getMicrophonePermissionState())
+
+func request_microphone_access() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"requestMicrophoneAccess") and bool(plugin.requestMicrophoneAccess())
+
+func open_microphone_app_settings() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"openMicrophoneAppSettings") and bool(plugin.openMicrophoneAppSettings())
+
 func is_microsoft_login_configured() -> bool:
 	var plugin: Object = _refresh_plugin()
 	return plugin != null and bool(plugin.isMicrosoftLoginConfigured())

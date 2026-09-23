@@ -81,6 +81,8 @@ var account_page_copy: Button
 var account_page_cancel: Button
 
 var settings_status: Label
+var microphone_status: Label
+var microphone_grant_button: Button
 
 func _ready() -> void:
 	theme = preload("res://scripts/ui_theme.gd").create()
@@ -560,6 +562,8 @@ func _clear_workspace() -> void:
 	account_page_copy = null
 	account_page_cancel = null
 	settings_status = null
+	microphone_status = null
+	microphone_grant_button = null
 
 func _set_home_content_visible(visible: bool) -> void:
 	for node_name in HOME_CONTENT_NODES:
@@ -1465,6 +1469,16 @@ func _render_settings_page() -> void:
 	var clear_button := _make_button("Clear selection", _clear_instance_selection)
 	clear_button.disabled = selected_name.is_empty()
 	row.add_child(clear_button)
+	var microphone := _page_card(workspace_body, "Microphone", "Allow Minecraft voice chat mods to use your headset microphone.")
+	microphone_status = _make_label("", 16, true)
+	microphone.add_child(microphone_status)
+	var microphone_actions := HBoxContainer.new()
+	microphone_actions.add_theme_constant_override("separation", 12)
+	microphone.add_child(microphone_actions)
+	microphone_grant_button = _make_button("Allow microphone", _request_microphone_access, true)
+	microphone_actions.add_child(microphone_grant_button)
+	microphone_actions.add_child(_make_button("Android app permissions", _open_microphone_app_settings))
+	_refresh_microphone_status()
 	var info: Dictionary = runtime.get_info()
 	var diagnostics := _page_card(workspace_body, "Launcher status")
 	_detail_row(diagnostics, "Host engine", str(info.get("engine", "Godot")))
@@ -1478,6 +1492,37 @@ func _render_settings_page() -> void:
 	diagnostics.add_child(copy_input)
 	settings_status = _make_label("", 16, true)
 	diagnostics.add_child(settings_status)
+
+func _refresh_microphone_status() -> void:
+	if not is_instance_valid(microphone_status):
+		return
+	match runtime.get_microphone_permission_state():
+		"granted":
+			microphone_status.text = "Microphone access allowed. Configure voice chat inside Minecraft."
+			microphone_grant_button.disabled = true
+		"denied":
+			microphone_status.text = "Microphone access is off. Allow it to use voice chat."
+			microphone_grant_button.disabled = false
+		_:
+			microphone_status.text = "Microphone permission is available in the Android launcher."
+			microphone_grant_button.disabled = true
+
+func _request_microphone_access() -> void:
+	if not runtime.request_microphone_access():
+		microphone_status.text = "Could not open the microphone permission prompt. Try Android app permissions."
+		return
+	microphone_status.text = "Waiting for Android microphone permission…"
+	await get_tree().create_timer(1.0).timeout
+	if current_section == "Settings":
+		_refresh_microphone_status()
+
+func _open_microphone_app_settings() -> void:
+	if not runtime.open_microphone_app_settings():
+		microphone_status.text = "Could not open Android app permissions."
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN and current_section == "Settings":
+		_refresh_microphone_status()
 
 func _copy_input_report() -> void:
 	settings_status.text = "Input report copied. Paste it into your bug report." if runtime.copy_input_report() else "No input report is available yet. Launch a game first."

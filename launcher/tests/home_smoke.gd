@@ -11,6 +11,7 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var microphone_allowed := false
 	var searched := ""
 	var last_sort := ""
 	var last_category := ""
@@ -21,6 +22,13 @@ class FakeRuntime extends RefCounted:
 		return true
 	func get_info() -> Dictionary:
 		return {"available": true, "engine": "Godot", "bridge_version": "test", "pojlib": "godot_host_ready"}
+	func get_microphone_permission_state() -> String:
+		return "granted" if microphone_allowed else "denied"
+	func request_microphone_access() -> bool:
+		microphone_allowed = true
+		return true
+	func open_microphone_app_settings() -> bool:
+		return true
 	func get_instance_snapshot() -> Dictionary:
 		return snapshot
 	func get_install_versions() -> Array:
@@ -264,6 +272,11 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
 	assert(ui.workspace_title.text == "Settings")
+	assert(ui.microphone_status.text.contains("off"))
+	ui.microphone_grant_button.pressed.emit()
+	ui._refresh_microphone_status()
+	assert(ui.microphone_status.text.contains("allowed"))
+	assert(ui.microphone_grant_button.disabled)
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")

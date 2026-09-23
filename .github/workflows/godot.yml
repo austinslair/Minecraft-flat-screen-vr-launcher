@@ -188,6 +188,7 @@ jobs:
           python3 scripts/verify_native_apk.py launcher/build/VoxyQuest-ci.apk
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4
