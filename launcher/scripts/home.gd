@@ -9,9 +9,9 @@ signal change_instance_requested
 const AUTH_POLL_INTERVAL := 0.5
 const ACTIVE_AUTH_STATES := ["starting", "waiting_for_user", "exchanging"]
 const HOME_CONTENT_NODES := [
-	"Hero", "HeroShade", "HeroEyebrow", "HeroTitle", "LibraryEyebrow",
-	"InstancePanel", "InstanceEmpty", "InstanceDescription", "ChangeInstance",
-	"HomeHelpTitle", "HomeHelpBody"
+	"HeroEyebrow", "HeroTitle", "LibraryEyebrow",
+	"InstancePanel", "InstanceEmpty", "InstanceDescription", "InstanceBadge", "ChangeInstance",
+	"HomeHelpTitle", "HomeHelpBody", "HomeActions", "HomeLibrary"
 ]
 
 var nav_buttons: Array[Button] = []
@@ -53,6 +53,16 @@ var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
+var modrinth_search: LineEdit
+var modrinth_search_button: Button
+var modrinth_results: ItemList
+var modrinth_install_button: Button
+var modrinth_status: Label
+var modrinth_hits: Array = []
+var modrinth_timer: Timer
+var home_library_items: VBoxContainer
+var last_modrinth_results := ""
+var last_modrinth_install_state := ""
 
 var account_page_title: Label
 var account_page_status: Label
@@ -77,12 +87,15 @@ func _ready() -> void:
 
 	_build_play_mode()
 	_build_workspace()
+	_build_instance_badge()
 	_build_inline_account_status()
 	_build_remove_confirmation()
 	_build_install_timer()
 
 	for item in find_children("*", "Button", true, false):
 		style_button(item)
+	_build_home_actions()
+	_build_home_library()
 
 	_select_nav($Home)
 	if has_node("AccountWindow"):
@@ -91,6 +104,10 @@ func _ready() -> void:
 		runtime.initialize()
 	_refresh_auth_ui()
 	_refresh_instances()
+	modrinth_timer = Timer.new()
+	modrinth_timer.wait_time = 0.5
+	modrinth_timer.timeout.connect(_poll_modrinth)
+	add_child(modrinth_timer)
 
 	if OS.get_name() == "Android":
 		$Minimize.hide()
@@ -126,20 +143,24 @@ func style_button(button: Button) -> void:
 	if button is OptionButton:
 		return
 	button.add_theme_stylebox_override("normal", style_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0)))
-	button.add_theme_stylebox_override("hover", style_box(Color(0.85, 0.88, 0.86, 0.07), Color(0.8, 0.85, 0.81, 0.22)))
-	button.add_theme_stylebox_override("pressed", style_box(Color(0.8, 0.85, 0.82, 0.12), Color(0.8, 0.85, 0.81, 0.35)))
-	button.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), Color(0.85, 0.9, 0.87, 0.8)))
-	button.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
+	button.add_theme_stylebox_override("hover", style_box(Color("2b3b2d"), Color("506c48"), 10))
+	button.add_theme_stylebox_override("pressed", style_box(Color("314b32"), Color("86ad69"), 10))
+	button.add_theme_stylebox_override("focus", style_box(Color.TRANSPARENT, Color("aed580"), 10))
+	button.add_theme_color_override("font_color", Color("f3f7ef"))
 	if button == $ChangeInstance:
-		button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
+		button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("2b3b2d"), Color("608054")))
 	if button == $Play:
 		_style_primary_button(button)
 
 func _style_primary_button(button: Button) -> void:
-	button.add_theme_stylebox_override("normal", style_box(Color("639b48"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("hover", style_box(Color("79b35b"), Color.TRANSPARENT))
-	button.add_theme_stylebox_override("pressed", style_box(Color("52823c"), Color.TRANSPARENT))
-	button.add_theme_color_override("font_color", Color("10170d"))
+	button.add_theme_stylebox_override("normal", style_box(Color("8dc96a"), Color("b8e593"), 12))
+	button.add_theme_stylebox_override("hover", style_box(Color("a8de82"), Color("d4f3b2"), 12))
+	button.add_theme_stylebox_override("pressed", style_box(Color("6eaa50"), Color("a3d780"), 12))
+	button.add_theme_stylebox_override("disabled", style_box(Color("344536"), Color("455a46"), 12))
+	button.add_theme_color_override("font_color", Color("142417"))
+	button.add_theme_color_override("font_hover_color", Color("142417"))
+	button.add_theme_color_override("font_pressed_color", Color("142417"))
+	button.add_theme_color_override("font_disabled_color", Color("a9bda2"))
 	for state in ["normal", "hover", "pressed"]:
 		var box := button.get_theme_stylebox(state)
 		box.content_margin_left = 16
@@ -156,7 +177,7 @@ func _make_button(text: String, callback: Callable, primary := false, danger := 
 	button.custom_minimum_size = Vector2(150, 48)
 	button.add_theme_font_size_override("font_size", 17)
 	style_button(button)
-	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("242930"), Color("404751")))
+	button.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("263329"), Color("405543")))
 	if primary:
 		_style_primary_button(button)
 	if danger:
@@ -171,15 +192,15 @@ func _make_label(text: String, font_size := 18, muted := false) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override(
 		"font_color",
-		Color(0.73, 0.79, 0.75, 1) if muted else Color(0.95, 0.97, 0.94, 1)
+		Color("a9baa8") if muted else Color("f1f6ed")
 	)
 	return label
 
 func _build_play_mode() -> void:
 	var mode := OptionButton.new()
 	mode.name = "PlayMode"
-	mode.position = Vector2(858, 937)
-	mode.size = Vector2(330, 48)
+	mode.position = Vector2(866, 934)
+	mode.size = Vector2(334, 54)
 	mode.add_item("Virtual reality")
 	mode.add_item("Flatscreen")
 	mode.tooltip_text = "Flatscreen currently uses a keyboard and mouse."
@@ -189,11 +210,84 @@ func _build_play_mode() -> void:
 	)
 	add_child(mode)
 
+func _build_home_actions() -> void:
+	var actions := Panel.new()
+	actions.name = "HomeActions"
+	actions.position = Vector2(280, 474)
+	actions.size = Vector2(1228, 114)
+	actions.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1e2b21"), Color("3c543d")))
+	add_child(actions)
+	move_child(actions, $HomeHelpTitle.get_index())
+	var create := _make_button("+  New instance", _open_section.bind("Instances"), true)
+	create.position = Vector2(746, 30)
+	create.size = Vector2(208, 54)
+	create.custom_minimum_size = Vector2.ZERO
+	actions.add_child(create)
+	var mods := _make_button("Manage mods  →", _open_section.bind("Mods"))
+	mods.position = Vector2(970, 30)
+	mods.size = Vector2(216, 54)
+	mods.custom_minimum_size = Vector2.ZERO
+	actions.add_child(mods)
+
+func _build_home_library() -> void:
+	var library := Panel.new()
+	library.name = "HomeLibrary"
+	library.position = Vector2(280, 607)
+	library.size = Vector2(1228, 268)
+	library.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1b251e"), Color("354638")))
+	add_child(library)
+	var title := _make_label("INSTALLED PROFILES", 14, true)
+	title.position = Vector2(25, 17)
+	title.size = Vector2(440, 24)
+	library.add_child(title)
+	var browse := _make_button("All instances  →", _open_section.bind("Instances"))
+	browse.position = Vector2(978, 10)
+	browse.size = Vector2(216, 45)
+	browse.custom_minimum_size = Vector2.ZERO
+	library.add_child(browse)
+	home_library_items = VBoxContainer.new()
+	home_library_items.position = Vector2(25, 63)
+	home_library_items.size = Vector2(1178, 186)
+	home_library_items.add_theme_constant_override("separation", 8)
+	library.add_child(home_library_items)
+
+func _refresh_home_library() -> void:
+	if not is_instance_valid(home_library_items):
+		return
+	for row in home_library_items.get_children():
+		home_library_items.remove_child(row)
+		row.queue_free()
+	if installed_instances.is_empty():
+		home_library_items.add_child(_make_label("No profiles yet. Create your first instance to get started.", 17, true))
+		return
+	for index in range(mini(installed_instances.size(), 3)):
+		var item: Dictionary = installed_instances[index]
+		var name := str(item.get("name", "Instance"))
+		var ready := bool(item.get("installed", false))
+		var row := _make_button("%s    •    %s    •    %s" % [name, item.get("version", ""), "Ready" if ready else "Repair needed"], _select_home_instance.bind(name))
+		row.custom_minimum_size = Vector2(0, 52)
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		home_library_items.add_child(row)
+
+func _select_home_instance(name: String) -> void:
+	selected_name = name
+	_refresh_instances()
+
+func _build_instance_badge() -> void:
+	var badge := _make_label("NO PROFILE", 15)
+	badge.name = "InstanceBadge"
+	badge.position = Vector2(1235, 307)
+	badge.size = Vector2(238, 34)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	badge.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	badge.add_theme_color_override("font_color", Color("b9dfa4"))
+	add_child(badge)
+
 func _build_workspace() -> void:
 	workspace = Panel.new()
 	workspace.name = "Workspace"
-	workspace.position = Vector2(254, 112)
-	workspace.size = Vector2(1260, 766)
+	workspace.position = Vector2(264, 112)
+	workspace.size = Vector2(1244, 774)
 	workspace.visible = false
 	workspace.clip_contents = true
 	workspace.add_theme_stylebox_override("panel", style_box(Color.TRANSPARENT, Color.TRANSPARENT, 0))
@@ -201,18 +295,18 @@ func _build_workspace() -> void:
 
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 18)
+		margin.add_theme_constant_override("margin_" + side, 20)
 	workspace.add_child(margin)
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 6)
+	content.add_theme_constant_override("separation", 10)
 	margin.add_child(content)
 
 	workspace_title = _make_label("", 26)
-	workspace_title.visible = false
+	workspace_title.visible = true
 	workspace_title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
-	workspace_title.add_theme_color_override("font_color", Color(0.95, 0.97, 0.94, 1))
+	workspace_title.add_theme_color_override("font_color", Color("ecf5e8"))
 	content.add_child(workspace_title)
 	workspace_subtitle = _make_label("", 14, true)
 	workspace_subtitle.custom_minimum_size.y = 20
@@ -230,7 +324,7 @@ func _build_workspace() -> void:
 	workspace_body = VBoxContainer.new()
 	workspace_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	workspace_body.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	workspace_body.add_theme_constant_override("separation", 10)
+	workspace_body.add_theme_constant_override("separation", 18)
 	scroll.add_child(workspace_body)
 
 func _build_inline_account_status() -> void:
@@ -276,6 +370,11 @@ func _clear_workspace() -> void:
 	install_status = null
 	mods_list = null
 	mods_status = null
+	modrinth_search = null
+	modrinth_search_button = null
+	modrinth_results = null
+	modrinth_install_button = null
+	modrinth_status = null
 	account_page_title = null
 	account_page_status = null
 	account_page_code = null
@@ -292,13 +391,13 @@ func _set_home_content_visible(visible: bool) -> void:
 
 func _select_nav(button: Button) -> void:
 	for item in nav_buttons:
-		var selected := item == button and item != $Home
+		var selected := item == button
 		item.add_theme_stylebox_override("normal", style_box(
-			Color(0.85, 0.88, 0.86, 0.06) if selected else Color.TRANSPARENT,
-			Color(0.8, 0.85, 0.81, 0.15) if selected else Color.TRANSPARENT
+			Color("2c412c") if selected else Color.TRANSPARENT,
+			Color("557c4c") if selected else Color.TRANSPARENT, 10
 		))
 		var caption := get_node(str(item.name) + "Text") as Label
-		caption.modulate = Color.WHITE if item == button else Color(0.78, 0.82, 0.79)
+		caption.modulate = Color("c8efa9") if selected else Color("c0d0be")
 
 func _navigate(button: Button) -> void:
 	_open_section(str(button.name))
@@ -308,7 +407,9 @@ func _open_section(section: String) -> void:
 	if nav_button is Button and nav_button in nav_buttons:
 		_select_nav(nav_button)
 	current_section = section
-	$PageTitle.text = "Overview" if section == "Home" else section
+	if is_instance_valid(modrinth_timer) and section != "Mods":
+		modrinth_timer.stop()
+	$PageTitle.text = "Home" if section == "Home" else section
 	navigation_requested.emit(section)
 	if section == "Home":
 		workspace.visible = false
@@ -444,7 +545,11 @@ func _refresh_instances() -> void:
 		$InstanceEmpty.text = selected_name
 		$InstanceDescription.text = "Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", ""))
 
+	var chosen := _selected_instance()
+	$InstanceBadge.text = "READY TO PLAY" if bool(chosen.get("installed", false)) else ("NEEDS REPAIR" if not chosen.is_empty() else "NO PROFILE")
+	$InstanceBadge.add_theme_color_override("font_color", Color("b9dfa4") if bool(chosen.get("installed", false)) else Color("e8c88a"))
 	_update_play()
+	_refresh_home_library()
 	_populate_instance_list()
 
 func _has_instance(name: String) -> bool:
@@ -470,10 +575,10 @@ func _update_play() -> void:
 func _page_card(parent: Control, heading: String, description := "") -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1a1d21"), Color("30353c")))
+	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("1e2921"), Color("3b4d3d")))
 	parent.add_child(panel)
 	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 12)
+	body.add_theme_constant_override("separation", 14)
 	panel.add_child(body)
 	var title := _make_label(heading, 21)
 	title.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
@@ -504,32 +609,29 @@ func _detail_row(parent: Control, caption: String, value: String) -> void:
 
 func _render_instances_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Instances"
-	workspace_subtitle.text = "Select an instance, repair it, or install another Minecraft version."
+	workspace_title.text = "Your instances"
+	workspace_subtitle.text = "All your worlds in one place. Pick a version and make it yours."
 	_refresh_instances()
 
 
 	var columns := HBoxContainer.new()
 	columns.add_theme_constant_override("separation", 24)
 	workspace_body.add_child(columns)
-	var library := VBoxContainer.new()
+	var library := _page_card(columns, "Installed instances", "Select a profile to launch or edit.")
 	library.custom_minimum_size.x = 540
-	library.add_theme_constant_override("separation", 12)
-	columns.add_child(library)
-	var editor := _page_card(columns, "Instance settings", "Select an installation from your library.")
-	library.add_child(_make_label("Installed instances", 20))
+	var editor := _page_card(columns, "Manage selected", "Rename, repair, or remove the selected profile.")
 	instance_empty_hint = _make_label("No instances yet. Install one below.", 16, true)
 	library.add_child(instance_empty_hint)
 
 	instance_list = ItemList.new()
-	instance_list.custom_minimum_size = Vector2(0, 254)
+	instance_list.custom_minimum_size = Vector2(0, 210)
 	instance_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	instance_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	instance_list.mouse_filter = Control.MOUSE_FILTER_STOP
 	instance_list.focus_mode = Control.FOCUS_ALL
 	instance_list.add_theme_font_size_override("font_size", 17)
 	instance_list.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	instance_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	instance_list.add_theme_stylebox_override("panel", style_box(Color("17221b"), Color("415442"), 12))
 	instance_list.item_selected.connect(_on_instance_selected)
 	library.add_child(instance_list)
 
@@ -568,7 +670,7 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(workspace_body, "New installation", "Install another Minecraft version without changing your existing instances.")
+	var installer := _page_card(workspace_body, "+  Create a new instance", "Choose a Minecraft version. Fabric and Vivecraft are added during installation.")
 
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
@@ -612,7 +714,7 @@ func _populate_instance_list() -> void:
 		var name := str(instance.get("name", "Unnamed instance"))
 		var version := str(instance.get("version", "Unknown"))
 		var readiness := "Ready" if bool(instance.get("installed", false)) else "Needs repair"
-		instance_list.add_item("%s   ·   %s   ·   %s" % [name, version, readiness])
+		instance_list.add_item("%s    /    Minecraft %s    /    %s" % [name, version, readiness])
 		instance_list.set_item_tooltip(index, "%s\nMinecraft %s — %s" % [name, version, readiness])
 		if name == selected_name:
 			selected_index = index
@@ -772,7 +874,7 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Mods for your selected Minecraft instance."
+	workspace_subtitle.text = "Browse compatible Fabric mods from Modrinth or import a local JAR."
 	if selected_name.is_empty():
 		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
 		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
@@ -780,14 +882,41 @@ func _render_mods_page() -> void:
 		empty.add_child(choose)
 		return
 
-	var collection := _page_card(workspace_body, selected_name)
 	var selected := _selected_instance()
-	collection.add_child(_make_label("Minecraft %s · Fabric · Vivecraft" % str(selected.get("version", "")), 16, true))
+	var browser := _page_card(workspace_body, "Browse Modrinth", "Fabric mods compatible with Minecraft %s" % str(selected.get("version", "")))
+	last_modrinth_results = ""
+	var search_row := HBoxContainer.new()
+	search_row.add_theme_constant_override("separation", 10)
+	browser.add_child(search_row)
+	modrinth_search = LineEdit.new()
+	modrinth_search.placeholder_text = "Search mods by name…"
+	modrinth_search.custom_minimum_size.y = 50
+	modrinth_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_search.text_submitted.connect(func(_text: String): _search_modrinth())
+	search_row.add_child(modrinth_search)
+	modrinth_search_button = _make_button("Search", _search_modrinth, true)
+	search_row.add_child(modrinth_search_button)
+	modrinth_results = ItemList.new()
+	modrinth_results.custom_minimum_size.y = 210
+	modrinth_results.add_theme_stylebox_override("panel", style_box(Color("17221b"), Color("415442"), 12))
+	modrinth_results.item_selected.connect(func(_index: int): _update_modrinth_install_button())
+	browser.add_child(modrinth_results)
+	var install_row := HBoxContainer.new()
+	install_row.add_theme_constant_override("separation", 12)
+	browser.add_child(install_row)
+	modrinth_install_button = _make_button("Install selected", _install_modrinth, true)
+	modrinth_install_button.disabled = true
+	install_row.add_child(modrinth_install_button)
+	modrinth_status = _make_label("Search to find mods for this instance.", 15, true)
+	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	install_row.add_child(modrinth_status)
+	var collection := _page_card(workspace_body, "Installed in %s" % selected_name)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 300)
+	mods_list.custom_minimum_size = Vector2(0, 180)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
-	mods_list.add_theme_stylebox_override("panel", style_box(Color("171a1f"), Color("353c45")))
+	mods_list.add_theme_stylebox_override("panel", style_box(Color("17221b"), Color("415442"), 12))
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
@@ -796,8 +925,77 @@ func _render_mods_page() -> void:
 	collection.add_child(actions)
 	actions.add_child(_make_button("Add mod JAR", _add_mod, true))
 	actions.add_child(_make_button("Refresh mods", _refresh_mods_page))
-	collection.add_child(_make_label("Use Fabric mods made for this Minecraft version and install required dependencies.", 16, true))
+	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
 	_refresh_mods_page()
+	_poll_modrinth()
+
+func _search_modrinth() -> void:
+	if not is_instance_valid(modrinth_search) or selected_name.is_empty():
+		return
+	last_modrinth_results = ""
+	modrinth_hits.clear()
+	modrinth_results.clear()
+	_update_modrinth_install_button()
+	if runtime.search_modrinth_mods(selected_name, modrinth_search.text):
+		modrinth_status.text = "Searching Modrinth…"
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Search is unavailable. Use the Android build with the Modrinth bridge."
+
+func _update_modrinth_install_button() -> void:
+	if not is_instance_valid(modrinth_install_button):
+		return
+	modrinth_install_button.disabled = install_busy or not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty()
+
+func _install_modrinth() -> void:
+	if not is_instance_valid(modrinth_results) or modrinth_results.get_selected_items().is_empty():
+		return
+	var index := modrinth_results.get_selected_items()[0]
+	if index >= modrinth_hits.size():
+		return
+	var id := str(modrinth_hits[index].get("id", ""))
+	if runtime.install_modrinth_mod(selected_name, id):
+		modrinth_status.text = "Resolving dependencies and downloading…"
+		modrinth_install_button.disabled = true
+		modrinth_timer.start()
+	else:
+		modrinth_status.text = "Could not start the install. Wait for the current task to finish."
+
+func _poll_modrinth() -> void:
+	if current_section != "Mods" or not is_instance_valid(modrinth_status):
+		return
+	var snapshot: Dictionary = runtime.get_modrinth_snapshot()
+	if str(snapshot.get("search_instance", selected_name)) != selected_name:
+		return
+	var search_state := str(snapshot.get("search_state", "unavailable"))
+	var results: Array = snapshot.get("results", [])
+	var signature := JSON.stringify(results)
+	if search_state == "ready" and signature != last_modrinth_results:
+		last_modrinth_results = signature
+		modrinth_hits = results
+		modrinth_results.clear()
+		for hit in results:
+			modrinth_results.add_item("%s    ·    %s" % [str(hit.get("title", "Mod")), str(hit.get("description", "")).left(105)])
+			modrinth_results.set_item_tooltip(modrinth_results.item_count - 1, str(hit.get("description", "")))
+		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching Fabric mods for this version."
+	elif search_state == "searching":
+		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
+	elif search_state == "error":
+		modrinth_status.text = str(snapshot.get("search_message", "Search failed."))
+	var install_state := str(snapshot.get("install_state", "idle"))
+	install_busy = install_state == "installing"
+	_update_play()
+	if install_state == "installing":
+		modrinth_status.text = str(snapshot.get("install_message", "Installing…"))
+		modrinth_install_button.disabled = true
+	elif install_state in ["installed", "error"] and install_state != last_modrinth_install_state:
+		modrinth_status.text = str(snapshot.get("install_message", ""))
+		if install_state == "installed":
+			_refresh_mods_page()
+	last_modrinth_install_state = install_state
+	if search_state != "searching" and install_state != "installing":
+		modrinth_timer.stop()
+		_update_modrinth_install_button()
 
 func _add_mod() -> void:
 	if selected_name.is_empty() or install_busy:
@@ -823,8 +1021,8 @@ func _refresh_mods_page() -> void:
 
 func _render_accounts_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Accounts"
-	workspace_subtitle.text = "Connect the Microsoft account that owns Minecraft: Java Edition."
+	workspace_title.text = "Connect your account"
+	workspace_subtitle.text = "Connect your Minecraft: Java Edition account to play."
 	var account := _page_card(workspace_body, "Your account")
 	account_page_title = _make_label("Microsoft account", 23)
 	account.add_child(account_page_title)
@@ -926,8 +1124,8 @@ func _cancel_account_login() -> void:
 
 func _render_settings_page() -> void:
 	_clear_workspace()
-	workspace_title.text = "Settings"
-	workspace_subtitle.text = "Launcher and runtime status."
+	workspace_title.text = "Preferences & status"
+	workspace_subtitle.text = "Your selected profile and launcher diagnostics."
 	var selection := _page_card(workspace_body, "Game selection", "Choose which installed instance the Play button opens.")
 	_detail_row(selection, "Selected instance", selected_name if not selected_name.is_empty() else "None selected")
 	var row := HBoxContainer.new()

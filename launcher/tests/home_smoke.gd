@@ -11,6 +11,8 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var searched := ""
+	var modrinth_installed := ""
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -43,6 +45,14 @@ class FakeRuntime extends RefCounted:
 		return false
 	func get_instance_mods(_name: String) -> Dictionary:
 		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
+	func get_modrinth_snapshot() -> Dictionary:
+		return {"search_state": "ready", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
+	func search_modrinth_mods(_name: String, query: String) -> bool:
+		searched = query
+		return true
+	func install_modrinth_mod(_name: String, project: String) -> bool:
+		modrinth_installed = project
+		return true
 	func get_microsoft_login_snapshot() -> Dictionary:
 		return auth
 	func start_microsoft_login() -> bool:
@@ -92,14 +102,19 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("Avatar") == null)
 	assert(ui.get_node_or_null("NewsCard0") == null)
 	assert(ui.get_node_or_null("Version") == null)
-	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a == 0)
+	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a > 0)
+	assert(ui.get_node("HomeActions").visible)
+	assert(ui.get_node("HomeActions").get_child_count() == 2)
 	assert(ui.get_node("AccountTitle").clip_text)
 	ui._open_section("Instances")
+	assert(not ui.get_node("HomeActions").visible)
+	assert(ui.workspace_title.visible)
 	assert(ui.install_version.item_count > 0)
 	assert(ui.install_submit.disabled)
 	assert(ui.instance_empty_hint.text.contains("Android runtime"))
 	assert(ui.instance_list.visible)
 	ui._open_section("Home")
+	assert(ui.get_node("HomeActions").visible)
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -191,6 +206,16 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
 	assert(ui.mods_list.get_item_count() == 2)
+	assert(ui.modrinth_results.get_item_count() == 1)
+	ui.modrinth_search.text = "sodium"
+	ui._search_modrinth()
+	assert(fake.searched == "sodium")
+	ui._poll_modrinth()
+	ui.modrinth_results.select(0)
+	ui._update_modrinth_install_button()
+	assert(not ui.modrinth_install_button.disabled)
+	ui._install_modrinth()
+	assert(fake.modrinth_installed == "AANobbMI")
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 
@@ -202,7 +227,7 @@ func run_checks() -> void:
 		assert(ui.get_node("PlayMode").is_visible_in_tree())
 		assert(ui.get_node("Play").get_global_rect().position.y >= ui.workspace.get_global_rect().end.y)
 		assert(ui.workspace_body.size.x <= ui.workspace.size.x)
-		assert(ui.get_node("PageTitle").text == ("Overview" if section == "Home" else section))
+		assert(ui.get_node("PageTitle").text == section)
 	ui.get_node("PlayMode").item_selected.emit(1)
 	assert(ui.play_mode == "flat")
 	ui.get_node("PlayMode").item_selected.emit(0)
@@ -213,7 +238,7 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
-	assert(ui.workspace_title.text == "Settings")
+	assert(ui.workspace_title.text == "Preferences & status")
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")

@@ -20,9 +20,16 @@ Test suspend/resume behavior on the target headset before treating this as relea
 In Mods, select Add mod JAR, choose a Fabric JAR with Android's file picker, then refresh
 when you return. Import validates archive metadata, limits file/metadata size, rejects
 existing filenames and duplicate mod IDs, and leaves managed files untouched. Use mods
-for the selected Minecraft version and install their dependencies. Import is not a
-compatibility resolver or a Modrinth browser. The importer refuses writes during installs
-or gameplay. Mod removal and enable/disable controls are not part of this change.
+for the selected Minecraft version and install their dependencies. The importer refuses
+writes during installs or gameplay. Mod removal and enable/disable controls are not
+available yet.
+
+The Android launcher also searches Modrinth for Fabric mods filtered to the selected
+instance's Minecraft version. Choose a result and Install selected. The bridge selects
+a compatible version, resolves required Modrinth dependencies, checks SHA-512 hashes
+and Fabric metadata, and refuses to overwrite installed files. Search and downloads
+run off the UI thread. Network access is required; desktop previews cannot download
+mods. Local JAR imports still require you to provide dependencies separately.
 
 Validation required on a headset: install a catalog version, interrupt and resume a
 transfer, rename the instance, import a compatible mod, sign in, and launch each mode.
