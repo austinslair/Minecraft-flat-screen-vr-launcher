@@ -238,17 +238,23 @@ object LauncherOperations {
                         JarFile(file).use { jar ->
                             val entry = jar.getJarEntry(if (instance.loaderId() == "neoforge")
                                 "META-INF/neoforge.mods.toml" else "fabric.mod.json") ?: return@use
-                            if (instance.loaderId() == "neoforge") {
-                                profile.put("title", file.name.removeSuffix(".jar"))
-                                return@use
-                            }
                             jar.getInputStream(entry).use { input ->
                                 val data = input.readNBytes(65537)
                                 if (data.size <= 65536) {
-                                    val metadata = JSONObject(String(data, Charsets.UTF_8))
-                                    profile.put("title", metadata.optString("name", file.name))
-                                        .put("description", metadata.optString("description"))
-                                        .put("version", metadata.optString("version"))
+                                    val source = String(data, Charsets.UTF_8)
+                                    if (instance.loaderId() == "neoforge") {
+                                        val block = source.substringAfter("[[mods]]", "").substringBefore("[[dependencies", "")
+                                        fun field(name: String): String = Regex("(?m)^\\s*$name\\s*=\\s*['\"]([^'\"\\r\\n]+)['\"]")
+                                            .find(block)?.groupValues?.get(1).orEmpty()
+                                        profile.put("title", field("displayName").ifBlank { file.name.removeSuffix(".jar") })
+                                            .put("description", field("description"))
+                                            .put("version", field("version"))
+                                    } else {
+                                        val metadata = JSONObject(source)
+                                        profile.put("title", metadata.optString("name", file.name))
+                                            .put("description", metadata.optString("description"))
+                                            .put("version", metadata.optString("version"))
+                                    }
                                 }
                             }
                         }

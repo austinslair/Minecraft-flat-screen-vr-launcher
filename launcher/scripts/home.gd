@@ -1023,7 +1023,7 @@ func _repair_selected_instance() -> void:
 		return
 	handled_install_name = ""
 	var loader := str(selected.get("loader", "fabric"))
-	var started := runtime.install_instance(selected_name, str(selected.get("version", "")), loader) if loader == "neoforge" else runtime.install_instance(selected_name, str(selected.get("version", "")))
+	var started: bool = runtime.install_instance(selected_name, str(selected.get("version", "")), loader) if loader == "neoforge" else runtime.install_instance(selected_name, str(selected.get("version", "")))
 	if started:
 		install_timer.start()
 	_poll_install()
@@ -1048,7 +1048,7 @@ func _start_install() -> void:
 		install_name.text = new_name
 
 	handled_install_name = ""
-	var started := runtime.install_instance(new_name, version, loader) if loader == "neoforge" else runtime.install_instance(new_name, version)
+	var started: bool = runtime.install_instance(new_name, version, loader) if loader == "neoforge" else runtime.install_instance(new_name, version)
 	if started:
 		install_feedback = "Preparing installation…"
 		install_status.text = install_feedback
