@@ -32,7 +32,10 @@ public final class VoxyQuestInstaller {
     private VoxyQuestInstaller() {}
 
     public static void ensureLaunchRuntime(Activity activity, MinecraftInstances.Instance instance) throws IOException {
-        if ("neoforge".equals(instance.loaderId())) NeoForgeInstaller.ensureSystemJars(activity);
+        if ("neoforge".equals(instance.loaderId())) {
+            NeoForgeInstaller.ensureSystemJars(activity);
+            NeoForgeInstaller.useNeoForgeGlfw(activity, instance);
+        }
     }
 
     public static ModsJson catalog(Activity activity) throws IOException {

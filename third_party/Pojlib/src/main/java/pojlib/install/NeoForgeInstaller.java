@@ -73,6 +73,7 @@ final class NeoForgeInstaller {
                 throw new IOException("NeoForge library missing or corrupt: " + library.name);
         }
         String lwjgl = PojlibRuntime.installLWJGL(activity);
+        String neoLwjgl = PojlibRuntime.installNeoForgeLWJGL(activity);
         File neoRoot = new File(Constants.USER_HOME,
                 "libraries/net/neoforged/neoforge/" + LOADER_VERSION);
         File universal = copyJar(activity, "universal.jar", new File(neoRoot,
@@ -84,7 +85,7 @@ final class NeoForgeInstaller {
         // The patched NeoForge client contains Minecraft classes also present in the
         // vanilla client. Put it first so the vanilla jar cannot shadow those patches.
         instance.classpath = ClasspathUtils.unique(patched.toString(), universal.toString(),
-                neoLibraries, client, libraries, lwjgl);
+                neoLibraries, client, libraries, lwjgl).replace(lwjgl, neoLwjgl);
         instance.jvmLaunchArgs = expandArguments(neoforge.arguments.jvm, neoforge.id);
         instance.gameLaunchArgs = expandArguments(neoforge.arguments.game, neoforge.id);
 
@@ -124,6 +125,12 @@ final class NeoForgeInstaller {
                 "net/minecraft/client/Minecraft.class");
         ensureJar(activity, "minecraft-extra.jar", new File(root, "client-" + version + "-extra.jar"),
                 "assets/.mcassetsroot");
+    }
+
+    static void useNeoForgeGlfw(Activity activity, MinecraftInstances.Instance instance) throws IOException {
+        String original = Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar";
+        String replacement = PojlibRuntime.installNeoForgeLWJGL(activity);
+        instance.classpath = instance.classpath.replace(original, replacement);
     }
 
     private static void ensureJar(Activity activity, String assetName, File target, String marker) throws IOException {
