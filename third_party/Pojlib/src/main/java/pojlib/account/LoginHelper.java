@@ -152,7 +152,7 @@ public final class LoginHelper {
             state = State.STARTING;
             message = "Refreshing saved Microsoft session...";
             Thread restoreThread = new Thread(
-                    () -> runSessionRestore(activity, uuid, generation),
+                    () -> runSessionRestore(activity, cached, generation),
                     "VoxyQuest-MicrosoftRestore");
             loginThread = restoreThread;
             restoreThread.start();
@@ -160,9 +160,9 @@ public final class LoginHelper {
         }
     }
 
-    private static void runSessionRestore(Activity activity, String uuid, long generation) {
+    private static void runSessionRestore(Activity activity, MinecraftAccount cached, long generation) {
         try {
-            MinecraftAccount refreshed = refreshAccountInternal(activity, uuid, false);
+            MinecraftAccount refreshed = refreshAccountInternal(activity, cached.uuid, false);
             synchronized (LOCK) {
                 if (!isCurrentGeneration(generation)) {
                     return;
@@ -174,10 +174,12 @@ public final class LoginHelper {
                     error = "";
                     message = signedInMessage(refreshed);
                 } else {
-                    currentAccount = null;
+                    // Keep the profile visible and its saved account file intact.
+                    // An expired token must not be used to launch the game.
+                    currentAccount = cached;
                     state = State.IDLE;
                     error = "";
-                    message = "Saved Microsoft session expired. Sign in again to continue.";
+                    message = "Saved profile " + cached.username + " needs to reconnect. Sign in again to play.";
                 }
             }
         } finally {

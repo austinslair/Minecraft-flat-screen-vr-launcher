@@ -51,7 +51,9 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                     CallbackBridge.sendCursorPos(CallbackBridge.mouseX + controllerAxes[2] * 11f,
                         CallbackBridge.mouseY + controllerAxes[3] * 11f)
                 }
-                inputHandler.postDelayed(this, 16)
+                // The connected controller needs quick cursor updates; scanning
+                // Android's device list at 60 Hz while none is present does not.
+                inputHandler.postDelayed(this, if (controllerId >= 0) 16L else 250L)
             }
         }
     }

@@ -22,9 +22,11 @@ import static org.lwjgl.system.MemoryStack.*;
 import static org.lwjgl.system.MemoryUtil.*;
 import java.util.*;
 import java.io.*;
+import java.util.concurrent.locks.LockSupport;
 
 public class GLFW
 {
+    private static volatile Thread eventWaiter;
     private static final float[] gamepadAxes = new float[6];
     private static int gamepadButtons;
     private static boolean gamepadPresent;
@@ -1135,22 +1137,30 @@ public class GLFW
         }
     }
 
-    public static void glfwWaitEvents() {}
-
-    public static void glfwWaitEventsTimeout(double timeout) {
-        // Boardwalk: this isn't how you do a frame limiter, but oh well
-        // System.out.println("Frame limiter");
-    /*
-        try {
-            Thread.sleep((long)(timeout * 1000));
-        } catch (InterruptedException ie) {
-        }
-    */
-        // System.out.println("Out of the frame limiter");
-
+    public static void glfwWaitEvents() {
+        glfwWaitEventsTimeout(0.016);
     }
 
-    public static void glfwPostEmptyEvent() {}
+    public static void glfwWaitEventsTimeout(double timeout) {
+        // Bound the wait so Android input is still picked up promptly even when
+        // an event arrives without going through glfwPostEmptyEvent().
+        long nanos = timeout > 0 ? (long) Math.min(timeout * 1_000_000_000d, 16_000_000d) : 0;
+        if (nanos > 0) {
+            Thread waiter = Thread.currentThread();
+            eventWaiter = waiter;
+            try {
+                LockSupport.parkNanos(nanos);
+            } finally {
+                eventWaiter = null;
+            }
+        }
+        glfwPollEvents();
+    }
+
+    public static void glfwPostEmptyEvent() {
+        Thread waiter = eventWaiter;
+        if (waiter != null) LockSupport.unpark(waiter);
+    }
 
     public static int glfwGetInputMode(@NativeType("GLFWwindow *") long window, int mode) {
         return internalGetWindow(window).inputModes.get(mode);
