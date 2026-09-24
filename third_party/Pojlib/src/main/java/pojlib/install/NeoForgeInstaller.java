@@ -23,6 +23,7 @@ import pojlib.util.json.ProjectInfo;
 final class NeoForgeInstaller {
     static final String VERSION = "1.21.5";
     private static final String LOADER_VERSION = "21.5.2-beta";
+    private static final String NEOFORM_VERSION = "20250325.162830";
     private static final String ASSET_ROOT = "voxyquest/neoforge/";
 
     private NeoForgeInstaller() {}
@@ -78,6 +79,7 @@ final class NeoForgeInstaller {
                 "neoforge-" + LOADER_VERSION + "-universal.jar"));
         File patched = copyJar(activity, "client.jar", new File(neoRoot,
                 "neoforge-" + LOADER_VERSION + "-client.jar"));
+        ensureSystemJars(activity);
         // Both artifacts are produced by NeoForge's client installer processors.
         // The patched NeoForge client contains Minecraft classes also present in the
         // vanilla client. Put it first so the vanilla jar cannot shadow those patches.
@@ -112,6 +114,30 @@ final class NeoForgeInstaller {
         File clientJvm = new File(activity.getFilesDir(), "runtimes/JRE/lib/client/libjvm.so");
         if ((!server.isFile() && !clientJvm.isFile()) || !VoxyQuestInstaller.isInstalled(instance))
             throw new IOException("NeoForge runtime installation is incomplete");
+    }
+
+    /** The production NeoForge locator loads these by Maven path, not from -cp. */
+    static void ensureSystemJars(Activity activity) throws IOException {
+        String version = VERSION + "-" + NEOFORM_VERSION;
+        File root = new File(Constants.USER_HOME, "libraries/net/minecraft/client/" + version);
+        ensureJar(activity, "minecraft-srg.jar", new File(root, "client-" + version + "-srg.jar"),
+                "net/minecraft/client/Minecraft.class");
+        ensureJar(activity, "minecraft-extra.jar", new File(root, "client-" + version + "-extra.jar"),
+                "assets/.mcassetsroot");
+    }
+
+    private static void ensureJar(Activity activity, String assetName, File target, String marker) throws IOException {
+        if (target.isFile()) {
+            try (JarFile jar = new JarFile(target)) {
+                if (jar.getJarEntry(marker) != null) return;
+            } catch (IOException ignored) {
+                // Replace an interrupted or corrupt install from the APK.
+            }
+        }
+        copyJar(activity, assetName, target);
+        try (JarFile jar = new JarFile(target)) {
+            if (jar.getJarEntry(marker) == null) throw new IOException("Bundled NeoForge game JAR is incomplete: " + assetName);
+        }
     }
 
     private static File copyJar(Activity activity, String assetName, File destination) throws IOException {

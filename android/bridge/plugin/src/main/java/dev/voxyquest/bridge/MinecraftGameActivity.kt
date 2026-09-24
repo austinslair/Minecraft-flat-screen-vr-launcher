@@ -109,6 +109,10 @@ open class MinecraftGameActivity : Activity() {
                 val instance = registry.toArray().firstOrNull { it.instanceName == name }
                     ?: error("Instance no longer exists")
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
+                VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
+                if (instance.loaderId() == "neoforge") {
+                    Logger.getInstance().appendToLog("VoxyQuest launch: NeoForge game libraries ready")
+                }
                 val account = API.currentAcc ?: error("Sign in again")
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
                 if (vr && pojlib.util.VivecraftRefreshRateFix.apply(java.io.File(instance.gameDir))) {

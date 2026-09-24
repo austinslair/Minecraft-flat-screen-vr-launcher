@@ -26,6 +26,7 @@ import pojlib.account.MinecraftAccount;
 import pojlib.install.FabricMeta;
 import pojlib.install.Installer;
 import pojlib.install.MinecraftMeta;
+import pojlib.install.VoxyQuestInstaller;
 import pojlib.install.QuiltMeta;
 import pojlib.install.VersionInfo;
 import pojlib.util.Constants;
@@ -336,6 +337,7 @@ public class InstanceHandler {
     public static void launchInstance(Activity activity, MinecraftAccount account, MinecraftInstances.Instance instance) {
         try {
             API.currentInstance = instance;
+            VoxyQuestInstaller.ensureLaunchRuntime(activity, instance);
             JREUtils.redirectAndPrintJRELog();
             VLoader.setAndroidInitInfo(activity);
             JREUtils.launchJavaVM(activity, instance.generateLaunchArgs(account), instance);

@@ -31,6 +31,10 @@ import pojlib.util.json.ProjectInfo;
 public final class VoxyQuestInstaller {
     private VoxyQuestInstaller() {}
 
+    public static void ensureLaunchRuntime(Activity activity, MinecraftInstances.Instance instance) throws IOException {
+        if ("neoforge".equals(instance.loaderId())) NeoForgeInstaller.ensureSystemJars(activity);
+    }
+
     public static ModsJson catalog(Activity activity) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(
                 activity.getAssets().open("voxyquest/runtime_mods.json"), StandardCharsets.UTF_8)) {

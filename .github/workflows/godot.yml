@@ -69,6 +69,11 @@ jobs:
           cp "$RUNNER_TEMP/neoforge-client/versions/neoforge-21.5.2-beta/neoforge-21.5.2-beta.json" "$ASSETS/version.json"
           cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-client.jar" "$ASSETS/client.jar"
           cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-universal.jar" "$ASSETS/universal.jar"
+          MC_LIB="$RUNNER_TEMP/neoforge-client/libraries/net/minecraft/client/1.21.5-20250325.162830"
+          cp "$MC_LIB/client-1.21.5-20250325.162830-srg.jar" "$ASSETS/minecraft-srg.jar"
+          cp "$MC_LIB/client-1.21.5-20250325.162830-extra.jar" "$ASSETS/minecraft-extra.jar"
+          unzip -Z1 "$ASSETS/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
+          unzip -Z1 "$ASSETS/minecraft-extra.jar" | grep -Fx 'assets/.mcassetsroot'
           unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
 
       - uses: actions/setup-java@v5
@@ -189,6 +194,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-srg.jar'
+          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-extra.jar'
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4
