@@ -58,7 +58,13 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     private var controllerId = -1
     private var controllerButtons = 0
     private val controllerAxes = FloatArray(6)
+    private var controllerAxisWriteScheduled = false
+    private val controllerAxisWrite = Runnable {
+        controllerAxisWriteScheduled = false
+        writeController()
+    }
     private val controllerFile: File by lazy { File(filesDir, "flat-gamepad.bin") }
+    private val controllerTempFile: File by lazy { File(filesDir, "flat-gamepad.tmp") }
     private val gameView: View get() = gameSurface
     private val grabListener = pojlib.input.GrabListener { active ->
         runOnUiThread {
@@ -132,6 +138,8 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     override fun onDestroy() {
         inputHandler.removeCallbacks(controllerTick)
+        inputHandler.removeCallbacks(controllerAxisWrite)
+        controllerAxisWriteScheduled = false
         CallbackBridge.removeGrabListener(grabListener)
         releaseInputs()
         controllerId = -1
@@ -215,6 +223,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                 controllerAxes[5] = event.getAxisValue(MotionEvent.AXIS_GAS).coerceIn(0f, 1f)
             val hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X)
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            val previousButtons = controllerButtons
             if (device?.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_JOYSTICK) != null) {
                 controllerButtons = controllerButtons and (0x7800).inv()
                 if (hatY < -0.5f) controllerButtons = controllerButtons or (1 shl 11)
@@ -223,7 +232,8 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                 if (hatX < -0.5f) controllerButtons = controllerButtons or (1 shl 14)
             }
             for (i in 4..5) controllerAxes[i] = controllerAxes[i] * 2f - 1f
-            writeController()
+            // D-pad presses are discrete buttons and must not wait for axis coalescing.
+            if (controllerButtons != previousButtons) writeController() else scheduleControllerAxisWrite()
             updateControllerControls()
             return true
         }
@@ -301,7 +311,11 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
 
     private fun writeController() {
         // A complete snapshot is written to a temporary file, then renamed for the JVM reader.
-        val temp = File(filesDir, "flat-gamepad.tmp")
+        if (controllerAxisWriteScheduled) {
+            inputHandler.removeCallbacks(controllerAxisWrite)
+            controllerAxisWriteScheduled = false
+        }
+        val temp = controllerTempFile
         runCatching {
             DataOutputStream(temp.outputStream().buffered()).use { stream ->
                 stream.writeInt(0x56475143)
@@ -314,6 +328,13 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
                 check(temp.renameTo(controllerFile))
             }
         }
+    }
+
+    /** Coalesce high-frequency stick events to one snapshot per display frame. */
+    private fun scheduleControllerAxisWrite() {
+        if (controllerAxisWriteScheduled) return
+        controllerAxisWriteScheduled = true
+        inputHandler.postDelayed(controllerAxisWrite, 16)
     }
 
     private fun handleMouse(event: MotionEvent) {

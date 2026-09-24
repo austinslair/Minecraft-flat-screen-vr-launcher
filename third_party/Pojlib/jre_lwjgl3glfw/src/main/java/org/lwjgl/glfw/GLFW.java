@@ -30,13 +30,18 @@ public class GLFW
     private static boolean gamepadPresent;
     private static boolean gamepadWasPresent;
     private static long gamepadReadAt;
+    private static long gamepadFileModifiedAt = -1;
     private static synchronized void readGamepad() {
         long now = System.currentTimeMillis();
         if (now - gamepadReadAt < 8) return;
         gamepadReadAt = now;
         String path = System.getProperty("glfwstub.gamepadStateFile");
         if (path == null) { gamepadPresent = false; return; }
-        try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(path)))) {
+        File file = new File(path);
+        long modifiedAt = file.lastModified();
+        if (modifiedAt > 0 && modifiedAt == gamepadFileModifiedAt) return;
+        gamepadFileModifiedAt = modifiedAt;
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
             if (input.readInt() != 0x56475143) { gamepadPresent = false; return; }
             gamepadPresent = input.readBoolean();
             gamepadButtons = input.readInt();
