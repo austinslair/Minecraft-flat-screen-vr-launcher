@@ -81,11 +81,12 @@ final class NeoForgeInstaller {
         File patched = copyJar(activity, "client.jar", new File(neoRoot,
                 "neoforge-" + LOADER_VERSION + "-client.jar"));
         ensureSystemJars(activity);
-        // Both artifacts are produced by NeoForge's client installer processors.
-        // The patched NeoForge client contains Minecraft classes also present in the
-        // vanilla client. Put it first so the vanilla jar cannot shadow those patches.
-        instance.classpath = ClasspathUtils.unique(patched.toString(), universal.toString(),
-                neoLibraries, client, libraries, lwjgl).replace(lwjgl, neoLwjgl);
+        // The production client provider discovers the processed Minecraft JAR by
+        // Maven path. Adding either processed or vanilla client to -cp gives the
+        // module layer a second copy of net.minecraft packages.
+        instance.classpath = ClasspathUtils.excluding(ClasspathUtils.unique(
+                universal.toString(), neoLibraries, libraries, lwjgl),
+                patched.toString(), client).replace(lwjgl, neoLwjgl);
         instance.jvmLaunchArgs = expandArguments(neoforge.arguments.jvm, neoforge.id);
         instance.gameLaunchArgs = expandArguments(neoforge.arguments.game, neoforge.id);
 
@@ -130,7 +131,10 @@ final class NeoForgeInstaller {
     static void useNeoForgeGlfw(Activity activity, MinecraftInstances.Instance instance) throws IOException {
         String original = Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar";
         String replacement = PojlibRuntime.installNeoForgeLWJGL(activity);
-        instance.classpath = instance.classpath.replace(original, replacement);
+        instance.classpath = ClasspathUtils.excluding(instance.classpath.replace(original, replacement),
+                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + LOADER_VERSION
+                        + "/neoforge-" + LOADER_VERSION + "-client.jar").getPath(),
+                new File(Constants.USER_HOME, "versions/" + VERSION + "/client.jar").getPath());
     }
 
     private static void ensureJar(Activity activity, String assetName, File target, String marker) throws IOException {

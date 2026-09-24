@@ -22,4 +22,15 @@ public class ClasspathUtilsTest {
         assertEquals(expected, ClasspathUtils.unique(patched + separator + neoLibraries + separator
                 + minecraft + separator + vanillaLibraries));
     }
+
+    @Test
+    public void existingNeoForgeProfileDropsBothClientsButKeepsLibraries() {
+        String separator = File.pathSeparator;
+        String patched = "/libraries/neoforge-client.jar";
+        String vanilla = "/versions/1.21.5/client.jar";
+        String libraries = "/libraries/neoforge-universal.jar" + separator + "/libraries/gson.jar";
+        assertEquals(libraries, ClasspathUtils.excluding(
+                patched + separator + libraries + separator + vanilla + separator + libraries,
+                patched, vanilla));
+    }
 }
