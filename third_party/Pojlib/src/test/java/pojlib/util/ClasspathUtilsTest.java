@@ -24,13 +24,14 @@ public class ClasspathUtilsTest {
     }
 
     @Test
-    public void existingNeoForgeProfileDropsBothClientsButKeepsLibraries() {
+    public void existingNeoForgeProfileDropsGameModulesButKeepsLibraries() {
         String separator = File.pathSeparator;
         String patched = "/libraries/neoforge-client.jar";
         String vanilla = "/versions/1.21.5/client.jar";
-        String libraries = "/libraries/neoforge-universal.jar" + separator + "/libraries/gson.jar";
+        String universal = "/libraries/neoforge-universal.jar";
+        String libraries = "/libraries/gson.jar" + separator + "/libraries/asm.jar";
         assertEquals(libraries, ClasspathUtils.excluding(
-                patched + separator + libraries + separator + vanilla + separator + libraries,
-                patched, vanilla));
+                patched + separator + universal + separator + libraries + separator + vanilla + separator + libraries,
+                patched, vanilla, universal));
     }
 }

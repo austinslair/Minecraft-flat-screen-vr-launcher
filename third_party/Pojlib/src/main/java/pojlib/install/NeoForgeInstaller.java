@@ -81,12 +81,12 @@ final class NeoForgeInstaller {
         File patched = copyJar(activity, "client.jar", new File(neoRoot,
                 "neoforge-" + LOADER_VERSION + "-client.jar"));
         ensureSystemJars(activity);
-        // The production client provider discovers the processed Minecraft JAR by
-        // Maven path. Adding either processed or vanilla client to -cp gives the
-        // module layer a second copy of net.minecraft packages.
+        // NeoForge's production locators discover both the processed Minecraft
+        // client and NeoForge universal by Maven path. Boot classpath entries for
+        // any of these game modules either duplicate packages or hide the mod.
         instance.classpath = ClasspathUtils.excluding(ClasspathUtils.unique(
-                universal.toString(), neoLibraries, libraries, lwjgl),
-                patched.toString(), client).replace(lwjgl, neoLwjgl);
+                neoLibraries, libraries, lwjgl),
+                patched.toString(), client, universal.toString()).replace(lwjgl, neoLwjgl);
         instance.jvmLaunchArgs = expandArguments(neoforge.arguments.jvm, neoforge.id);
         instance.gameLaunchArgs = expandArguments(neoforge.arguments.game, neoforge.id);
 
@@ -126,6 +126,12 @@ final class NeoForgeInstaller {
                 "net/minecraft/client/Minecraft.class");
         ensureJar(activity, "minecraft-extra.jar", new File(root, "client-" + version + "-extra.jar"),
                 "assets/.mcassetsroot");
+        File neoRoot = new File(Constants.USER_HOME,
+                "libraries/net/neoforged/neoforge/" + LOADER_VERSION);
+        ensureJar(activity, "client.jar", new File(neoRoot,
+                "neoforge-" + LOADER_VERSION + "-client.jar"), "net/minecraft/client/Minecraft.class");
+        ensureJar(activity, "universal.jar", new File(neoRoot,
+                "neoforge-" + LOADER_VERSION + "-universal.jar"), "META-INF/neoforge.mods.toml");
     }
 
     static void useNeoForgeGlfw(Activity activity, MinecraftInstances.Instance instance) throws IOException {
@@ -134,6 +140,8 @@ final class NeoForgeInstaller {
         instance.classpath = ClasspathUtils.excluding(instance.classpath.replace(original, replacement),
                 new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + LOADER_VERSION
                         + "/neoforge-" + LOADER_VERSION + "-client.jar").getPath(),
+                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + LOADER_VERSION
+                        + "/neoforge-" + LOADER_VERSION + "-universal.jar").getPath(),
                 new File(Constants.USER_HOME, "versions/" + VERSION + "/client.jar").getPath());
     }
 
