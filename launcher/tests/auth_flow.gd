@@ -40,6 +40,7 @@ func run_checks() -> void:
 	assert(not ui.account_code.visible)
 
 	ui._on_account_pressed()
+	assert(ui.current_section == "Accounts")
 	assert(fake.opened == 0)
 	assert(ui.is_processing())
 
@@ -50,21 +51,25 @@ func run_checks() -> void:
 		"expires_in": 120
 	}, true)
 	ui._refresh_auth_ui()
-	assert(fake.opened == 1)
+	assert(fake.opened == 0)
 	assert(ui.account_code.visible)
 	assert(ui.account_code.text == "Code: TEST-CODE")
-	assert(ui.get_node("AccountSubtitle").text == "Sign in with Microsoft")
+	assert(ui.account_page_code.text == "TEST-CODE")
+	assert(ui.account_page_code.get_parent().visible)
+	assert(ui.get_node("AccountSubtitle").text == "Code ready — open Accounts")
 
 	ui._refresh_auth_ui()
+	assert(fake.opened == 0)
+	ui._on_accounts_action()
 	assert(fake.opened == 1)
 
 	fake.open_ok = false
-	ui._on_account_pressed()
+	ui._on_accounts_action()
 	assert(fake.opened == 2)
-	assert(ui.get_node("AccountSubtitle").text.contains("retry browser"))
+	assert(ui.account_page_status.text.contains("retry"))
 
 	fake.open_ok = true
-	ui._on_account_pressed()
+	ui._on_accounts_action()
 	assert(fake.opened == 3)
 
 	fake.snapshot.merge({
@@ -76,5 +81,5 @@ func run_checks() -> void:
 	assert(not ui.account_code.visible)
 	assert(not ui.is_processing())
 	assert(ui.get_node("AccountTitle").text == "Test")
-	print("PASS: inline code appears, browser opens once, retries from account button, and separate login window is removed")
+	print("PASS: account code appears before browser opens, retry works, and separate login window is removed")
 	quit()
