@@ -26,7 +26,6 @@ var current_section := "Home"
 
 var account_code: Label
 var _auth_poll_elapsed := 0.0
-var _open_browser_when_ready := false
 
 var workspace: Panel
 var workspace_title: Label
@@ -452,9 +451,9 @@ func _set_account_code(code: String) -> void:
 
 
 func _on_account_pressed() -> void:
+	_open_section("Accounts")
 	var auth: Dictionary = runtime.get_microsoft_login_snapshot()
 	if bool(auth.get("signed_in", false)):
-		_open_section("Accounts")
 		return
 	if not runtime.is_available():
 		$AccountSubtitle.text = "Android build required"
@@ -463,15 +462,9 @@ func _on_account_pressed() -> void:
 		$AccountSubtitle.text = "Microsoft login not configured"
 		return
 	var state := str(auth.get("state", "idle"))
-	var code := str(auth.get("device_code", ""))
-	if state == "waiting_for_user" and not code.is_empty():
-		if not runtime.open_microsoft_login_page():
-			$AccountSubtitle.text = "Code ready — tap to retry browser"
-		return
 	if state in ACTIVE_AUTH_STATES:
 		return
-	_open_browser_when_ready = runtime.start_microsoft_login()
-	if not _open_browser_when_ready:
+	if not runtime.start_microsoft_login():
 		$AccountSubtitle.text = "Could not start Microsoft sign-in"
 	_refresh_auth_ui()
 
@@ -485,13 +478,6 @@ func _refresh_auth_ui() -> void:
 	_set_auth_polling(state in ACTIVE_AUTH_STATES)
 	_set_account_code(code if state == "waiting_for_user" and not code.is_empty() else "")
 
-	if _open_browser_when_ready and state == "waiting_for_user" and not code.is_empty():
-		_open_browser_when_ready = false
-		if not runtime.open_microsoft_login_page():
-			$AccountSubtitle.text = "Code ready — tap to retry browser"
-	if state in ["error", "cancelled", "signed_in"]:
-		_open_browser_when_ready = false
-
 	if not is_signed_in:
 		if not runtime.is_available():
 			$AccountSubtitle.text = "Android build required"
@@ -500,8 +486,7 @@ func _refresh_auth_ui() -> void:
 		elif state == "starting":
 			$AccountSubtitle.text = "Getting Microsoft code..."
 		elif state == "waiting_for_user":
-			if $AccountSubtitle.text != "Code ready — tap to retry browser":
-				$AccountSubtitle.text = "Sign in with Microsoft"
+			$AccountSubtitle.text = "Code ready — open Accounts"
 		elif state == "exchanging":
 			$AccountSubtitle.text = "Finishing Microsoft sign-in..."
 		elif state == "error":
@@ -1046,8 +1031,8 @@ func _render_accounts_page() -> void:
 	row.add_child(account_page_cancel)
 	account.add_child(row)
 	var guide := _page_card(workspace_body, "Sign in from your headset")
-	_detail_row(guide, "01   Open Microsoft", "Start sign-in to open the browser on your headset.")
-	_detail_row(guide, "02   Enter your code", "Copy the code above, then paste or type it into the Microsoft page.")
+	_detail_row(guide, "01   Get your code", "Start sign-in and wait for the code above to appear.")
+	_detail_row(guide, "02   Open Microsoft", "Copy the code, tap Open Microsoft, then enter it in the browser.")
 	_detail_row(guide, "03   Return to VoxyQuest", "Finish in the browser. Your account status updates automatically.")
 	_refresh_account_page_fields(runtime.get_microsoft_login_snapshot())
 
@@ -1080,7 +1065,7 @@ func _refresh_account_page_fields(auth: Dictionary) -> void:
 		account_page_status.text = "This build does not have a Microsoft application client ID configured."
 		account_page_action.disabled = true
 	elif state == "waiting_for_user" and not code.is_empty():
-		account_page_status.text = "Enter the code below in the Microsoft page. The browser should already be open."
+		account_page_status.text = "Copy the code, then tap Open Microsoft and enter it in the browser."
 		account_page_action.text = "Open Microsoft"
 		account_page_action.disabled = false
 	elif state == "starting":
@@ -1118,7 +1103,6 @@ func _copy_account_code() -> void:
 			account_page_status.text = "Microsoft code copied."
 
 func _cancel_account_login() -> void:
-	_open_browser_when_ready = false
 	runtime.cancel_microsoft_login()
 	_refresh_auth_ui()
 
