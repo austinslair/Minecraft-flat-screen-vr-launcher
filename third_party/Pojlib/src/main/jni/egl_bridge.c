@@ -103,7 +103,9 @@ void dlsym_egl() {
 }
 
 void* pojavGetCurrentContext() {
-    return xrEglContext;
+    // GLFW's current context belongs to the calling thread. NeoForge's early
+    // loading window renders on a worker thread before handing it to Minecraft.
+    return eglGetCurrentContext();
 }
 
 int xrEglInit() {
@@ -214,19 +216,23 @@ void pojavSwapBuffers() {
 
 bool locked = false;
 void pojavMakeCurrent(void* window) {
+    // Releasing a context requires *both* surfaces to be EGL_NO_SURFACE.
+    // Keeping the pbuffer here makes eglMakeCurrent(EGL_NO_CONTEXT) fail with
+    // EGL_BAD_MATCH, leaving NeoForge's early-window thread holding the context.
+    EGLSurface surface = window ? xrEglSurface : EGL_NO_SURFACE;
     EGLBoolean success = eglMakeCurrent_p(
             xrEglDisplay,
-            xrEglSurface,
-            xrEglSurface,
-            window
+            surface,
+            surface,
+            window ? (EGLContext) window : EGL_NO_CONTEXT
     );
 
-    xrEglContext = window;
-
     if (success == EGL_FALSE) {
-        printf("XREGLBridge: Error: eglMakeCurrent() failed: %p\n", eglGetError());
-    } else {
-        printf("XREGLBridge: eglMakeCurrent() succeed!\n");
+        printf("XREGLBridge: Error: eglMakeCurrent() failed: 0x%x\n", eglGetError_p());
+    } else if (window) {
+        // Keep the context handle available for OpenXR even while the loading
+        // window releases it between frames.
+        xrEglContext = (EGLContext) window;
     }
 }
 

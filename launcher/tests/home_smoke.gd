@@ -11,7 +11,10 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var microphone_allowed := false
 	var searched := ""
+	var last_sort := ""
+	var last_category := ""
 	var modrinth_installed := ""
 	func is_available() -> bool:
 		return true
@@ -19,15 +22,22 @@ class FakeRuntime extends RefCounted:
 		return true
 	func get_info() -> Dictionary:
 		return {"available": true, "engine": "Godot", "bridge_version": "test", "pojlib": "godot_host_ready"}
+	func get_microphone_permission_state() -> String:
+		return "granted" if microphone_allowed else "denied"
+	func request_microphone_access() -> bool:
+		microphone_allowed = true
+		return true
+	func open_microphone_app_settings() -> bool:
+		return true
 	func get_instance_snapshot() -> Dictionary:
 		return snapshot
 	func get_install_versions() -> Array:
 		return ["test"]
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
-	func install_instance(_name: String, _version: String) -> bool:
+	func install_instance(_name: String, _version: String, _loader: String = "fabric") -> bool:
 		install_calls += 1
-		install_args = [_name, _version]
+		install_args = [_name, _version] if _loader == "fabric" else [_name, _version, _loader]
 		return accept_install
 	func rename_instance(old_name: String, new_name: String) -> bool:
 		for item in snapshot.instances:
@@ -47,8 +57,10 @@ class FakeRuntime extends RefCounted:
 		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
 	func get_modrinth_snapshot() -> Dictionary:
 		return {"search_state": "ready", "search_instance": "My saved world", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
-	func search_modrinth_mods(_name: String, query: String) -> bool:
+	func search_modrinth_mods(_name: String, query: String, sort := "relevance", category := "all") -> bool:
 		searched = query
+		last_sort = sort
+		last_category = category
 		return true
 	func install_modrinth_mod(_name: String, project: String) -> bool:
 		modrinth_installed = project
@@ -102,7 +114,10 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("Avatar") == null)
 	assert(ui.get_node_or_null("NewsCard0") == null)
 	assert(ui.get_node_or_null("Version") == null)
-	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a == 0)
+	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a > 0)
+	assert(ui.get_node("Home").position.y < 170)
+	assert(ui.get_node("Instances").position.x > ui.get_node("Home").position.x)
+	assert(ui.get_node("LibraryHome").visible)
 	assert(ui.get_node("AccountTitle").clip_text)
 	ui._open_section("Instances")
 	assert(ui.install_version.item_count > 0)
@@ -110,6 +125,7 @@ func run_checks() -> void:
 	assert(ui.instance_empty_hint.text.contains("Android runtime"))
 	assert(ui.instance_list.visible)
 	ui._open_section("Home")
+	assert(ui.get_node("LibraryHome").visible)
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -127,6 +143,13 @@ func run_checks() -> void:
 	assert(ui.get_node("InstanceEmpty").text == "No instances installed")
 
 	fake.snapshot.instances = [{"name": "My saved world", "version": "test", "installed": true}]
+	ui._refresh_instances()
+	assert(ui.library_grid.find_children("*", "Button", true, false).size() >= 1)
+	await process_frame
+	assert(ui.library_grid.get_child(0).get_child(0).size.y < 50)
+	ui._select_library_instance("My saved world")
+	assert(ui.library_launch_button.disabled)
+	ui.selected_name = ""
 	ui._refresh_instances()
 	assert(ui.get_node("QuickEmpty").text == "No version selected")
 	assert(ui.get_node("Play").disabled)
@@ -153,6 +176,15 @@ func run_checks() -> void:
 	assert(fake.install_calls == previous_calls + 1)
 	assert(fake.install_args == ["Minecraft test", "test"])
 	assert(ui.install_submit.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS)
+	ui.install_loader.select(1)
+	ui._on_install_loader_selected(1)
+	assert(ui.install_version.item_count == 1)
+	assert(ui.install_version.get_item_text(0) == "1.21.5")
+	ui.install_name.text = "NeoForge test"
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["NeoForge test", "1.21.5", "neoforge"])
+	ui.install_loader.select(0)
+	ui._on_install_loader_selected(0)
 
 
 	await process_frame
@@ -200,15 +232,22 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
+	await process_frame
+	assert(ui.modrinth_sort.size.y < 65)
+	assert(ui.modrinth_category.size.y < 65)
+	assert(not ui.get_node("HomeTools").visible)
 	assert(ui.mods_list.get_item_count() == 2)
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 	ui.modrinth_search.text = "Sodium"
+	ui.modrinth_sort.select(1)
+	ui.modrinth_category.select(1)
 	ui._search_modrinth()
 	assert(fake.searched == "Sodium")
+	assert(fake.last_sort == "downloads" and fake.last_category == "optimization")
 	ui._poll_modrinth()
-	assert(ui.modrinth_results.item_count == 1)
-	ui.modrinth_results.select(0)
+	assert(ui.modrinth_results.get_child_count() == 1)
+	ui._select_modrinth_result(0)
 	ui._update_modrinth_install_button()
 	ui._install_modrinth()
 	assert(fake.modrinth_installed == "AANobbMI")
@@ -233,6 +272,11 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
 	assert(ui.workspace_title.text == "Settings")
+	assert(ui.microphone_status.text.contains("off"))
+	ui.microphone_grant_button.pressed.emit()
+	ui._refresh_microphone_status()
+	assert(ui.microphone_status.text.contains("allowed"))
+	assert(ui.microphone_grant_button.disabled)
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")

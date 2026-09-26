@@ -5,7 +5,10 @@ import android.app.ActivityManager
 import android.app.AlertDialog
 import android.os.Bundle
 import android.util.Log
+import android.view.SurfaceView
 import android.view.WindowManager
+import android.widget.FrameLayout
+import java.io.File
 import pojlib.API
 import pojlib.PojlibRuntime
 import pojlib.account.LoginHelper
@@ -23,6 +26,9 @@ open class MinecraftGameActivity : Activity() {
     }
 
     private var started = false
+    protected lateinit var gameSurface: SurfaceView
+        private set
+    private var loadingView: GameLoadingView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,7 +46,9 @@ open class MinecraftGameActivity : Activity() {
         // Both modes need a visible surface while Minecraft starts. Vivecraft
         // takes over headset presentation once its OpenXR session is ready.
         val vr = this !is MinecraftFlatActivity
-        val surface = android.view.SurfaceView(this)
+        val frame = FrameLayout(this)
+        val surface = SurfaceView(this)
+        gameSurface = surface
         surface.holder.setFormat(android.graphics.PixelFormat.OPAQUE)
         surface.isFocusable = true
         surface.isFocusableInTouchMode = true
@@ -59,7 +67,17 @@ open class MinecraftGameActivity : Activity() {
                 if (started && !vr) PojlibRuntime.restartSession(this@MinecraftGameActivity)
             }
         })
-        setContentView(surface)
+        frame.addView(surface, FrameLayout.LayoutParams(-1, -1))
+        val readyFile = File(filesDir, "minecraft-first-frame")
+        readyFile.delete() // Never accept a frame marker left by a previous launch.
+        val loading = GameLoadingView(this, readyFile, surface, !vr) {
+            loadingView?.let { frame.removeView(it) }
+            loadingView = null
+            surface.requestFocus()
+        }
+        loadingView = loading
+        frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
+        setContentView(frame)
         surface.requestFocus()
     }
 
@@ -91,6 +109,10 @@ open class MinecraftGameActivity : Activity() {
                 val instance = registry.toArray().firstOrNull { it.instanceName == name }
                     ?: error("Instance no longer exists")
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
+                VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
+                if (instance.loaderId() == "neoforge") {
+                    Logger.getInstance().appendToLog("VoxyQuest launch: NeoForge game libraries ready")
+                }
                 val account = API.currentAcc ?: error("Sign in again")
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
                 if (vr && pojlib.util.VivecraftRefreshRateFix.apply(java.io.File(instance.gameDir))) {
@@ -131,10 +153,17 @@ open class MinecraftGameActivity : Activity() {
 
     private fun showExit(message: String) {
         if (isFinishing || isDestroyed) return
+        loadingView?.stop()
         AlertDialog.Builder(this).setTitle("VoxyQuest").setMessage(message)
             .setCancelable(false)
             .setPositiveButton("Return to launcher") { _, _ -> PojlibRuntime.restartSession(this) }
             .show()
+    }
+
+    override fun onDestroy() {
+        loadingView?.stop()
+        loadingView = null
+        super.onDestroy()
     }
 
     @Deprecated("Android back callback")
