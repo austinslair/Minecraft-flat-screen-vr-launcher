@@ -22,12 +22,13 @@ internal object ModrinthClient {
     private val projectId = Regex("[A-Za-z0-9]{8,16}")
     private val safeFilename = Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar", RegexOption.IGNORE_CASE)
 
-    fun search(query: String, gameVersion: String, sort: String, category: String): JSONArray {
+    fun search(query: String, gameVersion: String, sort: String, category: String, loader: String): JSONArray {
         require(query.length <= 80 && gameVersion.matches(Regex("[0-9.]+")))
+        require(loader in setOf("fabric", "neoforge"))
         require(sort in setOf("relevance", "downloads", "follows", "newest", "updated"))
         require(category in setOf("all", "optimization", "utility", "adventure", "library", "decoration"))
         val facets = JSONArray().put(JSONArray().put("project_type:mod"))
-            .put(JSONArray().put("categories:fabric"))
+            .put(JSONArray().put("categories:$loader"))
             .put(JSONArray().put("versions:$gameVersion"))
         if (category != "all") facets.put(JSONArray().put("categories:$category"))
         val url = "$API/search?query=${Uri.encode(query)}&facets=${Uri.encode(facets.toString())}&index=$sort&limit=20"
@@ -51,6 +52,7 @@ internal object ModrinthClient {
         val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == instanceName }
             ?: error("Instance no longer exists.")
         val gameVersion = instance.versionName ?: error("Instance has no Minecraft version.")
+        val loader = instance.loaderId()
         val root = File(Constants.USER_HOME, "instances").canonicalFile
         val game = File(instance.gameDir ?: error("Instance has no folder.")).canonicalFile
         check(game != root && game.toPath().startsWith(root.toPath())) { "Invalid instance folder." }
@@ -66,8 +68,8 @@ internal object ModrinthClient {
                 JSONObject(read("$API/version/$pinnedVersion"))
             } else {
                 require(projectId.matches(id))
-                val list = JSONArray(read("$API/project/$id/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%22$gameVersion%22%5D&include_changelog=false"))
-                check(list.length() > 0) { "No Fabric build for Minecraft $gameVersion." }
+                val list = JSONArray(read("$API/project/$id/version?loaders=%5B%22$loader%22%5D&game_versions=%5B%22$gameVersion%22%5D&include_changelog=false"))
+                check(list.length() > 0) { "No $loader build for Minecraft $gameVersion." }
                 // The API may return featured versions first; choose the most recently published
                 // compatible build regardless of how the response is ordered.
                 (0 until list.length()).map { list.getJSONObject(it) }
@@ -78,7 +80,7 @@ internal object ModrinthClient {
             check(version.getJSONArray("game_versions").let { values ->
                 (0 until values.length()).any { values.getString(it) == gameVersion }
             } && version.getJSONArray("loaders").let { values ->
-                (0 until values.length()).any { values.getString(it) == "fabric" }
+                (0 until values.length()).any { values.getString(it) == loader }
             }) {
                 "A required mod does not support this Minecraft version."
             }
@@ -99,7 +101,7 @@ internal object ModrinthClient {
         val staged = ArrayList<Pair<File, File>>()
         val installedIds = HashSet<String>()
         mods.listFiles().orEmpty().filter { it.isFile && it.extension.equals("jar", true) }.forEach { file ->
-            runCatching { JarFile(file).use { jar -> modId(jar)?.let(installedIds::add) } }
+            runCatching { JarFile(file).use { jar -> modId(jar, loader)?.let(installedIds::add) } }
         }
         try {
             for (version in versions) {
@@ -123,7 +125,7 @@ internal object ModrinthClient {
                 staged.add(temp to destination)
                 download(url, temp, sha512)
                 JarFile(temp).use { jar ->
-                    val id = modId(jar) ?: error("$filename is not a Fabric mod.")
+                    val id = modId(jar, loader) ?: error("$filename is not a $loader mod.")
                     if (!installedIds.add(id)) {
                         if (version.getString("id") == requestedVersionId)
                             error("$id is already installed. Existing mods were not replaced.")
@@ -140,12 +142,20 @@ internal object ModrinthClient {
         }
     }
 
-    private fun modId(jar: JarFile): String? {
-        val descriptor = jar.getJarEntry("fabric.mod.json") ?: return null
+    internal fun modId(jar: JarFile, loader: String): String? {
+        val descriptor = jar.getJarEntry(if (loader == "neoforge")
+            "META-INF/neoforge.mods.toml" else "fabric.mod.json") ?: return null
         jar.getInputStream(descriptor).use { stream ->
             val bytes = stream.readNBytes(MAX_METADATA + 1)
             check(bytes.size <= MAX_METADATA) { "Mod metadata is too large." }
-            return JSONObject(String(bytes, Charsets.UTF_8)).optString("id").takeIf { it.isNotBlank() }
+            val metadata = String(bytes, Charsets.UTF_8)
+            if (loader == "neoforge") {
+                // NeoForge's descriptor is TOML; accept a declared mod ID in a [[mods]] block.
+                val block = metadata.substringAfter("[[mods]]", "")
+                return Regex("(?m)^\\s*modId\\s*=\\s*['\"]([a-z0-9_.-]+)['\"]")
+                    .find(block)?.groupValues?.get(1)
+            }
+            return JSONObject(metadata).optString("id").takeIf { it.isNotBlank() }
         }
     }
 

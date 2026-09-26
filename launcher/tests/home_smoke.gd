@@ -11,6 +11,7 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var microphone_allowed := false
 	var searched := ""
 	var last_sort := ""
 	var last_category := ""
@@ -21,15 +22,22 @@ class FakeRuntime extends RefCounted:
 		return true
 	func get_info() -> Dictionary:
 		return {"available": true, "engine": "Godot", "bridge_version": "test", "pojlib": "godot_host_ready"}
+	func get_microphone_permission_state() -> String:
+		return "granted" if microphone_allowed else "denied"
+	func request_microphone_access() -> bool:
+		microphone_allowed = true
+		return true
+	func open_microphone_app_settings() -> bool:
+		return true
 	func get_instance_snapshot() -> Dictionary:
 		return snapshot
 	func get_install_versions() -> Array:
 		return ["test"]
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
-	func install_instance(_name: String, _version: String) -> bool:
+	func install_instance(_name: String, _version: String, _loader: String = "fabric") -> bool:
 		install_calls += 1
-		install_args = [_name, _version]
+		install_args = [_name, _version] if _loader == "fabric" else [_name, _version, _loader]
 		return accept_install
 	func rename_instance(old_name: String, new_name: String) -> bool:
 		for item in snapshot.instances:
@@ -168,6 +176,15 @@ func run_checks() -> void:
 	assert(fake.install_calls == previous_calls + 1)
 	assert(fake.install_args == ["Minecraft test", "test"])
 	assert(ui.install_submit.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS)
+	ui.install_loader.select(1)
+	ui._on_install_loader_selected(1)
+	assert(ui.install_version.item_count == 1)
+	assert(ui.install_version.get_item_text(0) == "1.21.5")
+	ui.install_name.text = "NeoForge test"
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["NeoForge test", "1.21.5", "neoforge"])
+	ui.install_loader.select(0)
+	ui._on_install_loader_selected(0)
 
 
 	await process_frame
@@ -255,6 +272,11 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
 	assert(ui.workspace_title.text == "Settings")
+	assert(ui.microphone_status.text.contains("off"))
+	ui.microphone_grant_button.pressed.emit()
+	ui._refresh_microphone_status()
+	assert(ui.microphone_status.text.contains("allowed"))
+	assert(ui.microphone_grant_button.disabled)
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")

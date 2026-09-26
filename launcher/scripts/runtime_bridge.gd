@@ -64,6 +64,24 @@ func get_info() -> Dictionary:
 		"pojlib": str(plugin.getPojlibCompatibilityState())
 	}
 
+func copy_input_report() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return plugin != null and _plugin_has_method(plugin, &"copyInputReport") and bool(plugin.copyInputReport())
+
+func get_microphone_permission_state() -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getMicrophonePermissionState"):
+		return "unavailable"
+	return str(plugin.getMicrophonePermissionState())
+
+func request_microphone_access() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"requestMicrophoneAccess") and bool(plugin.requestMicrophoneAccess())
+
+func open_microphone_app_settings() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"openMicrophoneAppSettings") and bool(plugin.openMicrophoneAppSettings())
+
 func is_microsoft_login_configured() -> bool:
 	var plugin: Object = _refresh_plugin()
 	return plugin != null and bool(plugin.isMicrosoftLoginConfigured())
@@ -159,7 +177,7 @@ func get_install_versions() -> Array:
 	# installer usable if the Android bridge returns an empty catalog response.
 	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
-func install_instance(instance_name: String, version: String) -> bool:
+func install_instance(instance_name: String, version: String, loader: String = "fabric") -> bool:
 	var plugin: Object = _refresh_plugin()
 	_install_request_error = ""
 	if plugin == null:
@@ -170,6 +188,11 @@ func install_instance(instance_name: String, version: String) -> bool:
 		return false
 	# Do not block the request on launcher-side initialization. The Android
 	# installer worker initializes Pojlib itself before downloading anything.
+	if loader == "neoforge":
+		if not _plugin_has_method(plugin, &"installInstanceWithLoader"):
+			_install_request_error = "This APK does not contain the NeoForge installer. Update the complete APK."
+			return false
+		return bool(plugin.installInstanceWithLoader(instance_name, version, loader))
 	return bool(plugin.installInstance(instance_name, version))
 
 func get_install_snapshot() -> Dictionary:
