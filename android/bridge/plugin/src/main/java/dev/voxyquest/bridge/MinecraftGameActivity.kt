@@ -144,7 +144,18 @@ open class MinecraftGameActivity : Activity() {
                     Logger.getInstance().appendToLog("VoxyQuest launch: OpenXR configuration ready")
                 }
                 Logger.getInstance().appendToLog("VoxyQuest launch: starting Java VM")
-                val exitCode = JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
+                // Minecraft's render loop runs on this launch thread. Let it
+                // compete with Android UI work at display priority in both modes.
+                val threadId = android.os.Process.myTid()
+                val oldPriority = android.os.Process.getThreadPriority(threadId)
+                val raised = runCatching {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
+                }.isSuccess
+                val exitCode = try {
+                    JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
+                } finally {
+                    if (raised) runCatching { android.os.Process.setThreadPriority(oldPriority) }
+                }
                 Logger.getInstance().appendToLog("VoxyQuest launch: Java VM returned $exitCode")
                 runOnUiThread { showExit("Minecraft stopped (exit code $exitCode).") }
             } catch (failure: Throwable) {

@@ -33,17 +33,30 @@ public class GLFW
     private static boolean gamepadWasPresent;
     private static long gamepadReadAt;
     private static long gamepadFileModifiedAt = -1;
+    private static String gamepadPath;
+    private static File gamepadFile;
     private static synchronized void readGamepad() {
         long now = System.currentTimeMillis();
-        if (now - gamepadReadAt < 8) return;
+        // Flat mode writes this file on input changes. VR has no flat gamepad
+        // file, so avoid opening a missing path on every rendered frame.
+        if (now - gamepadReadAt < (gamepadFileModifiedAt < 0 ? 250 : 8)) return;
         gamepadReadAt = now;
         String path = System.getProperty("glfwstub.gamepadStateFile");
         if (path == null) { gamepadPresent = false; return; }
-        File file = new File(path);
-        long modifiedAt = file.lastModified();
+        if (!path.equals(gamepadPath)) {
+            gamepadPath = path;
+            gamepadFile = new File(path);
+            gamepadFileModifiedAt = -1;
+        }
+        long modifiedAt = gamepadFile.lastModified();
+        if (modifiedAt <= 0) {
+            gamepadPresent = false;
+            gamepadFileModifiedAt = -1;
+            return;
+        }
         if (modifiedAt > 0 && modifiedAt == gamepadFileModifiedAt) return;
         gamepadFileModifiedAt = modifiedAt;
-        try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(file)))) {
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(gamepadFile)))) {
             if (input.readInt() != 0x56475143) { gamepadPresent = false; return; }
             gamepadPresent = input.readBoolean();
             gamepadButtons = input.readInt();

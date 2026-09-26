@@ -210,7 +210,7 @@ jobs:
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='19'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='20'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -230,18 +230,18 @@ jobs:
           if-no-files-found: error
 
       - name: Publish VoxyQuest GitHub release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.19'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.20'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.19
+          TAG: v0.1.0-alpha.20
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.19 test build for Meta Quest.
+          VoxyQuest alpha.20 test build for Meta Quest.
 
-          This APK includes NeoForge 1.21.5 with OpenXR refresh-rate and swapchain texture fixes for existing installed profiles, Fabric/Vivecraft, the Modrinth browser, and flatscreen controls. It uses Android version code 19 and the existing alpha signing key.
+          This APK includes NeoForge 1.21.5 with OpenXR compatibility fixes for existing installed profiles, shared runtime scheduling and gamepad polling improvements across versions, Fabric/Vivecraft, the Modrinth browser, and flatscreen controls. It uses Android version code 20 and the existing alpha signing key. Player settings and resolution are unchanged.
 
           Built from commit: $GITHUB_SHA
 
@@ -252,7 +252,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.19" \
+              --title "VoxyQuest v0.1.0-alpha.20" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"
