@@ -78,22 +78,38 @@ public class JREUtils {
         return returnValue;
     }
 
+    private static boolean loadRuntimeLibrary(String label, String path) {
+        Logger.getInstance().appendToLog("VoxyQuest JVM: loading " + label);
+        boolean loaded = dlopen(path);
+        Logger.getInstance().appendToLog(
+                "VoxyQuest JVM: " + label + (loaded ? " loaded" : " failed")
+        );
+        return loaded;
+    }
+
     public static void initJavaRuntime() {
-        dlopen(findInLdLibPath("libjli.so"));
-        if(!dlopen("libjvm.so")){
-            dlopen(jvmLibraryPath+"/libjvm.so");
+        loadRuntimeLibrary("libjli.so", findInLdLibPath("libjli.so"));
+        if(!loadRuntimeLibrary("libjvm.so", "libjvm.so")){
+            loadRuntimeLibrary("libjvm.so (direct)", jvmLibraryPath+"/libjvm.so");
         }
-        dlopen(findInLdLibPath("libverify.so"));
-        dlopen(findInLdLibPath("libjava.so"));
-        dlopen(findInLdLibPath("libnet.so"));
-        dlopen(findInLdLibPath("libnio.so"));
-        dlopen(findInLdLibPath("libawt.so"));
-        dlopen(findInLdLibPath("libawt_headless.so"));
-        dlopen(findInLdLibPath("libfreetype.so"));
-        dlopen(findInLdLibPath("libfontmanager.so"));
-        for(File f : locateLibs(new File(runtimeDir + "/lib"))) {
+        loadRuntimeLibrary("libverify.so", findInLdLibPath("libverify.so"));
+        loadRuntimeLibrary("libjava.so", findInLdLibPath("libjava.so"));
+        loadRuntimeLibrary("libnet.so", findInLdLibPath("libnet.so"));
+        loadRuntimeLibrary("libnio.so", findInLdLibPath("libnio.so"));
+        loadRuntimeLibrary("libawt.so", findInLdLibPath("libawt.so"));
+        loadRuntimeLibrary("libawt_headless.so", findInLdLibPath("libawt_headless.so"));
+        loadRuntimeLibrary("libfreetype.so", findInLdLibPath("libfreetype.so"));
+        loadRuntimeLibrary("libfontmanager.so", findInLdLibPath("libfontmanager.so"));
+
+        ArrayList<File> runtimeLibs = locateLibs(new File(runtimeDir + "/lib"));
+        Logger.getInstance().appendToLog(
+                "VoxyQuest JVM: preloading " + runtimeLibs.size() + " runtime libraries"
+        );
+        for(File f : runtimeLibs) {
+            Logger.getInstance().appendToLog("VoxyQuest JVM: preloading " + f.getName());
             dlopen(f.getAbsolutePath());
         }
+        Logger.getInstance().appendToLog("VoxyQuest JVM: runtime library preload complete");
     }
 
     public static void redirectAndPrintJRELog() {
@@ -155,6 +171,7 @@ public class JREUtils {
         envMap.put("TMPDIR", activity.getCacheDir().getAbsolutePath());
         envMap.put("VR_MODEL", API.model);
         envMap.put("POJLIB_RENDERER", "LightThinWrapper");
+        envMap.put("VOXYQUEST_LAUNCH_LOG", new File(Constants.USER_HOME, "latestlog.txt").getAbsolutePath());
 
         envMap.put("LD_LIBRARY_PATH", LD_LIBRARY_PATH);
         envMap.put("PATH", activity.getFilesDir() + "/runtimes/JRE/bin:" + Os.getenv("PATH"));
@@ -193,17 +210,39 @@ public class JREUtils {
     }
 
     public static int launchJavaVM(final Activity activity, final List<String> JVMArgs, MinecraftInstances.Instance instance) throws Throwable {
+        // The embedded JVM loads filesystem paths, unlike ART's APK zip loader.
+        // Fail before entering native code if export did not extract these libraries.
+        for (String library : new String[]{"libpojavexec.so", "liblwjgl.so", "libjnidispatch.so"}) {
+            File nativeFile = new File(activity.getApplicationInfo().nativeLibraryDir, library);
+            if (!nativeFile.isFile() || !nativeFile.canRead()) {
+                throw new IOException("Required native library is not extracted: " + library +
+                        ". Install the complete APK with native library extraction enabled.");
+            }
+        }
         JREUtils.relocateLibPath(activity);
         setJavaEnvironment(activity, instance);
 
         final String graphicsLib = loadGraphicsLibrary();
         List<String> userArgs = getJavaArgs(activity, instance);
 
-        //Add automatically generated args
+        // Add automatically generated args. Keep the initial heap much smaller than
+        // the maximum heap: on Quest the OpenXR/Godot/native side remains resident,
+        // and committing the full Minecraft heap during VM creation can make Android
+        // kill the process before Java has a chance to print an error.
         if (API.customRAMValue) {
-            Logger.getInstance().appendToLog("QuestCraft: Setting JVM memory to " + API.memoryValue + "MB (Custom)");
-            userArgs.add("-Xms" + API.memoryValue + "M");
-            userArgs.add("-Xmx" + API.memoryValue + "M");
+            long maxHeapMb;
+            try {
+                maxHeapMb = Long.parseLong(API.memoryValue);
+            } catch (NumberFormatException invalidMemory) {
+                maxHeapMb = 768L;
+            }
+            long initialHeapMb = Math.min(384L, Math.max(256L, maxHeapMb / 3L));
+            Logger.getInstance().appendToLog(
+                    "QuestCraft: Setting JVM memory to " + initialHeapMb + "MB initial / " +
+                            maxHeapMb + "MB max (Custom)"
+            );
+            userArgs.add("-Xms" + initialHeapMb + "M");
+            userArgs.add("-Xmx" + maxHeapMb + "M");
         } else {
             ActivityManager manager = (ActivityManager) activity.getSystemService(Activity.ACTIVITY_SERVICE);
             ActivityManager.MemoryInfo ami = new ActivityManager.MemoryInfo();
@@ -244,11 +283,20 @@ public class JREUtils {
 
         runtimeDir = activity.getFilesDir() + "/runtimes/JRE";
 
+        Logger.getInstance().appendToLog("VoxyQuest JVM: preparing runtime libraries");
         initJavaRuntime();
-        chdir(instance.gameDir);
+        Logger.getInstance().appendToLog("VoxyQuest JVM: runtime libraries ready");
+
+        int chdirResult = chdir(instance.gameDir);
+        Logger.getInstance().appendToLog("VoxyQuest JVM: chdir result " + chdirResult);
+        if (chdirResult != 0) {
+            throw new IOException("Could not enter Minecraft game directory");
+        }
         userArgs.add(0,"java"); //argv[0] is the program name according to C standard.
 
+        Logger.getInstance().appendToLog("VoxyQuest JVM: entering native Java launcher");
         int exitCode = VMLauncher.launchJVM(userArgs.toArray(new String[0]));
+        Logger.getInstance().appendToLog("VoxyQuest JVM: native Java launcher returned " + exitCode);
         Logger.getInstance().appendToLog("Java Exit code: " + exitCode);
         return exitCode;
     }
@@ -284,7 +332,7 @@ public class JREUtils {
      * @param ctx The application context
      * @return A list filled with args.
      */
-    public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance) {
+    public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance) throws IOException {
         File resConfFile = new File(Constants.USER_HOME + "/hacks/resolv.conf");
         try {
             if(!resConfFile.exists()) {
@@ -304,9 +352,13 @@ public class JREUtils {
                 "-Dorg.lwjgl.librarypath=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.boot.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Djna.nosys=true",
+                "-Djna.nounpack=true",
+                "-Djna.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
                 "-Djava.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Dglfwstub.windowWidth=" + FlatDisplay.width,
                 "-Dglfwstub.windowHeight=" + FlatDisplay.height,
+                "-Dglfwstub.gamepadStateFile=" + new File(ctx.getFilesDir(), "flat-gamepad.bin").getAbsolutePath(),
+                "-Dvoxyquest.readyFile=" + new File(ctx.getFilesDir(), "minecraft-first-frame").getAbsolutePath(),
                 "-Dglfwstub.initEgl=false",
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
                 "-Dnet.minecraft.clientmodname=" + "VoxyQuest",
@@ -326,7 +378,7 @@ public class JREUtils {
      */
     public static ArrayList<String> parseJavaArguments(String args){
         ArrayList<String> parsedArguments = new ArrayList<>(0);
-        args = args.trim().replace(" ", "");
+        args = args.trim().replace(" ","");
         //For each prefixes, we separate args.
         for(String prefix : new String[]{"-XX:-","-XX:+", "-XX:","--","-"}){
             while (true){

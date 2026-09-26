@@ -3,6 +3,7 @@
 #include <dlfcn.h>
 
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,10 +58,19 @@ EGLConfig xrConfig;
 
 void* gbuffer;
 static ANativeWindow* flatWindow = NULL;
+static atomic_bool windowDetached = false;
+
+JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_detachNative(JNIEnv* env, jclass clazz) {
+    atomic_store(&windowDetached, true);
+}
 
 JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_attachNative(JNIEnv* env, jclass clazz,
         jobject surface, jint width, jint height) {
-    if (flatWindow != NULL) return;
+    if (flatWindow != NULL) {
+        savedWidth = width;
+        savedHeight = height;
+        return;
+    }
     flatWindow = ANativeWindow_fromSurface(env, surface);
     savedWidth = width;
     savedHeight = height;
@@ -93,7 +103,9 @@ void dlsym_egl() {
 }
 
 void* pojavGetCurrentContext() {
-    return xrEglContext;
+    // GLFW's current context belongs to the calling thread. NeoForge's early
+    // loading window renders on a worker thread before handing it to Minecraft.
+    return eglGetCurrentContext();
 }
 
 int xrEglInit() {
@@ -111,7 +123,7 @@ int xrEglInit() {
     // printf("EGLBridge: ANativeWindow pointer = %p\n", androidWindow);
     //(*env)->ThrowNew(env,(*env)->FindClass(env,"java/lang/Exception"),"Trace exception");
     if (!eglInitialize_p(xrEglDisplay, NULL, NULL)) {
-        printf("EGLBridge: Error eglInitialize() failed: %s\n", eglGetError_p());
+        printf("EGLBridge: Error eglInitialize() failed: 0x%x\n", eglGetError_p());
         return 0;
     }
 
@@ -119,11 +131,11 @@ int xrEglInit() {
             EGL_RED_SIZE, 8,
             EGL_GREEN_SIZE, 8,
             EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
+            EGL_ALPHA_SIZE, flatWindow ? 0 : 8,
             // Minecraft required on initial 24
             EGL_DEPTH_SIZE, 24,
             EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-            EGL_SURFACE_TYPE, flatWindow ? EGL_WINDOW_BIT : EGL_PBUFFER_BIT,
+            EGL_SURFACE_TYPE, flatWindow ? (EGL_WINDOW_BIT | EGL_PBUFFER_BIT) : EGL_PBUFFER_BIT,
             EGL_NONE
     };
 
@@ -131,7 +143,7 @@ int xrEglInit() {
     EGLint vid;
 
     if (!eglChooseConfig_p(xrEglDisplay, attribs, &xrConfig, 1, &num_configs)) {
-        printf("EGLBridge: Error couldn't get an EGL visual config: %s\n", eglGetError_p());
+        printf("EGLBridge: Error couldn't get an EGL visual config: 0x%x\n", eglGetError_p());
         return 0;
     }
 
@@ -139,7 +151,7 @@ int xrEglInit() {
     assert(num_configs > 0);
 
     if (!eglGetConfigAttrib_p(xrEglDisplay, xrConfig, EGL_NATIVE_VISUAL_ID, &vid)) {
-        printf("EGLBridge: Error eglGetConfigAttrib() failed: %s\n", eglGetError_p());
+        printf("EGLBridge: Error eglGetConfigAttrib() failed: 0x%x\n", eglGetError_p());
         return 0;
     }
 
@@ -152,7 +164,7 @@ int xrEglInit() {
         if (!createWindow) return 0;
         xrEglSurface = createWindow(xrEglDisplay, xrConfig, flatWindow, NULL);
     } else {
-        xrEglSurface = eglCreatePbufferSurface_p(xrEglDisplay, xrConfig, NULL);
+        xrEglSurface = eglCreatePbufferSurface_p(xrEglDisplay, xrConfig, (const EGLint[]){EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE});
     }
     if (!xrEglSurface) {
         printf("EGLBridge: Error eglCreatePbufferSurface failed: %d\n", eglGetError_p());
@@ -186,24 +198,41 @@ void pojavSetWindowHint(int hint, int value) {
 
 int32_t stride;
 void pojavSwapBuffers() {
+    // Surface destruction is notified on Android's UI thread. Move the EGL
+    // context to an offscreen surface only here, on Minecraft's render thread.
+    if (atomic_exchange(&windowDetached, false) && flatWindow) {
+        const EGLint size[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+        EGLSurface fallback = eglCreatePbufferSurface_p(xrEglDisplay, xrConfig, size);
+        if (fallback != EGL_NO_SURFACE &&
+            eglMakeCurrent_p(xrEglDisplay, fallback, fallback, xrEglContext)) {
+            eglDestroySurface(xrEglDisplay, xrEglSurface);
+            xrEglSurface = fallback;
+            ANativeWindow_release(flatWindow);
+            flatWindow = NULL;
+        }
+    }
     eglSwapBuffers_p(xrEglDisplay, xrEglSurface);
 }
 
 bool locked = false;
 void pojavMakeCurrent(void* window) {
+    // Releasing a context requires *both* surfaces to be EGL_NO_SURFACE.
+    // Keeping the pbuffer here makes eglMakeCurrent(EGL_NO_CONTEXT) fail with
+    // EGL_BAD_MATCH, leaving NeoForge's early-window thread holding the context.
+    EGLSurface surface = window ? xrEglSurface : EGL_NO_SURFACE;
     EGLBoolean success = eglMakeCurrent_p(
             xrEglDisplay,
-            xrEglSurface,
-            xrEglSurface,
-            window
+            surface,
+            surface,
+            window ? (EGLContext) window : EGL_NO_CONTEXT
     );
 
-    xrEglContext = window;
-
     if (success == EGL_FALSE) {
-        printf("XREGLBridge: Error: eglMakeCurrent() failed: %p\n", eglGetError());
-    } else {
-        printf("XREGLBridge: eglMakeCurrent() succeed!\n");
+        printf("XREGLBridge: Error: eglMakeCurrent() failed: 0x%x\n", eglGetError_p());
+    } else if (window) {
+        // Keep the context handle available for OpenXR even while the loading
+        // window releases it between frames.
+        xrEglContext = (EGLContext) window;
     }
 }
 

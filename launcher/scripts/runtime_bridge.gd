@@ -26,6 +26,16 @@ func _refresh_plugin() -> Object:
 		_plugin = Engine.get_singleton(PLUGIN_NAME)
 	return _plugin
 
+## Godot Android plugin methods live on JNISingleton as Java methods. Object.has_method()
+## does not report those methods, so use has_java_method() when the singleton provides it.
+## The Object fallback keeps desktop/headless test doubles working.
+func _plugin_has_method(plugin: Object, method_name: StringName) -> bool:
+	if plugin == null:
+		return false
+	if plugin.has_method("has_java_method"):
+		return bool(plugin.call("has_java_method", method_name))
+	return plugin.has_method(method_name)
+
 func is_available() -> bool:
 	# On Android, keep launcher actions available while the Godot plugin finishes
 	# attaching. Individual actions still verify the singleton before invoking it.
@@ -53,6 +63,24 @@ func get_info() -> Dictionary:
 		"bridge_version": str(plugin.getBridgeVersion()),
 		"pojlib": str(plugin.getPojlibCompatibilityState())
 	}
+
+func copy_input_report() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return plugin != null and _plugin_has_method(plugin, &"copyInputReport") and bool(plugin.copyInputReport())
+
+func get_microphone_permission_state() -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getMicrophonePermissionState"):
+		return "unavailable"
+	return str(plugin.getMicrophonePermissionState())
+
+func request_microphone_access() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"requestMicrophoneAccess") and bool(plugin.requestMicrophoneAccess())
+
+func open_microphone_app_settings() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"openMicrophoneAppSettings") and bool(plugin.openMicrophoneAppSettings())
 
 func is_microsoft_login_configured() -> bool:
 	var plugin: Object = _refresh_plugin()
@@ -129,7 +157,7 @@ func send_scroll(x: float, y: float) -> void:
 ## Read-only metadata; tokens and filesystem paths stay on Android.
 func get_instance_snapshot() -> Dictionary:
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("getInstancesSnapshotJson"):
+	if not _plugin_has_method(plugin, &"getInstancesSnapshotJson"):
 		return {"available": false, "instances": [], "error": ""}
 	var parsed: Variant = JSON.parse_string(str(plugin.getInstancesSnapshotJson()))
 	if not parsed is Dictionary or not parsed.get("instances", null) is Array:
@@ -138,7 +166,7 @@ func get_instance_snapshot() -> Dictionary:
 
 func get_install_versions() -> Array:
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("getInstallVersionsJson"):
+	if not _plugin_has_method(plugin, &"getInstallVersionsJson"):
 		return BUNDLED_INSTALL_VERSIONS.duplicate()
 	var json := JSON.new()
 	if json.parse(str(plugin.getInstallVersionsJson())) == OK:
@@ -149,24 +177,29 @@ func get_install_versions() -> Array:
 	# installer usable if the Android bridge returns an empty catalog response.
 	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
-func install_instance(instance_name: String, version: String) -> bool:
+func install_instance(instance_name: String, version: String, loader: String = "fabric") -> bool:
 	var plugin: Object = _refresh_plugin()
 	_install_request_error = ""
 	if plugin == null:
 		_install_request_error = "The Android runtime is missing or has not loaded. Install an APK that includes VoxyQuestBridge and Pojlib."
 		return false
-	if not plugin.has_method("installInstance"):
+	if not _plugin_has_method(plugin, &"installInstance"):
 		_install_request_error = "This APK contains an older runtime without instance installation. Update the complete APK."
 		return false
 	# Do not block the request on launcher-side initialization. The Android
 	# installer worker initializes Pojlib itself before downloading anything.
+	if loader == "neoforge":
+		if not _plugin_has_method(plugin, &"installInstanceWithLoader"):
+			_install_request_error = "This APK does not contain the NeoForge installer. Update the complete APK."
+			return false
+		return bool(plugin.installInstanceWithLoader(instance_name, version, loader))
 	return bool(plugin.installInstance(instance_name, version))
 
 func get_install_snapshot() -> Dictionary:
 	if not _install_request_error.is_empty():
 		return {"state": "error", "message": _install_request_error}
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("getInstallSnapshotJson"):
+	if not _plugin_has_method(plugin, &"getInstallSnapshotJson"):
 		if OS.get_name() == "Android":
 			return {"state": "idle", "message": "Android installer not connected. Tap Install to check again, or update the complete APK."}
 		return {"state": "unavailable", "message": "Installation is available in the Android launcher."}
@@ -175,15 +208,15 @@ func get_install_snapshot() -> Dictionary:
 
 func rename_instance(old_name: String, new_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("renameInstance") and bool(plugin.renameInstance(old_name, new_name))
+	return _plugin_has_method(plugin, &"renameInstance") and bool(plugin.renameInstance(old_name, new_name))
 
 func remove_instance(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("removeInstance") and bool(plugin.removeInstance(instance_name))
+	return _plugin_has_method(plugin, &"removeInstance") and bool(plugin.removeInstance(instance_name))
 
 func get_instance_mods(instance_name: String) -> Dictionary:
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("getInstanceModsJson"):
+	if not _plugin_has_method(plugin, &"getInstanceModsJson"):
 		return {"available": false, "mods": [], "error": "Android runtime unavailable"}
 	var parsed: Variant = JSON.parse_string(str(plugin.getInstanceModsJson(instance_name)))
 	if not parsed is Dictionary or not parsed.get("mods", null) is Array:
@@ -192,27 +225,27 @@ func get_instance_mods(instance_name: String) -> Dictionary:
 
 func launch_minecraft_vr(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("launchMinecraftVr") and bool(plugin.launchMinecraftVr(instance_name))
+	return _plugin_has_method(plugin, &"launchMinecraftVr") and bool(plugin.launchMinecraftVr(instance_name))
 
 func launch_minecraft_flat(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("launchMinecraftFlat") and bool(plugin.launchMinecraftFlat(instance_name))
+	return _plugin_has_method(plugin, &"launchMinecraftFlat") and bool(plugin.launchMinecraftFlat(instance_name))
 
 func add_instance_mod(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("addInstanceMod") and bool(plugin.addInstanceMod(instance_name))
+	return _plugin_has_method(plugin, &"addInstanceMod") and bool(plugin.addInstanceMod(instance_name))
 
 func get_modrinth_snapshot() -> Dictionary:
 	var plugin: Object = _refresh_plugin()
-	if plugin == null or not plugin.has_method("getModrinthSnapshotJson"):
+	if not _plugin_has_method(plugin, &"getModrinthSnapshotJson"):
 		return {"search_state": "unavailable", "search_message": "Modrinth search requires the Android build.", "results": [], "install_state": "idle", "install_message": ""}
 	var parsed: Variant = JSON.parse_string(str(plugin.getModrinthSnapshotJson()))
 	return parsed if parsed is Dictionary else {"search_state": "error", "search_message": "Invalid Modrinth response.", "results": [], "install_state": "idle", "install_message": ""}
 
-func search_modrinth_mods(instance_name: String, query: String) -> bool:
+func search_modrinth_mods(instance_name: String, query: String, sort := "relevance", category := "all") -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("searchModrinthMods") and bool(plugin.searchModrinthMods(instance_name, query))
+	return _plugin_has_method(plugin, &"searchModrinthMods") and bool(plugin.searchModrinthMods(instance_name, query, sort, category))
 
 func install_modrinth_mod(instance_name: String, project_id: String) -> bool:
 	var plugin: Object = _refresh_plugin()
-	return plugin != null and plugin.has_method("installModrinthMod") and bool(plugin.installModrinthMod(instance_name, project_id))
+	return _plugin_has_method(plugin, &"installModrinthMod") and bool(plugin.installModrinthMod(instance_name, project_id))

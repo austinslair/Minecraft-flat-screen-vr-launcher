@@ -14,6 +14,7 @@ import pojlib.account.MinecraftAccount;
 import pojlib.API;
 import pojlib.InstanceHandler;
 import pojlib.util.Constants;
+import pojlib.util.ClasspathUtils;
 import pojlib.util.download.DownloadManager;
 import pojlib.util.download.DownloadUtils;
 import pojlib.util.GsonUtils;
@@ -67,14 +68,22 @@ public class MinecraftInstances {
         public String instanceName;
         public String instanceImageURL;
         public String versionName;
+        // Missing in existing saved profiles; those profiles were all installed with Fabric.
+        public String modLoader;
         public String versionType;
         public String classpath;
         public String gameDir;
         public String assetIndex;
         public String assetsDir;
         public String mainClass;
+        public String[] jvmLaunchArgs;
+        public String[] gameLaunchArgs;
         public ProjectInfo[] extProjects;
         public boolean defaultMods;
+
+        public String loaderId() {
+            return "neoforge".equalsIgnoreCase(modLoader) ? "neoforge" : "fabric";
+        }
 
         public List<String> generateLaunchArgs(MinecraftAccount account) {
             String[] mcArgs = {"--username", account.username, "--version", versionName, "--gameDir", gameDir,
@@ -82,9 +91,12 @@ public class MinecraftInstances {
                     "--accessToken", account.accessToken, "--userType", account.userType, "--versionType", "release"};
 
             List<String> allArgs = new ArrayList<>();
+            if (jvmLaunchArgs != null) allArgs.addAll(Arrays.asList(jvmLaunchArgs));
             allArgs.add("-cp");
-            allArgs.add(classpath);
+            // Saved NeoForge instances may contain duplicate vanilla/loader JARs.
+            allArgs.add("neoforge".equals(loaderId()) ? ClasspathUtils.unique(classpath) : classpath);
             allArgs.add(mainClass);
+            if (gameLaunchArgs != null) allArgs.addAll(Arrays.asList(gameLaunchArgs));
             allArgs.addAll(Arrays.asList(mcArgs));
             if (account.isDemoMode) {
                 allArgs.add("--demo");

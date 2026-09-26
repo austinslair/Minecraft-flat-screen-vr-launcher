@@ -29,6 +29,7 @@ class VoxyQuestAndroidExportPlugin extends EditorExportPlugin:
 	func _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
 		return PackedStringArray([
 			"org.apache.commons:commons-math3:3.6.1",
+			"org.ow2.asm:asm:9.7.1",
 			"com.google.guava:guava:31.0.1-jre",
 			"org.jetbrains:annotations:24.0.1",
 			"com.google.code.gson:gson:2.12.1",

@@ -20,11 +20,15 @@ LOCAL_CFLAGS := -DXR_USE_PLATFORM_ANDROID -DXR_USE_GRAPHICS_API_OPENGL_ES
 LOCAL_MODULE := pojavexec
 # LOCAL_CFLAGS += -DDEBUG
 # -DGLES_TEST
+# Keep the JVM launcher in the same library that JREUtils already loads. On Quest,
+# loading a second jrelauncher library immediately before JNI dispatch can terminate
+# the process before the native entry point is reached.
 LOCAL_SRC_FILES := \
     egl_bridge.c \
     utils.c \
     environ/environ.c \
-    input_bridge_v3.c
+    input_bridge_v3.c \
+    jre_launcher.c
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
@@ -46,14 +50,6 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := pojavexec_awt
 LOCAL_SRC_FILES := \
     awt_bridge.c
-include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := jrelauncher
-LOCAL_SHARED_LIBRARIES := pojavexec
-LOCAL_LDLIBS := -llog -landroid
-LOCAL_SRC_FILES := \
-    jre_launcher.c
 include $(BUILD_SHARED_LIBRARY)
 
 # Helper to get current thread

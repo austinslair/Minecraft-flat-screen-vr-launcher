@@ -53,15 +53,48 @@ static struct sigaction old_sa[NSIG];
 void (*__old_sa)(int signal, siginfo_t *info, void *reserved);
 int (*JVM_handle_linux_signal)(int signo, siginfo_t* siginfo, void* ucontext, int abort_if_unrecognized);
 
-void android_sigaction(int signal, siginfo_t *info, void *reserved) {
-  if (JVM_handle_linux_signal == NULL) { // should not happen, but still
-      __old_sa = old_sa[signal].sa_sigaction;
-      __old_sa(signal,info,reserved);
-      exit(1);
+/*
+ * Java output capture runs on another thread and can lose the final pipe contents if
+ * JLI_Launch calls exit() or the process is killed during VM creation. Persist a tiny
+ * breadcrumb directly into latestlog.txt before each native transition instead.
+ */
+static void voxyquest_breadcrumb(const char *message) {
+    const char *path = getenv("VOXYQUEST_LAUNCH_LOG");
+    if (path == NULL || path[0] == '\0') return;
+
+    FILE *file = fopen(path, "a");
+    if (file == NULL) return;
+    // The launcher crash dialog whitelists "VoxyQuest launch:" lines. Prefix the
+    // fsync'd native breadcrumbs so the exact native JVM stage appears in the report.
+    fprintf(file, "VoxyQuest launch: %s\n", message);
+    fflush(file);
+    fsync(fileno(file));
+    fclose(file);
+}
+
+void android_sigaction(int signum, siginfo_t *info, void *reserved) {
+  if (JVM_handle_linux_signal == NULL) {
+      /* Do not dereference sa_sigaction when the previous disposition is SIG_DFL,
+       * SIG_IGN, or a one-argument handler. The old implementation could turn an
+       * otherwise diagnosable JVM startup signal into an immediate native crash. */
+      struct sigaction *previous = &old_sa[signum];
+      if (previous->sa_handler == SIG_IGN) {
+          return;
+      }
+      if (previous->sa_handler == SIG_DFL) {
+          signal(signum, SIG_DFL);
+          raise(signum);
+          return;
+      }
+      if ((previous->sa_flags & SA_SIGINFO) != 0 && previous->sa_sigaction != NULL) {
+          previous->sa_sigaction(signum, info, reserved);
+      } else if (previous->sa_handler != NULL) {
+          previous->sa_handler(signum);
+      }
   } else {
       // Based on https://github.com/PojavLauncherTeam/openjdk-multiarch-jdk8u/blob/aarch64-shenandoah-jdk8u272-b10/hotspot/src/os/linux/vm/os_linux.cpp#L4688-4693
       int orig_errno = errno;  // Preserve errno value over signal handler.
-      JVM_handle_linux_signal(signal, info, reserved, true);
+      JVM_handle_linux_signal(signum, info, reserved, true);
       errno = orig_errno;
   }
 }
@@ -81,14 +114,17 @@ typedef jint JLI_Launch_func(int argc, char ** argv, /* main argc, argc */
 );
 
 static jint launchJVM(int margc, char** margv) {
+   voxyquest_breadcrumb("VoxyQuest native JVM: opening libjli.so");
    void* libjli = dlopen("libjli.so", RTLD_LAZY | RTLD_GLOBAL);
 
    // Boardwalk: silence
    // LOGD("JLI lib = %x", (int)libjli);
    if (NULL == libjli) {
+       voxyquest_breadcrumb("VoxyQuest native JVM: libjli.so open failed");
        LOGE("JLI lib = NULL: %s", dlerror());
        return -1;
    }
+   voxyquest_breadcrumb("VoxyQuest native JVM: libjli.so ready");
    LOGD("Found JLI lib");
 
    JLI_Launch_func *pJLI_Launch =
@@ -97,13 +133,15 @@ static jint launchJVM(int margc, char** margv) {
     // LOGD("JLI_Launch = 0x%x", *(int*)&pJLI_Launch);
 
    if (NULL == pJLI_Launch) {
+       voxyquest_breadcrumb("VoxyQuest native JVM: JLI_Launch symbol missing");
        LOGE("JLI_Launch = NULL");
        return -1;
    }
 
+   voxyquest_breadcrumb("VoxyQuest native JVM: calling JLI_Launch");
    LOGD("Calling JLI_Launch");
 
-   return pJLI_Launch(margc, margv,
+   jint result = pJLI_Launch(margc, margv,
                    0, NULL, // sizeof(const_jargs) / sizeof(char *), const_jargs,
                    0, NULL, // sizeof(const_appclasspath) / sizeof(char *), const_appclasspath,
                    FULL_VERSION,
@@ -112,6 +150,8 @@ static jint launchJVM(int margc, char** margv) {
                    *margv, // (const_launcher != NULL) ? const_launcher : *margv,
                    (const_jargs != NULL) ? JNI_TRUE : JNI_FALSE,
                    const_cpwildcard, const_javaw, const_ergo_class);
+   voxyquest_breadcrumb("VoxyQuest native JVM: JLI_Launch returned");
+   return result;
 }
 
 /*
@@ -120,20 +160,29 @@ static jint launchJVM(int margc, char** margv) {
  * Signature: ([Ljava/lang/String;)I
  */
 JNIEXPORT jint JNICALL Java_com_oracle_dalvik_VMLauncher_launchJVM(JNIEnv *env, jclass clazz, jobjectArray argsArray) {
+  voxyquest_breadcrumb("VoxyQuest native JVM: JNI launcher entered");
 #ifdef TRY_SIG2JVM
+  voxyquest_breadcrumb("VoxyQuest native JVM: opening libjvm.so for signal bridge");
   void* libjvm = dlopen("libjvm.so", RTLD_LAZY | RTLD_GLOBAL);
   if (NULL == libjvm) {
+      voxyquest_breadcrumb("VoxyQuest native JVM: libjvm.so signal bridge open failed");
       LOGE("JVM lib = NULL: %s", dlerror());
       return -1;
   }
   JVM_handle_linux_signal = dlsym(libjvm, "JVM_handle_linux_signal");
+  if (JVM_handle_linux_signal == NULL) {
+      voxyquest_breadcrumb("VoxyQuest native JVM: JVM signal bridge symbol unavailable");
+  } else {
+      voxyquest_breadcrumb("VoxyQuest native JVM: JVM signal bridge ready");
+  }
 #endif
 
    jint res = 0;
    // int i;
    //Prepare the signal trapper
+   voxyquest_breadcrumb("VoxyQuest native JVM: installing signal handlers");
    struct sigaction catcher;
-   memset(&catcher,0,sizeof(sigaction));
+   memset(&catcher,0,sizeof(struct sigaction));
    catcher.sa_sigaction = android_sigaction;
    catcher.sa_flags = SA_SIGINFO|SA_RESTART;
    // SA_RESETHAND;
@@ -149,27 +198,34 @@ JNIEXPORT jint JNICALL Java_com_oracle_dalvik_VMLauncher_launchJVM(JNIEnv *env, 
     CATCHSIG(SIGPIPE);
     CATCHSIG(SIGXFSZ);
    //Signal trapper ready
+   voxyquest_breadcrumb("VoxyQuest native JVM: signal handlers ready");
 
     // Save dalvik JNIEnv pointer for JVM launch thread
     dalvikJNIEnvPtr_ANDROID = env;
 
     if (argsArray == NULL) {
+        voxyquest_breadcrumb("VoxyQuest native JVM: argument array was null");
         LOGE("Args array null, returning");
         //handle error
         return 0;
     }
 
     int argc = (*env)->GetArrayLength(env, argsArray);
+    voxyquest_breadcrumb("VoxyQuest native JVM: converting Java arguments");
     char **argv = convert_to_char_array(env, argsArray);
+    voxyquest_breadcrumb("VoxyQuest native JVM: Java arguments ready");
 
     LOGD("Done processing args");
 
+    voxyquest_breadcrumb("VoxyQuest native JVM: entering JLI wrapper");
     res = launchJVM(argc, argv);
+    voxyquest_breadcrumb("VoxyQuest native JVM: JLI wrapper returned");
 
     LOGD("Going to free args");
     free_char_array(env, argsArray, argv);
 
     LOGD("Free done");
+    voxyquest_breadcrumb("VoxyQuest native JVM: JNI launcher returning");
 
     return res;
 }
