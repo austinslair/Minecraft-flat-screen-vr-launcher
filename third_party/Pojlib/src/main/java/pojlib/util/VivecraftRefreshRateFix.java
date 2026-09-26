@@ -31,12 +31,12 @@ public final class VivecraftRefreshRateFix {
         return apply(gameDir, null);
     }
 
-    /** Also accept the exact NeoForge Vivecraft JAR shipped in this APK. */
+    /** Accept the bundled NeoForge class even when an earlier APK packed the JAR differently. */
     public static boolean apply(File gameDir, InputStream bundledNeoForge) throws IOException {
         File jar = new File(gameDir, "mods/Vivecraft.jar");
         if (!jar.isFile()) return false;
         String originalSha = sha256(jar);
-        boolean bundledMatch = bundledNeoForge != null && originalSha.equals(sha256(bundledNeoForge));
+        boolean bundledMatch = bundledNeoForge != null && matchesBundledNeoForgeClass(jar, bundledNeoForge);
         if (!SUPPORTED_SHA256.contains(originalSha) && !bundledMatch) return false;
         File temporary = File.createTempFile("vivecraft-refresh-", ".tmp", jar.getParentFile());
         boolean patched = false;
@@ -96,6 +96,30 @@ public final class VivecraftRefreshRateFix {
         }, 0);
         if (patched[0] != 1) throw new IOException("Unexpected Vivecraft refresh-rate method");
         return writer.toByteArray();
+    }
+
+    private static boolean matchesBundledNeoForgeClass(File installed, InputStream bundled) throws IOException {
+        try (ZipFile source = new ZipFile(installed);
+             ZipInputStream asset = new ZipInputStream(bundled)) {
+            ZipEntry descriptor = source.getEntry("META-INF/neoforge.mods.toml");
+            ZipEntry target = source.getEntry(CLASS);
+            if (descriptor == null || target == null) return false;
+            byte[] metadata;
+            try (InputStream input = source.getInputStream(descriptor)) {
+                metadata = input.readNBytes(65537);
+            }
+            if (metadata.length > 65536 || !new String(metadata, java.nio.charset.StandardCharsets.UTF_8)
+                    .contains("modId = \"vivecraft\"")) return false;
+            ZipEntry entry;
+            while ((entry = asset.getNextEntry()) != null) {
+                if (CLASS.equals(entry.getName())) {
+                    try (InputStream input = source.getInputStream(target)) {
+                        return sha256(input).equals(sha256(asset));
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     private static String sha256(File file) throws IOException {

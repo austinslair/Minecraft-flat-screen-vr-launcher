@@ -70,7 +70,23 @@ public class VivecraftRefreshRateFixTest {
         Path game = Files.createTempDirectory("vivecraft-neoforge-test");
         Path jar = game.resolve("mods/Vivecraft.jar");
         Files.createDirectories(jar.getParent());
-        Files.copy(Paths.get(source), jar);
+        // Existing installs can have a different ZIP hash from the freshly built APK.
+        try (java.util.zip.ZipFile original = new java.util.zip.ZipFile(source);
+             java.util.zip.ZipOutputStream repacked = new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = original.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                repacked.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                if (!entry.isDirectory()) {
+                    try (InputStream input = original.getInputStream(entry)) { input.transferTo(repacked); }
+                }
+                repacked.closeEntry();
+            }
+            repacked.putNextEntry(new java.util.zip.ZipEntry("META-INF/old-apk-marker.txt"));
+            repacked.write(1);
+            repacked.closeEntry();
+        }
+        assertFalse(java.util.Arrays.equals(Files.readAllBytes(Paths.get(source)), Files.readAllBytes(jar)));
         try (InputStream wrong = new ByteArrayInputStream(new byte[]{1, 2, 3})) {
             assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), wrong));
         }
