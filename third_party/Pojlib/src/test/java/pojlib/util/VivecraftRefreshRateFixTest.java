@@ -34,6 +34,32 @@ public class VivecraftRefreshRateFixTest {
         Class<?> after = load(VivecraftRefreshRateFix.patchClass(fixture()));
         after.getMethod("initDisplayRefreshRate").invoke(after.getConstructor().newInstance());
     }
+    @Test public void swapchainTextureUsesExistingOpenXRStorage() throws Exception {
+        ClassWriter w = new ClassWriter(0);
+        w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, VivecraftRefreshRateFix.TEXTURE_CLASS.replace(".class", ""), null, "java/lang/Object", null);
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        m.visitCode();
+        m.visitInsn(Opcodes.ACONST_NULL);
+        m.visitInsn(Opcodes.ACONST_NULL);
+        m.visitInsn(Opcodes.ACONST_NULL);
+        for (int i = 0; i < 4; i++) m.visitInsn(Opcodes.ICONST_1);
+        m.visitMethodInsn(Opcodes.INVOKEINTERFACE, "org/vivecraft/client/extensions/GlDeviceExtension",
+                "vivecraft$createFixedIdTexture", "(Ljava/util/function/Supplier;Lcom/mojang/blaze3d/textures/TextureFormat;IIII)Lcom/mojang/blaze3d/textures/GpuTexture;", true);
+        m.visitInsn(Opcodes.POP); m.visitInsn(Opcodes.RETURN); m.visitMaxs(7, 1); m.visitEnd(); w.visitEnd();
+        byte[] changed = VivecraftRefreshRateFix.patchSwapchainClass(w.toByteArray());
+        int[] changedCalls = {0};
+        new ClassReader(changed).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMethodInsn(int opcode, String owner, String method, String descriptor, boolean isInterface) {
+                        assertEquals("vivecraft$precreatedFixedIdTexture", method);
+                        changedCalls[0]++;
+                    }
+                };
+            }
+        }, 0);
+        assertEquals(1, changedCalls[0]);
+    }
     @Test public void unknownUserJarIsNotModified() throws Exception {
         Path game = Files.createTempDirectory("vivecraft-test");
         Path jar = game.resolve("mods/Vivecraft.jar");
@@ -98,6 +124,31 @@ public class VivecraftRefreshRateFixTest {
         }
         try (java.util.zip.ZipFile patched = new java.util.zip.ZipFile(jar.toFile())) {
             assertNotNull(patched.getEntry("META-INF/neoforge.mods.toml"));
+            byte[] target = patched.getInputStream(patched.getEntry(VivecraftRefreshRateFix.TEXTURE_CLASS)).readAllBytes();
+            assertThrows(IOException.class, () -> VivecraftRefreshRateFix.patchSwapchainClass(target));
+        }
+        // Reproduce an alpha.18 install: only the refresh-rate class was changed.
+        try (java.util.zip.ZipFile original = new java.util.zip.ZipFile(source);
+             java.util.zip.ZipOutputStream old = new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = original.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                old.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                if (!entry.isDirectory()) {
+                    try (InputStream input = original.getInputStream(entry)) {
+                        byte[] bytes = input.readAllBytes();
+                        old.write(VivecraftRefreshRateFix.CLASS.equals(entry.getName()) ?
+                                VivecraftRefreshRateFix.patchClass(bytes) : bytes);
+                    }
+                }
+                old.closeEntry();
+            }
+        }
+        try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+            assertTrue(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+        }
+        try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+            assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
         }
         try (java.util.stream.Stream<Path> paths = Files.walk(game)) {
             paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {

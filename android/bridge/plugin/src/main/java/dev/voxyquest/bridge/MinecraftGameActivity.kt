@@ -123,7 +123,7 @@ open class MinecraftGameActivity : Activity() {
                         }
                     } else pojlib.util.VivecraftRefreshRateFix.apply(gameDir)
                     if (patched) Logger.getInstance().appendToLog(
-                        "VoxyQuest launch: applied Vivecraft refresh-rate compatibility fix",
+                        "VoxyQuest launch: applied Vivecraft OpenXR compatibility fixes",
                     )
                 }
                 MinecraftInstances.configurePlayMode(instance, vr)

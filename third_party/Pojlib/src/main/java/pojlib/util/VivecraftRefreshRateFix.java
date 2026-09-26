@@ -25,6 +25,7 @@ public final class VivecraftRefreshRateFix {
             "50abc0fc5fb335980c4b3bd0a36dbab91b7eea95c98eadb9b7f86822205a31d6"  // 1.19.2
     ));
     static final String CLASS = "org/vivecraft/client_vr/provider/openxr/MCOpenXR.class";
+    static final String TEXTURE_CLASS = "org/vivecraft/client_vr/VRTextureTarget.class";
     private VivecraftRefreshRateFix() {}
 
     public static boolean apply(File gameDir) throws IOException {
@@ -36,8 +37,11 @@ public final class VivecraftRefreshRateFix {
         File jar = new File(gameDir, "mods/Vivecraft.jar");
         if (!jar.isFile()) return false;
         String originalSha = sha256(jar);
-        boolean bundledMatch = bundledNeoForge != null && matchesBundledNeoForgeClass(jar, bundledNeoForge);
-        if (!SUPPORTED_SHA256.contains(originalSha) && !bundledMatch) return false;
+        int neoForgeState = bundledNeoForge == null ? 0 : bundledNeoForgeState(jar, bundledNeoForge);
+        if (!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) return false;
+        boolean patchRefresh = neoForgeState != 2;
+        boolean patchTexture = neoForgeState != 0;
+        if (neoForgeState == 3) return false;
         File temporary = File.createTempFile("vivecraft-refresh-", ".tmp", jar.getParentFile());
         boolean patched = false;
         try {
@@ -49,10 +53,15 @@ public final class VivecraftRefreshRateFix {
                     output.putNextEntry(new ZipEntry(entry.getName()));
                     if (!entry.isDirectory()) {
                         try (InputStream input = source.getInputStream(entry)) {
-                            if (CLASS.equals(entry.getName())) {
+                            if (CLASS.equals(entry.getName()) && patchRefresh) {
                                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                                 copy(input, bytes);
                                 output.write(patchClass(bytes.toByteArray()));
+                                patched = true;
+                            } else if (TEXTURE_CLASS.equals(entry.getName()) && patchTexture) {
+                                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                                copy(input, bytes);
+                                output.write(patchSwapchainClass(bytes.toByteArray()));
                                 patched = true;
                             } else copy(input, output);
                         }
@@ -98,27 +107,69 @@ public final class VivecraftRefreshRateFix {
         return writer.toByteArray();
     }
 
-    private static boolean matchesBundledNeoForgeClass(File installed, InputStream bundled) throws IOException {
+    /** OpenXR owns and allocates swapchain images; allocating them again raises GL_INVALID_OPERATION. */
+    static byte[] patchSwapchainClass(byte[] original) throws IOException {
+        ClassReader reader = new ClassReader(original);
+        if (!(reader.getClassName() + ".class").equals(TEXTURE_CLASS))
+            throw new IOException("Unexpected swapchain patch target");
+        ClassWriter writer = new ClassWriter(0);
+        int[] patched = {0};
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override public MethodVisitor visitMethod(int access, String name,
+                    String descriptor, String signature, String[] exceptions) {
+                MethodVisitor method = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if (!name.equals("<init>")) return method;
+                return new MethodVisitor(Opcodes.ASM9, method) {
+                    @Override public void visitMethodInsn(int opcode, String owner, String methodName,
+                            String methodDescriptor, boolean isInterface) {
+                        if (opcode == Opcodes.INVOKEINTERFACE && isInterface &&
+                                owner.equals("org/vivecraft/client/extensions/GlDeviceExtension") &&
+                                methodName.equals("vivecraft$createFixedIdTexture")) {
+                            methodName = "vivecraft$precreatedFixedIdTexture";
+                            patched[0]++;
+                        }
+                        super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
+                    }
+                };
+            }
+        }, 0);
+        if (patched[0] != 1) throw new IOException("Unexpected Vivecraft swapchain constructor");
+        return writer.toByteArray();
+    }
+
+    // 0: unknown, 1: original, 2: refresh already fixed, 3: both fixes already applied.
+    private static int bundledNeoForgeState(File installed, InputStream bundled) throws IOException {
         try (ZipFile source = new ZipFile(installed);
              ZipInputStream asset = new ZipInputStream(bundled)) {
             ZipEntry descriptor = source.getEntry("META-INF/neoforge.mods.toml");
             ZipEntry target = source.getEntry(CLASS);
-            if (descriptor == null || target == null) return false;
+            ZipEntry texture = source.getEntry(TEXTURE_CLASS);
+            if (descriptor == null || target == null || texture == null) return 0;
             byte[] metadata;
             try (InputStream input = source.getInputStream(descriptor)) {
                 metadata = input.readNBytes(65537);
             }
             if (metadata.length > 65536 || !new String(metadata, java.nio.charset.StandardCharsets.UTF_8)
-                    .contains("modId = \"vivecraft\"")) return false;
+                    .contains("modId = \"vivecraft\"")) return 0;
+            byte[] refreshBytes = null;
+            byte[] textureBytes = null;
             ZipEntry entry;
             while ((entry = asset.getNextEntry()) != null) {
-                if (CLASS.equals(entry.getName())) {
-                    try (InputStream input = source.getInputStream(target)) {
-                        return sha256(input).equals(sha256(asset));
-                    }
-                }
+                if (CLASS.equals(entry.getName())) refreshBytes = asset.readAllBytes();
+                if (TEXTURE_CLASS.equals(entry.getName())) textureBytes = asset.readAllBytes();
             }
-            return false;
+            if (refreshBytes == null || textureBytes == null) return 0;
+            byte[] actualRefresh, actualTexture;
+            try (InputStream input = source.getInputStream(target)) { actualRefresh = input.readAllBytes(); }
+            try (InputStream input = source.getInputStream(texture)) { actualTexture = input.readAllBytes(); }
+            boolean refreshOriginal = Arrays.equals(actualRefresh, refreshBytes);
+            boolean refreshPatched = Arrays.equals(actualRefresh, patchClass(refreshBytes));
+            boolean textureOriginal = Arrays.equals(actualTexture, textureBytes);
+            boolean texturePatched = Arrays.equals(actualTexture, patchSwapchainClass(textureBytes));
+            if (refreshOriginal && textureOriginal) return 1;
+            if (refreshPatched && textureOriginal) return 2;
+            if (refreshPatched && texturePatched) return 3;
+            return 0;
         }
     }
 
