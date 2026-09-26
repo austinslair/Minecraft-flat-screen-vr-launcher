@@ -28,10 +28,16 @@ public final class VivecraftRefreshRateFix {
     private VivecraftRefreshRateFix() {}
 
     public static boolean apply(File gameDir) throws IOException {
+        return apply(gameDir, null);
+    }
+
+    /** Also accept the exact NeoForge Vivecraft JAR shipped in this APK. */
+    public static boolean apply(File gameDir, InputStream bundledNeoForge) throws IOException {
         File jar = new File(gameDir, "mods/Vivecraft.jar");
         if (!jar.isFile()) return false;
         String originalSha = sha256(jar);
-        if (!SUPPORTED_SHA256.contains(originalSha)) return false;
+        boolean bundledMatch = bundledNeoForge != null && originalSha.equals(sha256(bundledNeoForge));
+        if (!SUPPORTED_SHA256.contains(originalSha) && !bundledMatch) return false;
         File temporary = File.createTempFile("vivecraft-refresh-", ".tmp", jar.getParentFile());
         boolean patched = false;
         try {
@@ -93,13 +99,15 @@ public final class VivecraftRefreshRateFix {
     }
 
     private static String sha256(File file) throws IOException {
+        try (InputStream input = new FileInputStream(file)) { return sha256(input); }
+    }
+
+    private static String sha256(InputStream input) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            try (InputStream input = new FileInputStream(file)) {
-                byte[] buffer = new byte[32768];
-                int count;
-                while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
-            }
+            byte[] buffer = new byte[32768];
+            int count;
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count);
             StringBuilder result = new StringBuilder();
             for (byte value : digest.digest()) result.append(String.format(Locale.ROOT, "%02x", value & 255));
             return result.toString();

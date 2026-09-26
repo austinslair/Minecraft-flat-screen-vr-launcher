@@ -63,4 +63,30 @@ public class VivecraftRefreshRateFixTest {
             });
         }
     }
+
+    @Test public void bundledNeoForgePatchesButAnotherJarDoesNot() throws Exception {
+        String source = System.getenv("VOXYQUEST_NEOFORGE_TEST_JAR");
+        org.junit.Assume.assumeNotNull(source);
+        Path game = Files.createTempDirectory("vivecraft-neoforge-test");
+        Path jar = game.resolve("mods/Vivecraft.jar");
+        Files.createDirectories(jar.getParent());
+        Files.copy(Paths.get(source), jar);
+        try (InputStream wrong = new ByteArrayInputStream(new byte[]{1, 2, 3})) {
+            assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), wrong));
+        }
+        try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+            assertTrue(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+        }
+        try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+            assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+        }
+        try (java.util.zip.ZipFile patched = new java.util.zip.ZipFile(jar.toFile())) {
+            assertNotNull(patched.getEntry("META-INF/neoforge.mods.toml"));
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(game)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try { Files.delete(path); } catch (IOException e) { throw new RuntimeException(e); }
+            });
+        }
+    }
 }

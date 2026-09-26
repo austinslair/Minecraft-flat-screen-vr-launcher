@@ -92,6 +92,7 @@ jobs:
             third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar \
             third_party/Pojlib/src/main/assets/lwjgl/lwjgl-neoforge-classes.jar
           export VOXYQUEST_VIVECRAFT_TEST_JAR="$RUNNER_TEMP/vivecraft-original.jar"
+          export VOXYQUEST_NEOFORGE_TEST_JAR="third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar"
           curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
           gradle -p android/bridge :plugin:syncToGodot --no-daemon
           mkdir -p "$RUNNER_TEMP/refresh-tests"
@@ -209,7 +210,7 @@ jobs:
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='16'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='17'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -229,18 +230,18 @@ jobs:
           if-no-files-found: error
 
       - name: Publish VoxyQuest GitHub release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.16'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.17'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.16
+          TAG: v0.1.0-alpha.17
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.16 test build for Meta Quest.
+          VoxyQuest alpha.17 test build for Meta Quest.
 
-          This APK includes NeoForge 1.21.5, Fabric/Vivecraft, the Modrinth browser, and flatscreen controls. It uses Android version code 16 and the existing alpha signing key.
+          This APK includes NeoForge 1.21.5 with an OpenXR refresh-rate compatibility fix, Fabric/Vivecraft, the Modrinth browser, and flatscreen controls. It uses Android version code 17 and the existing alpha signing key.
 
           Built from commit: $GITHUB_SHA
 
@@ -251,7 +252,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.16" \
+              --title "VoxyQuest v0.1.0-alpha.17" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"

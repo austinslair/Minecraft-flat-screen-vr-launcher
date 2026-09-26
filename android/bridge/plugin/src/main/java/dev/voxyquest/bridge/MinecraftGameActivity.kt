@@ -115,8 +115,16 @@ open class MinecraftGameActivity : Activity() {
                 }
                 val account = API.currentAcc ?: error("Sign in again")
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
-                if (vr && pojlib.util.VivecraftRefreshRateFix.apply(java.io.File(instance.gameDir))) {
-                    Logger.getInstance().appendToLog("VoxyQuest launch: applied Vivecraft refresh-rate compatibility fix")
+                if (vr) {
+                    val gameDir = java.io.File(instance.gameDir)
+                    val patched = if (instance.loaderId() == "neoforge") {
+                        assets.open("voxyquest/neoforge/vivecraft.jar").use { bundled ->
+                            pojlib.util.VivecraftRefreshRateFix.apply(gameDir, bundled)
+                        }
+                    } else pojlib.util.VivecraftRefreshRateFix.apply(gameDir)
+                    if (patched) Logger.getInstance().appendToLog(
+                        "VoxyQuest launch: applied Vivecraft refresh-rate compatibility fix",
+                    )
                 }
                 MinecraftInstances.configurePlayMode(instance, vr)
                 API.currentInstance = instance
