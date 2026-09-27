@@ -5,26 +5,30 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.SurfaceView
-import android.view.Gravity
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.io.RandomAccessFile
+import pojlib.API
 import pojlib.util.Constants
 
 /** Visible while the embedded JVM starts; reads only output from this launch. */
 internal class GameLoadingView(context: Context, private val readyFile: File,
-    private val gameSurface: SurfaceView, private val requireVisibleFrame: Boolean,
+    private val gameSurface: SurfaceView, private val vr: Boolean,
     private val onFirstFrame: () -> Unit) : LinearLayout(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val logFile = File(Constants.USER_HOME, "latestlog.txt")
     private var offset = logFile.length()
     private val recent = ArrayDeque<String>()
+    private var partialLine = ""
+    private var vrConfiguredAt = 0L
+    private var vrConnectedAt = 0L
+    private var vrFailed = false
     private val output: TextView
     private var running = true
     private val preview = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
@@ -32,8 +36,13 @@ internal class GameLoadingView(context: Context, private val readyFile: File,
         override fun run() {
             if (!running) return
             readOutput()
-            if (readyFile.isFile) {
-                if (requireVisibleFrame) {
+            // The first GLFW swap can be NeoForge's early splash screen. Keep
+            // the log visible until Vivecraft has configured the VR renderer.
+            val now = SystemClock.elapsedRealtime()
+            val vrReady = (vrConfiguredAt > 0L && now - vrConfiguredAt >= 1_500L) ||
+                (API.gameReady && vrConnectedAt > 0L && now - vrConnectedAt >= 10_000L)
+            if (readyFile.isFile && (!vr || (vrReady && !vrFailed))) {
+                if (!vr) {
                     PixelCopy.request(gameSurface, preview, { result ->
                         if (!running) return@request
                         if (result == PixelCopy.SUCCESS && hasVisiblePixels()) {
@@ -111,9 +120,17 @@ internal class GameLoadingView(context: Context, private val readyFile: File,
                 val bytes = ByteArray((file.length() - offset).toInt())
                 file.readFully(bytes)
                 offset = file.filePointer
-                val lines = String(bytes, Charsets.UTF_8).replace(Regex("\\u001B\\[[;\\d]*m"), "")
-                    .lineSequence().filter { it.isNotBlank() }.toList()
+                val text = (partialLine + String(bytes, Charsets.UTF_8))
+                    .replace(Regex("\\u001B\\[[;\\d]*m"), "")
+                val completeLines = text.split('\n')
+                partialLine = completeLines.last().takeLast(250)
+                val lines = completeLines.dropLast(1).filter { it.isNotBlank() }
                 for (line in lines) {
+                    if (line.contains("New VR render config:"))
+                        vrConfiguredAt = SystemClock.elapsedRealtime()
+                    if (line.contains("Vivecraft: OpenXR initialized & VR connected"))
+                        vrConnectedAt = SystemClock.elapsedRealtime()
+                    if (line.contains("Vivecraft: Failed to initialize VR:")) vrFailed = true
                     recent.addLast(line.take(250))
                     while (recent.size > 60) recent.removeFirst()
                 }

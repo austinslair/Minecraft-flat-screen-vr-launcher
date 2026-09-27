@@ -210,7 +210,7 @@ jobs:
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='21'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='22'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -230,18 +230,18 @@ jobs:
           if-no-files-found: error
 
       - name: Publish VoxyQuest GitHub release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.21'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.22'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.21
+          TAG: v0.1.0-alpha.22
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.21 test build for Meta Quest.
+          VoxyQuest alpha.22 test build for Meta Quest.
 
-          This APK caches verified Vivecraft OpenXR patch checks across launches and records launch stage timings for all versions. It includes NeoForge 1.21.5, Fabric/Vivecraft, and flatscreen controls. It uses Android version code 21 and the existing alpha signing key. Mods, player settings, and resolution are unchanged.
+          This APK keeps the live launch log visible until Vivecraft configures VR rendering, while preserving the flat mode first-frame handoff. It includes the previous startup timing and cache fixes, and uses Android version code 22 with the existing alpha signing key. Mods, player settings, and resolution are unchanged.
 
           Built from commit: $GITHUB_SHA
 
@@ -252,7 +252,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.21" \
+              --title "VoxyQuest v0.1.0-alpha.22" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"

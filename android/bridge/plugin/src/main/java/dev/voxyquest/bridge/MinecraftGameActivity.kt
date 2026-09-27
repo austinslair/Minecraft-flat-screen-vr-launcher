@@ -71,9 +71,9 @@ open class MinecraftGameActivity : Activity() {
         frame.addView(surface, FrameLayout.LayoutParams(-1, -1))
         val readyFile = File(filesDir, "minecraft-first-frame")
         readyFile.delete() // Never accept a frame marker left by a previous launch.
-        val loading = GameLoadingView(this, readyFile, surface, !vr) {
+        val loading = GameLoadingView(this, readyFile, surface, vr) {
             Logger.getInstance().appendToLog(
-                "VoxyQuest launch: first frame after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
+                "VoxyQuest launch: ${if (vr) "VR renderer handoff" else "first visible frame"} after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
             )
             loadingView?.let { frame.removeView(it) }
             loadingView = null
@@ -81,6 +81,7 @@ open class MinecraftGameActivity : Activity() {
         }
         loadingView = loading
         frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
+        frame.bringChildToFront(loading)
         setContentView(frame)
         surface.requestFocus()
     }
