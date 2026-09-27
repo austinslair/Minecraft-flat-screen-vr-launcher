@@ -1195,8 +1195,10 @@ func _render_mods_page() -> void:
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
-	var actions := HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 12)
+	var actions := GridContainer.new()
+	actions.columns = 2
+	actions.add_theme_constant_override("h_separation", 12)
+	actions.add_theme_constant_override("v_separation", 12)
 	collection.add_child(actions)
 	actions.add_child(_make_button("Import JAR", _add_mod, true))
 	mod_toggle_button = _make_button("Disable selected", _toggle_selected_mod)
