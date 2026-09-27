@@ -79,6 +79,43 @@ jobs:
           unzip -Z1 "$ASSETS/minecraft-extra.jar" | grep -Fx 'assets/.mcassetsroot'
           unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
 
+          # Each additional Minecraft version needs its own processed client and
+          # profile. Keep them isolated so the NeoForge locator cannot load the
+          # wrong game classes when instances switch versions.
+          for spec in "1.21.4:21.4.150" "1.21.1:21.1.220"; do
+            MC_VERSION="${spec%%:*}"
+            NEO_VERSION="${spec#*:}"
+            VERSION_ASSETS="$ASSETS/$MC_VERSION"
+            CLIENT_DIR="$RUNNER_TEMP/neoforge-client-$MC_VERSION"
+            mkdir -p "$VERSION_ASSETS" "$CLIENT_DIR"
+            printf '{"profiles":{}}' > "$CLIENT_DIR/launcher_profiles.json"
+            curl -fsSL --retry 3 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-installer.jar" -o "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar"
+            java -jar "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar" --installClient "$CLIENT_DIR"
+            cp "$CLIENT_DIR/versions/neoforge-$NEO_VERSION/neoforge-$NEO_VERSION.json" "$VERSION_ASSETS/version.json"
+            cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-client.jar" "$VERSION_ASSETS/client.jar"
+            cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-universal.jar" "$VERSION_ASSETS/universal.jar"
+            MC_LIB=$(find "$CLIENT_DIR/libraries/net/minecraft/client" -mindepth 1 -maxdepth 1 -type d -name "$MC_VERSION-*" -print -quit)
+            test -n "$MC_LIB"
+            cp "$MC_LIB"/client-*-srg.jar "$VERSION_ASSETS/minecraft-srg.jar"
+            cp "$MC_LIB"/client-*-extra.jar "$VERSION_ASSETS/minecraft-extra.jar"
+            unzip -Z1 "$VERSION_ASSETS/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
+            unzip -Z1 "$VERSION_ASSETS/minecraft-extra.jar" | grep -Fx 'assets/.mcassetsroot'
+            unzip -Z1 "$VERSION_ASSETS/universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("third_party/Pojlib/src/main/assets/voxyquest/neoforge")
+          for version, loader in (("1.21.5", "21.5.2-beta"), ("1.21.4", "21.4.150"), ("1.21.1", "21.1.220")):
+              profile = root / ("" if version == "1.21.5" else version) / "version.json"
+              data = json.loads(profile.read_text())
+              assert data["id"] == f"neoforge-{loader}", profile
+              game = data["arguments"]["game"]
+              assert game[game.index("--fml.mcVersion") + 1] == version, profile
+              assert isinstance(game[game.index("--fml.neoFormVersion") + 1], str), profile
+              assert all(isinstance(arg, str) for key in ("jvm", "game") for arg in data["arguments"][key]), profile
+          PY
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -204,13 +241,18 @@ jobs:
           grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-srg.jar'
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-extra.jar'
+          for version in 1.21.4 1.21.1; do
+            for asset in version.json client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
+              unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/neoforge/$version/$asset"
+            done
+          done
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/lwjgl/lwjgl-neoforge-classes.jar'
 
       - name: Verify complete update APK
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='22'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='23'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -230,18 +272,18 @@ jobs:
           if-no-files-found: error
 
       - name: Publish VoxyQuest GitHub release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.22'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.23'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.22
+          TAG: v0.1.0-alpha.23
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.22 test build for Meta Quest.
+          VoxyQuest alpha.23 test build for Meta Quest.
 
-          This APK keeps the live launch log visible until Vivecraft configures VR rendering, while preserving the flat mode first-frame handoff. It includes the previous startup timing and cache fixes, and uses Android version code 22 with the existing alpha signing key. Mods, player settings, and resolution are unchanged.
+          This APK adds flatscreen NeoForge 1.21.4 and 1.21.1 instances with isolated mod folders and a reversible mod toggle. NeoForge 1.21.5 keeps its VR Vivecraft build and releases the Android mirror after OpenXR starts to reduce frame stalls. It uses Android version code 23 with the existing alpha signing key. Player settings and resolution are unchanged.
 
           Built from commit: $GITHUB_SHA
 
@@ -252,7 +294,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.22" \
+              --title "VoxyQuest v0.1.0-alpha.23" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"

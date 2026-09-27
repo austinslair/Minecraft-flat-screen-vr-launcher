@@ -229,11 +229,13 @@ object LauncherOperations {
         val profiles = JSONArray()
         if (modsDirectory.isDirectory) {
             modsDirectory.listFiles()
-                ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+                ?.filter { it.isFile && (it.name.endsWith(".jar", true) ||
+                    (instance.loaderId() == "neoforge" && it.name.endsWith(".jar.disabled", true))) }
                 ?.sortedBy { it.name.lowercase(Locale.ROOT) }
                 ?.forEach { file ->
                     mods.put(file.name)
                     val profile = JSONObject().put("filename", file.name)
+                        .put("enabled", file.name.endsWith(".jar", true))
                     runCatching {
                         JarFile(file).use { jar ->
                             val entry = jar.getJarEntry(if (instance.loaderId() == "neoforge")
@@ -266,6 +268,32 @@ object LauncherOperations {
     }.getOrElse {
         JSONObject().put("available", false).put("mods", JSONArray())
             .put("error", "Could not read instance mods").toString()
+    }
+
+    @Synchronized
+    fun setNeoForgeModEnabled(name: String, filename: String, enabled: Boolean): String {
+        if (isBusy() || MinecraftGameActivity.isRunning) return "Stop Minecraft before changing mods."
+        if (!filename.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar(\\.disabled)?", RegexOption.IGNORE_CASE)))
+            return "Invalid mod filename."
+        val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+            ?: return "Instance no longer exists."
+        if (instance.loaderId() != "neoforge") return "Select a NeoForge instance."
+        if (filename.equals("Vivecraft.jar", true) || filename.equals("Vivecraft.jar.disabled", true))
+            return "Vivecraft is required for this VR instance."
+        val root = File(Constants.USER_HOME, "instances").canonicalFile
+        val game = File(instance.gameDir ?: return "Instance has no folder.").canonicalFile
+        if (game == root || !game.toPath().startsWith(root.toPath())) return "Invalid instance folder."
+        val mods = File(game, "mods").canonicalFile
+        if (mods.parentFile != game) return "Invalid mods folder."
+        val source = File(mods, filename)
+        if (!source.isFile) return "Mod file no longer exists."
+        if (enabled == filename.endsWith(".jar", true))
+            return "Mod is already ${if (enabled) "enabled" else "disabled"}."
+        val targetName = if (enabled) filename.dropLast(".disabled".length) else "$filename.disabled"
+        val target = File(mods, targetName)
+        if (target.exists()) return "A mod with that filename already exists."
+        Files.move(source.toPath(), target.toPath())
+        return "${if (enabled) "Enabled" else "Disabled"} $targetName. Restart Minecraft to apply."
     }
 
     @Synchronized

@@ -306,6 +306,11 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
+    fun setNeoForgeModEnabled(name: String, filename: String, enabled: Boolean): String =
+        runCatching { LauncherOperations.setNeoForgeModEnabled(name, filename, enabled) }
+            .getOrElse { it.message ?: "Could not change the mod." }
+
+    @UsedByGodot
     fun getModrinthSnapshotJson(): String = LauncherOperations.modrinthSnapshot()
 
     @UsedByGodot
@@ -344,6 +349,8 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
                 ?: return false
             if (!VoxyQuestInstaller.isInstalled(instance)) return false
+            if (vr && instance.loaderId() == "neoforge" &&
+                !VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) return false
             val intent = Intent(
                 host,
                 if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,

@@ -57,6 +57,8 @@ var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
+var mod_toggle_button: Button
+var displayed_mods: Array = []
 var modrinth_search: LineEdit
 var modrinth_search_button: Button
 var modrinth_sort: OptionButton
@@ -545,6 +547,8 @@ func _clear_workspace() -> void:
 	install_status = null
 	mods_list = null
 	mods_status = null
+	mod_toggle_button = null
+	displayed_mods.clear()
 	modrinth_search = null
 	modrinth_search_button = null
 	modrinth_sort = null
@@ -739,10 +743,11 @@ func _selected_instance() -> Dictionary:
 
 func _update_play() -> void:
 	var selected := _selected_instance()
-	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false)))
+	var vr_unavailable := play_mode == "vr" and str(selected.get("loader", "fabric")) == "neoforge" and str(selected.get("version", "")) != "1.21.5"
+	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false))) or vr_unavailable
 	$Play.modulate = Color.WHITE
-	$Play.tooltip_text = "Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR")
-	$PlaybarCaption.text = "INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else ("REPAIR REQUIRED" if not bool(selected.get("installed", false)) else "READY TO PLAY")))
+	$Play.tooltip_text = "Use Flatscreen for this NeoForge version; VR is available on 1.21.5." if vr_unavailable else ("Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR"))
+	$PlaybarCaption.text = "SELECT FLATSCREEN" if vr_unavailable else ("INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else ("REPAIR REQUIRED" if not bool(selected.get("installed", false)) else "READY TO PLAY"))))
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 	if is_instance_valid(library_launch_button):
 		library_launch_button.disabled = $Play.disabled
@@ -863,7 +868,7 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(tools, "Create an instance", "Fabric includes Fabric API; NeoForge 1.21.5 includes a matching Vivecraft OpenXR build.")
+	var installer := _page_card(tools, "Create an instance", "NeoForge 1.21.5 supports VR; 1.21.4 and 1.21.1 support flatscreen and their matching NeoForge mods.")
 
 	var install_row := VBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)
@@ -904,7 +909,7 @@ func _on_install_loader_selected(index: int) -> void:
 	if not is_instance_valid(install_version):
 		return
 	install_version.clear()
-	var versions: Array = ["1.21.5"] if index == 1 else runtime.get_install_versions()
+	var versions: Array = runtime.get_neoforge_versions() if index == 1 else runtime.get_install_versions()
 	for version in versions:
 		install_version.add_item(str(version))
 	if install_version.item_count > 0:
@@ -1174,6 +1179,7 @@ func _render_mods_page() -> void:
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 18)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
+	mods_list.item_selected.connect(_on_installed_mod_selected)
 	collection.add_child(mods_list)
 	mods_status = _make_label("", 15, true)
 	collection.add_child(mods_status)
@@ -1181,6 +1187,10 @@ func _render_mods_page() -> void:
 	actions.add_theme_constant_override("separation", 12)
 	collection.add_child(actions)
 	actions.add_child(_make_button("Import JAR", _add_mod, true))
+	if str(selected.get("loader", "fabric")) == "neoforge":
+		mod_toggle_button = _make_button("Disable selected", _toggle_selected_neoforge_mod)
+		mod_toggle_button.disabled = true
+		actions.add_child(mod_toggle_button)
 	actions.add_child(_make_button("Refresh", _refresh_mods_page))
 	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
 	_refresh_mods_page()
@@ -1310,6 +1320,9 @@ func _refresh_mods_page() -> void:
 	if not is_instance_valid(mods_list):
 		return
 	mods_list.clear()
+	displayed_mods.clear()
+	if is_instance_valid(mod_toggle_button):
+		mod_toggle_button.disabled = true
 	var snapshot: Dictionary = runtime.get_instance_mods(selected_name)
 	var error := str(snapshot.get("error", ""))
 	var mods: Array = snapshot.get("mods", [])
@@ -1324,19 +1337,39 @@ func _refresh_mods_page() -> void:
 		var title := str(profile.get("title", mod_name))
 		var version := str(profile.get("version", ""))
 		var description := str(profile.get("description", ""))
+		var enabled := bool(profile.get("enabled", true))
 		if is_instance_valid(installed_mod_search) and not installed_mod_search.text.is_empty() and \
 			installed_mod_search.text.to_lower() not in (title + " " + mod_name + " " + description).to_lower():
 			continue
-		entries.append({"title": title, "filename": mod_name, "version": version, "description": description})
+		entries.append({"title": title, "filename": mod_name, "version": version, "description": description, "enabled": enabled})
 	entries.sort_custom(func(a: Dictionary, b: Dictionary):
 		return str(a.title).nocasecmp_to(str(b.title)) < 0
 	)
 	if is_instance_valid(installed_mod_sort) and installed_mod_sort.selected == 1:
 		entries.reverse()
 	for entry in entries:
-		mods_list.add_item("%s  %s\n%s" % [entry.title, entry.version, str(entry.description).left(85)])
+		displayed_mods.append(entry)
+		mods_list.add_item("%s%s  %s\n%s" % ["" if entry.enabled else "[Disabled] ", entry.title, entry.version, str(entry.description).left(85)])
 		mods_list.set_item_tooltip(mods_list.item_count - 1, "%s\n%s" % [entry.description, entry.filename])
 	mods_status.text = "%d of %d mod file(s) shown." % [entries.size(), mods.size()] if not mods.is_empty() else "No mod JARs found in this instance."
+
+func _on_installed_mod_selected(index: int) -> void:
+	if not is_instance_valid(mod_toggle_button) or index < 0 or index >= displayed_mods.size():
+		return
+	var entry: Dictionary = displayed_mods[index]
+	mod_toggle_button.disabled = str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled"]
+	mod_toggle_button.text = "Disable selected" if bool(entry.enabled) else "Enable selected"
+
+func _toggle_selected_neoforge_mod() -> void:
+	if not is_instance_valid(mods_list):
+		return
+	var selected_items := mods_list.get_selected_items()
+	if selected_items.is_empty() or selected_items[0] >= displayed_mods.size():
+		return
+	var entry: Dictionary = displayed_mods[selected_items[0]]
+	var result := runtime.set_neoforge_mod_enabled(selected_name, str(entry.filename), not bool(entry.enabled))
+	_refresh_mods_page()
+	mods_status.text = result
 
 func _render_accounts_page() -> void:
 	_clear_workspace()

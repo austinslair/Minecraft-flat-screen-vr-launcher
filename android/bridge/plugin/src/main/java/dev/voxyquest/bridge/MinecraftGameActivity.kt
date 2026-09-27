@@ -72,6 +72,12 @@ open class MinecraftGameActivity : Activity() {
         val readyFile = File(filesDir, "minecraft-first-frame")
         readyFile.delete() // Never accept a frame marker left by a previous launch.
         val loading = GameLoadingView(this, readyFile, surface, vr) {
+            if (vr) {
+                // Vivecraft now owns headset presentation. The EGL bridge moves
+                // this context to a pbuffer on its next render-thread swap, so
+                // the Android mirror cannot pace either OpenXR eye.
+                pojlib.util.FlatDisplay.detachNative()
+            }
             Logger.getInstance().appendToLog(
                 "VoxyQuest launch: ${if (vr) "VR renderer handoff" else "first visible frame"} after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
             )
@@ -114,6 +120,10 @@ open class MinecraftGameActivity : Activity() {
                 val registry = VoxyQuestInstaller.readRegistry()
                 val instance = registry.toArray().firstOrNull { it.instanceName == name }
                     ?: error("Instance no longer exists")
+                if (vr && instance.loaderId() == "neoforge" &&
+                    !VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
+                    error("VR is available for NeoForge 1.21.5. Choose Flatscreen for ${instance.versionName}.")
+                }
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
                 Logger.getInstance().appendToLog(
@@ -135,7 +145,10 @@ open class MinecraftGameActivity : Activity() {
                         "VoxyQuest launch: applied Vivecraft OpenXR compatibility fixes",
                     )
                 }
-                MinecraftInstances.configurePlayMode(instance, vr)
+                if (instance.loaderId() != "neoforge" ||
+                    VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
+                    MinecraftInstances.configurePlayMode(instance, vr)
+                }
                 API.currentInstance = instance
                 API.gameReady = false
                 configureJvmMemory()

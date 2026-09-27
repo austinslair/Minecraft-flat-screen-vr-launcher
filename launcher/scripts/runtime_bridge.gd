@@ -12,6 +12,7 @@ const BUNDLED_INSTALL_VERSIONS := [
 	"1.19.4",
 	"1.19.2",
 ]
+const NEOFORGE_INSTALL_VERSIONS := ["1.21.5", "1.21.4", "1.21.1"]
 
 var _plugin: Object = null
 var _install_request_error := ""
@@ -177,6 +178,9 @@ func get_install_versions() -> Array:
 	# installer usable if the Android bridge returns an empty catalog response.
 	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
+func get_neoforge_versions() -> Array:
+	return NEOFORGE_INSTALL_VERSIONS.duplicate()
+
 func install_instance(instance_name: String, version: String, loader: String = "fabric") -> bool:
 	var plugin: Object = _refresh_plugin()
 	_install_request_error = ""
@@ -222,6 +226,12 @@ func get_instance_mods(instance_name: String) -> Dictionary:
 	if not parsed is Dictionary or not parsed.get("mods", null) is Array:
 		return {"available": true, "mods": [], "error": "Invalid mods response"}
 	return parsed
+
+func set_neoforge_mod_enabled(instance_name: String, filename: String, enabled: bool) -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"setNeoForgeModEnabled"):
+		return "Update the Android runtime to manage NeoForge mods."
+	return str(plugin.setNeoForgeModEnabled(instance_name, filename, enabled))
 
 func launch_minecraft_vr(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
