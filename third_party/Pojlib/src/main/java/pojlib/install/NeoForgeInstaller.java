@@ -19,24 +19,25 @@ import pojlib.util.download.DownloadUtils;
 import pojlib.util.json.MinecraftInstances;
 import pojlib.util.json.ProjectInfo;
 
-/** Installs packaged NeoForge clients, with the Quest OpenXR build on 1.21.5. */
+/** Installs packaged NeoForge clients and their matching Quest OpenXR builds. */
 final class NeoForgeInstaller {
-    static final String VERSION = "1.21.5";
     private static final String ASSET_ROOT = "voxyquest/neoforge/";
     private static final Bundle[] BUNDLES = {
-            new Bundle("1.21.5", "21.5.2-beta", ASSET_ROOT, true),
-            new Bundle("1.21.4", "21.4.150", ASSET_ROOT + "1.21.4/", false),
-            new Bundle("1.21.1", "21.1.220", ASSET_ROOT + "1.21.1/", false)
+            new Bundle("1.21.5", "21.5.2-beta", ASSET_ROOT, "1.3.4"),
+            new Bundle("1.21.4", "21.4.150", ASSET_ROOT + "1.21.4/", "1.2.5"),
+            new Bundle("1.21.1", "21.1.220", ASSET_ROOT + "1.21.1/", "1.2.5")
     };
 
     private static final class Bundle {
         final String version, loader, assets;
         final boolean vr;
-        Bundle(String version, String loader, String assets, boolean vr) {
+        final String vivecraftVersion;
+        Bundle(String version, String loader, String assets, String vivecraftVersion) {
             this.version = version;
             this.loader = loader;
             this.assets = assets;
-            this.vr = vr;
+            this.vr = vivecraftVersion != null;
+            this.vivecraftVersion = vivecraftVersion;
         }
     }
 
@@ -54,6 +55,12 @@ final class NeoForgeInstaller {
 
     static boolean supportsVr(String version) {
         return bundle(version).vr;
+    }
+
+    static String vivecraftAsset(String version) {
+        Bundle selected = bundle(version);
+        if (!selected.vr) throw new IllegalArgumentException("No NeoForge VR build for " + version);
+        return selected.assets + "vivecraft.jar";
     }
 
     private static Bundle bundle(String version) {
@@ -158,7 +165,7 @@ final class NeoForgeInstaller {
             ProjectInfo project = new ProjectInfo();
             project.slug = "Vivecraft";
             project.type = "mod";
-            project.version = version + "-1.3.4-neoforge";
+            project.version = version + "-" + bundle.vivecraftVersion + "-neoforge";
             instance.extProjects = new ProjectInfo[] {project};
         } else {
             instance.extProjects = new ProjectInfo[0];

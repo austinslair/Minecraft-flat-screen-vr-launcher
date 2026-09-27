@@ -68,6 +68,20 @@ jobs:
           ref: 612a11ca6a30791cae34d410328bc75d08246970
           path: quest-vivecraft-openxr
 
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: 60ffc92889fed3d1a92127b1b66516dd2354bbeb
+          path: quest-vivecraft-openxr-1.21.4
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: 29599bbd50aa61d9408c5bc80299e1a7a406d7c4
+          path: quest-vivecraft-openxr-1.21.1
+
       - name: Prepare NeoForge VR runtime
         if: steps.neoforge-bundles.outputs.cache-hit != 'true'
         run: |
@@ -78,6 +92,14 @@ jobs:
           ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
           mkdir -p "$ASSETS" "$RUNNER_TEMP/neoforge-client"
           cp quest-vivecraft-openxr/neoforge/build/libs/vivecraft-1.21.5-1.3.4-neoforge.jar "$ASSETS/vivecraft.jar"
+          for MC_VERSION in 1.21.4 1.21.1; do
+            cd "quest-vivecraft-openxr-$MC_VERSION"
+            sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
+            bash ./gradlew :neoforge:remapJar --no-daemon
+            cd ..
+            mkdir -p "$ASSETS/$MC_VERSION"
+            cp "quest-vivecraft-openxr-$MC_VERSION/neoforge/build/libs/vivecraft-$MC_VERSION-1.2.5-neoforge.jar" "$ASSETS/$MC_VERSION/vivecraft.jar"
+          done
           curl -fsSL --retry 3 https://maven.neoforged.net/releases/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-installer.jar -o "$RUNNER_TEMP/neoforge-installer.jar"
           printf '{"profiles":{}}' > "$RUNNER_TEMP/neoforge-client/launcher_profiles.json"
           java -jar "$RUNNER_TEMP/neoforge-installer.jar" --installClient "$RUNNER_TEMP/neoforge-client"
@@ -139,8 +161,22 @@ jobs:
             done
             unzip -Z1 "$DIR/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
             unzip -Z1 "$DIR/universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+            test -s "$DIR/vivecraft.jar"
           done
-          unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib, zipfile
+          root = Path('third_party/Pojlib/src/main/assets/voxyquest/neoforge')
+          for version in ('1.21.5', '1.21.4', '1.21.1'):
+              jar = root / ('' if version == '1.21.5' else version) / 'vivecraft.jar'
+              with zipfile.ZipFile(jar) as archive:
+                  metadata = tomllib.loads(archive.read('META-INF/neoforge.mods.toml').decode())
+                  assert any(mod['modId'] == 'vivecraft' for mod in metadata['mods']), jar
+                  dependencies = metadata['dependencies']['vivecraft']
+                  assert any(dep['modId'] == 'minecraft' and dep['versionRange'] == f'[{version}]'
+                             for dep in dependencies), jar
+                  assert 'org/vivecraft/client_vr/provider/openxr/MCOpenXR.class' in archive.namelist(), jar
+          PY
 
       - name: Cache prepared NeoForge bundles
         if: steps.neoforge-bundles.outputs.cache-hit != 'true'
@@ -163,6 +199,7 @@ jobs:
             third_party/Pojlib/src/main/assets/lwjgl/lwjgl-neoforge-classes.jar
           export VOXYQUEST_VIVECRAFT_TEST_JAR="$RUNNER_TEMP/vivecraft-original.jar"
           export VOXYQUEST_NEOFORGE_TEST_JAR="third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar"
+          export VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS="third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.4/vivecraft.jar:third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.1/vivecraft.jar"
           curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
           gradle -p android/bridge :plugin:syncToGodot --no-daemon
           mkdir -p "$RUNNER_TEMP/refresh-tests"

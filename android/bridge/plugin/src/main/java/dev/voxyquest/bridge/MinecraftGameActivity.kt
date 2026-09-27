@@ -122,7 +122,7 @@ open class MinecraftGameActivity : Activity() {
                     ?: error("Instance no longer exists")
                 if (vr && instance.loaderId() == "neoforge" &&
                     !VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
-                    error("VR is available for NeoForge 1.21.5. Choose Flatscreen for ${instance.versionName}.")
+                    error("No packaged NeoForge VR build is available for ${instance.versionName}.")
                 }
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
@@ -137,7 +137,7 @@ open class MinecraftGameActivity : Activity() {
                 if (vr) {
                     val gameDir = java.io.File(instance.gameDir)
                     val patched = if (instance.loaderId() == "neoforge") {
-                        assets.open("voxyquest/neoforge/vivecraft.jar").use { bundled ->
+                        assets.open(VoxyQuestInstaller.neoForgeVivecraftAsset(instance.versionName)).use { bundled ->
                             pojlib.util.VivecraftRefreshRateFix.apply(gameDir, bundled)
                         }
                     } else pojlib.util.VivecraftRefreshRateFix.apply(gameDir)

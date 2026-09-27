@@ -13,7 +13,7 @@ const BUNDLED_INSTALL_VERSIONS := [
 	"1.19.2",
 ]
 const NEOFORGE_INSTALL_VERSIONS := ["1.21.5", "1.21.4", "1.21.1"]
-const NEOFORGE_VR_VERSIONS := ["1.21.5"]
+const NEOFORGE_VR_VERSIONS := ["1.21.5", "1.21.4", "1.21.1"]
 
 var _plugin: Object = null
 var _install_request_error := ""

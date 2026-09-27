@@ -164,4 +164,40 @@ public class VivecraftRefreshRateFixTest {
             });
         }
     }
+
+    @Test public void olderNeoForgeOpenXrBuildsPatchRefreshOnly() throws Exception {
+        String sources = System.getenv("VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS");
+        org.junit.Assume.assumeTrue(sources != null && !sources.isEmpty());
+        for (String source : sources.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+            Path game = Files.createTempDirectory("vivecraft-older-neoforge-test");
+            try {
+                Path jar = game.resolve("mods/Vivecraft.jar");
+                Files.createDirectories(jar.getParent());
+                Files.copy(Paths.get(source), jar);
+                byte[] textureBefore, refreshBefore;
+                try (java.util.zip.ZipFile original = new java.util.zip.ZipFile(source)) {
+                    textureBefore = original.getInputStream(original.getEntry(VivecraftRefreshRateFix.TEXTURE_CLASS)).readAllBytes();
+                    refreshBefore = original.getInputStream(original.getEntry(VivecraftRefreshRateFix.CLASS)).readAllBytes();
+                }
+                try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+                    assertTrue(source, VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+                }
+                try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+                    assertFalse(source, VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+                }
+                try (java.util.zip.ZipFile patched = new java.util.zip.ZipFile(jar.toFile())) {
+                    assertArrayEquals(source, textureBefore,
+                            patched.getInputStream(patched.getEntry(VivecraftRefreshRateFix.TEXTURE_CLASS)).readAllBytes());
+                    assertArrayEquals(source, VivecraftRefreshRateFix.patchClass(refreshBefore),
+                            patched.getInputStream(patched.getEntry(VivecraftRefreshRateFix.CLASS)).readAllBytes());
+                }
+            } finally {
+                try (java.util.stream.Stream<Path> paths = Files.walk(game)) {
+                    paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                        try { Files.delete(path); } catch (IOException e) { throw new RuntimeException(e); }
+                    });
+                }
+            }
+        }
+    }
 }

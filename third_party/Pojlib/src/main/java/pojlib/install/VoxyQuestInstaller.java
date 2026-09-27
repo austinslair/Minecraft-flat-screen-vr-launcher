@@ -50,6 +50,10 @@ public final class VoxyQuestInstaller {
         return NeoForgeInstaller.vrVersions();
     }
 
+    public static String neoForgeVivecraftAsset(String version) {
+        return NeoForgeInstaller.vivecraftAsset(version);
+    }
+
     public static ModsJson catalog(Activity activity) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(
                 activity.getAssets().open("voxyquest/runtime_mods.json"), StandardCharsets.UTF_8)) {
@@ -270,7 +274,7 @@ public final class VoxyQuestInstaller {
             if (path.isEmpty() || !new File(path).isFile()) return false;
         }
         if (("fabric".equals(instance.loaderId()) ||
-                ("neoforge".equals(instance.loaderId()) && NeoForgeInstaller.VERSION.equals(instance.versionName))) &&
+                ("neoforge".equals(instance.loaderId()) && NeoForgeInstaller.supportsVr(instance.versionName))) &&
                 !new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
         if ("fabric".equals(instance.loaderId()) && !new File(instance.gameDir, "mods/Fabric-API.jar").isFile()) return false;
         if (instance.assetsDir == null || !new File(instance.assetsDir).isDirectory()) return false;

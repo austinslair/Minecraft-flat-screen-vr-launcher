@@ -49,9 +49,9 @@ public final class VivecraftRefreshRateFix {
         String originalSha = sha256(jar);
         int neoForgeState = bundledNeoForge == null ? 0 : bundledNeoForgeState(jar, bundledNeoForge);
         if (!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) return false;
-        boolean patchRefresh = neoForgeState != 2;
-        boolean patchTexture = neoForgeState != 0;
-        if (neoForgeState == 3) {
+        boolean patchRefresh = neoForgeState != 2 && neoForgeState != 5;
+        boolean patchTexture = neoForgeState == 1 || neoForgeState == 2;
+        if (neoForgeState == 3 || neoForgeState == 5) {
             rememberVerified(stamp, jar);
             return false;
         }
@@ -161,7 +161,8 @@ public final class VivecraftRefreshRateFix {
         return writer.toByteArray();
     }
 
-    // 0: unknown, 1: original, 2: refresh already fixed, 3: both fixes already applied.
+    // 0: unknown, 1: original, 2: refresh fixed, 3: both fixed;
+    // 4/5: older renderer with original/fixed refresh and no swapchain allocation call.
     private static int bundledNeoForgeState(File installed, InputStream bundled) throws IOException {
         try (ZipFile source = new ZipFile(installed);
              ZipInputStream asset = new ZipInputStream(bundled)) {
@@ -189,12 +190,35 @@ public final class VivecraftRefreshRateFix {
             boolean refreshOriginal = Arrays.equals(actualRefresh, refreshBytes);
             boolean refreshPatched = Arrays.equals(actualRefresh, patchClass(refreshBytes));
             boolean textureOriginal = Arrays.equals(actualTexture, textureBytes);
-            boolean texturePatched = Arrays.equals(actualTexture, patchSwapchainClass(textureBytes));
+            boolean hasSwapchainAllocation = hasSwapchainAllocation(textureBytes);
+            boolean texturePatched = hasSwapchainAllocation &&
+                    Arrays.equals(actualTexture, patchSwapchainClass(textureBytes));
+            if (!hasSwapchainAllocation && textureOriginal) {
+                if (refreshOriginal) return 4;
+                if (refreshPatched) return 5;
+            }
             if (refreshOriginal && textureOriginal) return 1;
             if (refreshPatched && textureOriginal) return 2;
             if (refreshPatched && texturePatched) return 3;
             return 0;
         }
+    }
+
+    private static boolean hasSwapchainAllocation(byte[] bytes) {
+        boolean[] found = {false};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMethodInsn(int opcode, String owner, String method,
+                            String descriptor, boolean isInterface) {
+                        if (owner.equals("org/vivecraft/client/extensions/GlDeviceExtension") &&
+                                method.equals("vivecraft$createFixedIdTexture")) found[0] = true;
+                    }
+                };
+            }
+        }, 0);
+        return found[0];
     }
 
     private static String sha256(File file) throws IOException {
