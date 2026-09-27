@@ -743,7 +743,7 @@ func _selected_instance() -> Dictionary:
 
 func _update_play() -> void:
 	var selected := _selected_instance()
-	var vr_unavailable := play_mode == "vr" and str(selected.get("loader", "fabric")) == "neoforge" and not runtime.get_neoforge_vr_versions().has(str(selected.get("version", "")))
+	var vr_unavailable: bool = play_mode == "vr" and str(selected.get("loader", "fabric")) == "neoforge" and not runtime.get_neoforge_vr_versions().has(str(selected.get("version", "")))
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false))) or vr_unavailable
 	$Play.modulate = Color.WHITE
 	$Play.tooltip_text = "A matching Quest OpenXR Vivecraft build is needed for this NeoForge version. Choose Flatscreen." if vr_unavailable else ("Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR"))
