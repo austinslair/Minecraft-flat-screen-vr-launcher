@@ -26,6 +26,7 @@ open class MinecraftGameActivity : Activity() {
     }
 
     private var started = false
+    private var launchStartedAt = 0L
     protected lateinit var gameSurface: SurfaceView
         private set
     private var loadingView: GameLoadingView? = null
@@ -71,6 +72,9 @@ open class MinecraftGameActivity : Activity() {
         val readyFile = File(filesDir, "minecraft-first-frame")
         readyFile.delete() // Never accept a frame marker left by a previous launch.
         val loading = GameLoadingView(this, readyFile, surface, !vr) {
+            Logger.getInstance().appendToLog(
+                "VoxyQuest launch: first frame after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
+            )
             loadingView?.let { frame.removeView(it) }
             loadingView = null
             surface.requestFocus()
@@ -101,6 +105,7 @@ open class MinecraftGameActivity : Activity() {
     private fun startGame(name: String, vr: Boolean) {
         if (started) return
         started = true
+        launchStartedAt = android.os.SystemClock.elapsedRealtime()
         Thread({
             try {
                 Logger.getInstance().appendToLog("VoxyQuest launch: initializing runtime")
@@ -110,6 +115,9 @@ open class MinecraftGameActivity : Activity() {
                     ?: error("Instance no longer exists")
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
+                Logger.getInstance().appendToLog(
+                    "VoxyQuest launch: runtime checked after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
+                )
                 if (instance.loaderId() == "neoforge") {
                     Logger.getInstance().appendToLog("VoxyQuest launch: NeoForge game libraries ready")
                 }
@@ -144,6 +152,9 @@ open class MinecraftGameActivity : Activity() {
                     Logger.getInstance().appendToLog("VoxyQuest launch: OpenXR configuration ready")
                 }
                 Logger.getInstance().appendToLog("VoxyQuest launch: starting Java VM")
+                Logger.getInstance().appendToLog(
+                    "VoxyQuest launch: Java entry after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
+                )
                 // Minecraft's render loop runs on this launch thread. Let it
                 // compete with Android UI work at display priority in both modes.
                 val threadId = android.os.Process.myTid()

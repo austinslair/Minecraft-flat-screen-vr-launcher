@@ -122,6 +122,12 @@ public class VivecraftRefreshRateFixTest {
         try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
             assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
         }
+        Path stamp = game.resolve("voxyquest-backups/vivecraft-openxr-v2.stamp");
+        assertTrue(Files.isRegularFile(stamp));
+        Files.writeString(stamp, "damaged cache");
+        try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
+            assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
+        }
         try (java.util.zip.ZipFile patched = new java.util.zip.ZipFile(jar.toFile())) {
             assertNotNull(patched.getEntry("META-INF/neoforge.mods.toml"));
             byte[] target = patched.getInputStream(patched.getEntry(VivecraftRefreshRateFix.TEXTURE_CLASS)).readAllBytes();
@@ -144,6 +150,8 @@ public class VivecraftRefreshRateFixTest {
                 old.closeEntry();
             }
         }
+        Files.setLastModifiedTime(jar, java.nio.file.attribute.FileTime.fromMillis(
+                System.currentTimeMillis() + 2000));
         try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
             assertTrue(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
         }

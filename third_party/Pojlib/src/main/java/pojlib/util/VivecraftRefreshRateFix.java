@@ -36,12 +36,24 @@ public final class VivecraftRefreshRateFix {
     public static boolean apply(File gameDir, InputStream bundledNeoForge) throws IOException {
         File jar = new File(gameDir, "mods/Vivecraft.jar");
         if (!jar.isFile()) return false;
+        // A verified patch stays valid until the JAR changes. Avoid hashing the
+        // whole archive and inflating the bundled NeoForge archive on each launch.
+        File stamp = new File(gameDir, "voxyquest-backups/vivecraft-openxr-v2.stamp");
+        String identity = jar.length() + ":" + jar.lastModified();
+        try {
+            if (stamp.isFile() && identity.equals(Files.readString(stamp.toPath()))) return false;
+        } catch (IOException ignored) {
+            // A damaged cache must not stop game startup.
+        }
         String originalSha = sha256(jar);
         int neoForgeState = bundledNeoForge == null ? 0 : bundledNeoForgeState(jar, bundledNeoForge);
         if (!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) return false;
         boolean patchRefresh = neoForgeState != 2;
         boolean patchTexture = neoForgeState != 0;
-        if (neoForgeState == 3) return false;
+        if (neoForgeState == 3) {
+            rememberVerified(stamp, jar);
+            return false;
+        }
         File temporary = File.createTempFile("vivecraft-refresh-", ".tmp", jar.getParentFile());
         boolean patched = false;
         try {
@@ -77,8 +89,18 @@ public final class VivecraftRefreshRateFix {
             if (!backup.exists()) Files.copy(jar.toPath(), backup.toPath());
             Files.move(temporary.toPath(), jar.toPath(), StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
+            rememberVerified(stamp, jar);
             return true;
         } finally { Files.deleteIfExists(temporary.toPath()); }
+    }
+
+    private static void rememberVerified(File stamp, File jar) {
+        try {
+            Files.createDirectories(stamp.getParentFile().toPath());
+            Files.writeString(stamp.toPath(), jar.length() + ":" + jar.lastModified());
+        } catch (IOException ignored) {
+            // The patch is already verified; a cache write failure only costs a future check.
+        }
     }
 
     static byte[] patchClass(byte[] original) throws IOException {
