@@ -46,6 +46,12 @@ final class NeoForgeInstaller {
         return result;
     }
 
+    static String[] vrVersions() {
+        ArrayList<String> versions = new ArrayList<>();
+        for (Bundle bundle : BUNDLES) if (bundle.vr) versions.add(bundle.version);
+        return versions.toArray(new String[0]);
+    }
+
     static boolean supportsVr(String version) {
         return bundle(version).vr;
     }

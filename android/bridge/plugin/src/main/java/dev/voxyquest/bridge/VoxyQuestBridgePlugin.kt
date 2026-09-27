@@ -267,6 +267,12 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     fun getInstallVersionsJson(): String = activity?.let { LauncherOperations.versions(it) } ?: "[]"
 
     @UsedByGodot
+    fun getNeoForgeVersionsJson(): String = JSONArray(VoxyQuestInstaller.neoForgeVersions()).toString()
+
+    @UsedByGodot
+    fun getNeoForgeVrVersionsJson(): String = JSONArray(VoxyQuestInstaller.neoForgeVrVersions()).toString()
+
+    @UsedByGodot
     fun installInstance(name: String, version: String): Boolean {
         val host = activity ?: return false
         // VoxyQuestInstaller.install() calls PojlibRuntime.ensureInitialized(activity)

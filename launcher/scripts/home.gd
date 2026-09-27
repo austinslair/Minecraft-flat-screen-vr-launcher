@@ -719,7 +719,7 @@ func _refresh_instances() -> void:
 	else:
 		var selected := _selected_instance()
 		$InstanceEmpty.text = selected_name
-		$InstanceDescription.text = "Minecraft %s · %s · Vivecraft" % [str(selected.get("version", "")), _loader_label(selected)]
+		$InstanceDescription.text = "Minecraft %s · %s" % [str(selected.get("version", "")), _loader_label(selected)]
 
 	_update_play()
 	_populate_instance_list()
@@ -743,10 +743,10 @@ func _selected_instance() -> Dictionary:
 
 func _update_play() -> void:
 	var selected := _selected_instance()
-	var vr_unavailable := play_mode == "vr" and str(selected.get("loader", "fabric")) == "neoforge" and str(selected.get("version", "")) != "1.21.5"
+	var vr_unavailable := play_mode == "vr" and str(selected.get("loader", "fabric")) == "neoforge" and not runtime.get_neoforge_vr_versions().has(str(selected.get("version", "")))
 	$Play.disabled = not (signed_in and not install_busy and bool(selected.get("installed", false))) or vr_unavailable
 	$Play.modulate = Color.WHITE
-	$Play.tooltip_text = "Use Flatscreen for this NeoForge version; VR is available on 1.21.5." if vr_unavailable else ("Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR"))
+	$Play.tooltip_text = "A matching Quest OpenXR Vivecraft build is needed for this NeoForge version. Choose Flatscreen." if vr_unavailable else ("Sign in and select a fully installed instance to play." if $Play.disabled else "Play Minecraft (%s)" % ("Flatscreen" if play_mode == "flat" else "VR"))
 	$PlaybarCaption.text = "SELECT FLATSCREEN" if vr_unavailable else ("INSTALLING" if install_busy else ("SIGN IN TO PLAY" if not signed_in else ("CHOOSE AN INSTANCE" if selected.is_empty() else ("REPAIR REQUIRED" if not bool(selected.get("installed", false)) else "READY TO PLAY"))))
 	$QuickEmpty.text = "No version selected" if selected.is_empty() else "Minecraft %s · %s" % [str(selected.get("version", "")), "Flatscreen" if play_mode == "flat" else "VR"]
 	if is_instance_valid(library_launch_button):
@@ -868,7 +868,7 @@ func _render_instances_page() -> void:
 	instance_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_row.add_child(instance_status)
 
-	var installer := _page_card(tools, "Create an instance", "NeoForge 1.21.5 supports VR; 1.21.4 and 1.21.1 support flatscreen and their matching NeoForge mods.")
+	var installer := _page_card(tools, "Create an instance", "Choose Fabric or NeoForge. VR availability follows the packaged OpenXR build for each version.")
 
 	var install_row := VBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 8)

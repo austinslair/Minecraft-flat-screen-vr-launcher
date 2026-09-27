@@ -46,6 +46,10 @@ public final class VoxyQuestInstaller {
         return NeoForgeInstaller.supportsVr(version);
     }
 
+    public static String[] neoForgeVrVersions() {
+        return NeoForgeInstaller.vrVersions();
+    }
+
     public static ModsJson catalog(Activity activity) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(
                 activity.getAssets().open("voxyquest/runtime_mods.json"), StandardCharsets.UTF_8)) {

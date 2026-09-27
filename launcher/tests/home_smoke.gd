@@ -35,6 +35,8 @@ class FakeRuntime extends RefCounted:
 		return ["test"]
 	func get_neoforge_versions() -> Array:
 		return ["1.21.5", "1.21.4", "1.21.1"]
+	func get_neoforge_vr_versions() -> Array:
+		return ["1.21.5"]
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
 	func install_instance(_name: String, _version: String, _loader: String = "fabric") -> bool:
@@ -88,8 +90,14 @@ class FakeRuntime extends RefCounted:
 
 class CatalogPlugin extends RefCounted:
 	var response := "[]"
+	var neoforge_response := "[]"
+	var neoforge_vr_response := "[]"
 	func getInstallVersionsJson() -> String:
 		return response
+	func getNeoForgeVersionsJson() -> String:
+		return neoforge_response
+	func getNeoForgeVrVersionsJson() -> String:
+		return neoforge_vr_response
 
 func _initialize() -> void:
 	call_deferred("run_checks")
@@ -108,6 +116,10 @@ func run_checks() -> void:
 	assert(not bridge.get_install_versions().is_empty())
 	catalog.response = '["1.20.1"]'
 	assert(bridge.get_install_versions() == ["1.20.1"])
+	catalog.neoforge_response = '["1.21.5", "1.21.4", "1.21.1"]'
+	catalog.neoforge_vr_response = '["1.21.5", "1.21.4"]'
+	assert(bridge.get_neoforge_versions().size() == 3)
+	assert(bridge.get_neoforge_vr_versions().has("1.21.4"))
 	var ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await process_frame

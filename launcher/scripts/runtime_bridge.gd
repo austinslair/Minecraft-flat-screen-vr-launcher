@@ -13,6 +13,7 @@ const BUNDLED_INSTALL_VERSIONS := [
 	"1.19.2",
 ]
 const NEOFORGE_INSTALL_VERSIONS := ["1.21.5", "1.21.4", "1.21.1"]
+const NEOFORGE_VR_VERSIONS := ["1.21.5"]
 
 var _plugin: Object = null
 var _install_request_error := ""
@@ -179,7 +180,20 @@ func get_install_versions() -> Array:
 	return BUNDLED_INSTALL_VERSIONS.duplicate()
 
 func get_neoforge_versions() -> Array:
+	var plugin: Object = _refresh_plugin()
+	if _plugin_has_method(plugin, &"getNeoForgeVersionsJson"):
+		var parsed: Variant = JSON.parse_string(str(plugin.getNeoForgeVersionsJson()))
+		if parsed is Array and not parsed.is_empty():
+			return parsed
 	return NEOFORGE_INSTALL_VERSIONS.duplicate()
+
+func get_neoforge_vr_versions() -> Array:
+	var plugin: Object = _refresh_plugin()
+	if _plugin_has_method(plugin, &"getNeoForgeVrVersionsJson"):
+		var parsed: Variant = JSON.parse_string(str(plugin.getNeoForgeVrVersionsJson()))
+		if parsed is Array:
+			return parsed
+	return NEOFORGE_VR_VERSIONS.duplicate()
 
 func install_instance(instance_name: String, version: String, loader: String = "fabric") -> bool:
 	var plugin: Object = _refresh_plugin()
