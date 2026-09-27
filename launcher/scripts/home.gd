@@ -58,6 +58,9 @@ var install_feedback := ""
 var mods_list: ItemList
 var mods_status: Label
 var mod_toggle_button: Button
+var mod_remove_button: Button
+var mod_remove_confirm: ConfirmationDialog
+var pending_mod_remove := ""
 var displayed_mods: Array = []
 var modrinth_search: LineEdit
 var modrinth_search_button: Button
@@ -65,6 +68,7 @@ var modrinth_sort: OptionButton
 var modrinth_category: OptionButton
 var installed_mod_search: LineEdit
 var installed_mod_sort: OptionButton
+var installed_mod_filter: OptionButton
 var modrinth_results: VBoxContainer
 var modrinth_selected := -1
 var modrinth_install_button: Button
@@ -548,6 +552,9 @@ func _clear_workspace() -> void:
 	mods_list = null
 	mods_status = null
 	mod_toggle_button = null
+	mod_remove_button = null
+	installed_mod_filter = null
+	pending_mod_remove = ""
 	displayed_mods.clear()
 	modrinth_search = null
 	modrinth_search_button = null
@@ -1174,6 +1181,11 @@ func _render_mods_page() -> void:
 	installed_mod_sort.add_item("Name Z–A")
 	installed_mod_sort.item_selected.connect(func(_index: int): _refresh_mods_page())
 	collection.add_child(installed_mod_sort)
+	installed_mod_filter = OptionButton.new()
+	for label in ["All mods", "Enabled", "Disabled"]:
+		installed_mod_filter.add_item(label)
+	installed_mod_filter.item_selected.connect(func(_index: int): _refresh_mods_page())
+	collection.add_child(installed_mod_filter)
 	mods_list = ItemList.new()
 	mods_list.custom_minimum_size = Vector2(0, 280)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -1187,12 +1199,20 @@ func _render_mods_page() -> void:
 	actions.add_theme_constant_override("separation", 12)
 	collection.add_child(actions)
 	actions.add_child(_make_button("Import JAR", _add_mod, true))
-	if str(selected.get("loader", "fabric")) == "neoforge":
-		mod_toggle_button = _make_button("Disable selected", _toggle_selected_neoforge_mod)
-		mod_toggle_button.disabled = true
-		actions.add_child(mod_toggle_button)
+	mod_toggle_button = _make_button("Disable selected", _toggle_selected_mod)
+	mod_toggle_button.disabled = true
+	actions.add_child(mod_toggle_button)
+	mod_remove_button = _make_button("Remove selected", _request_remove_mod)
+	mod_remove_button.disabled = true
+	actions.add_child(mod_remove_button)
 	actions.add_child(_make_button("Refresh", _refresh_mods_page))
-	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies.", 15, true))
+	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies. Removed mods are backed up in this instance.", 15, true))
+	if not is_instance_valid(mod_remove_confirm):
+		mod_remove_confirm = ConfirmationDialog.new()
+		mod_remove_confirm.title = "Remove mod"
+		mod_remove_confirm.ok_button_text = "Remove"
+		mod_remove_confirm.confirmed.connect(_confirm_remove_mod)
+		add_child(mod_remove_confirm)
 	_refresh_mods_page()
 	_poll_modrinth()
 
@@ -1323,6 +1343,8 @@ func _refresh_mods_page() -> void:
 	displayed_mods.clear()
 	if is_instance_valid(mod_toggle_button):
 		mod_toggle_button.disabled = true
+	if is_instance_valid(mod_remove_button):
+		mod_remove_button.disabled = true
 	var snapshot: Dictionary = runtime.get_instance_mods(selected_name)
 	var error := str(snapshot.get("error", ""))
 	var mods: Array = snapshot.get("mods", [])
@@ -1338,6 +1360,10 @@ func _refresh_mods_page() -> void:
 		var version := str(profile.get("version", ""))
 		var description := str(profile.get("description", ""))
 		var enabled := bool(profile.get("enabled", true))
+		if is_instance_valid(installed_mod_filter) and installed_mod_filter.selected == 1 and not enabled:
+			continue
+		if is_instance_valid(installed_mod_filter) and installed_mod_filter.selected == 2 and enabled:
+			continue
 		if is_instance_valid(installed_mod_search) and not installed_mod_search.text.is_empty() and \
 			installed_mod_search.text.to_lower() not in (title + " " + mod_name + " " + description).to_lower():
 			continue
@@ -1351,23 +1377,45 @@ func _refresh_mods_page() -> void:
 		displayed_mods.append(entry)
 		mods_list.add_item("%s%s  %s\n%s" % ["" if entry.enabled else "[Disabled] ", entry.title, entry.version, str(entry.description).left(85)])
 		mods_list.set_item_tooltip(mods_list.item_count - 1, "%s\n%s" % [entry.description, entry.filename])
-	mods_status.text = "%d of %d mod file(s) shown." % [entries.size(), mods.size()] if not mods.is_empty() else "No mod JARs found in this instance."
+	var enabled_count := 0
+	for profile in profiles:
+		if profile is Dictionary and bool(profile.get("enabled", true)):
+			enabled_count += 1
+	mods_status.text = "%d shown · %d enabled · %d disabled" % [entries.size(), enabled_count, mods.size() - enabled_count] if not mods.is_empty() else "No mod JARs found in this instance."
 
 func _on_installed_mod_selected(index: int) -> void:
 	if not is_instance_valid(mod_toggle_button) or index < 0 or index >= displayed_mods.size():
 		return
 	var entry: Dictionary = displayed_mods[index]
-	mod_toggle_button.disabled = str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled"]
+	var protected := str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled", "fabric-api.jar", "fabric-api.jar.disabled"]
+	mod_toggle_button.disabled = protected or install_busy
+	mod_remove_button.disabled = protected or install_busy
 	mod_toggle_button.text = "Disable selected" if bool(entry.enabled) else "Enable selected"
 
-func _toggle_selected_neoforge_mod() -> void:
+func _toggle_selected_mod() -> void:
 	if not is_instance_valid(mods_list):
 		return
 	var selected_items := mods_list.get_selected_items()
 	if selected_items.is_empty() or selected_items[0] >= displayed_mods.size():
 		return
 	var entry: Dictionary = displayed_mods[selected_items[0]]
-	var result: String = runtime.set_neoforge_mod_enabled(selected_name, str(entry.filename), not bool(entry.enabled))
+	var result: String = runtime.set_mod_enabled(selected_name, str(entry.filename), not bool(entry.enabled))
+	_refresh_mods_page()
+	mods_status.text = result
+
+func _request_remove_mod() -> void:
+	var selected_items := mods_list.get_selected_items()
+	if selected_items.is_empty() or selected_items[0] >= displayed_mods.size():
+		return
+	pending_mod_remove = str(displayed_mods[selected_items[0]].filename)
+	mod_remove_confirm.dialog_text = "Remove %s from %s? A backup will be kept in this instance." % [pending_mod_remove, selected_name]
+	mod_remove_confirm.popup_centered()
+
+func _confirm_remove_mod() -> void:
+	if pending_mod_remove.is_empty():
+		return
+	var result: String = runtime.remove_mod(selected_name, pending_mod_remove)
+	pending_mod_remove = ""
 	_refresh_mods_page()
 	mods_status.text = result
 
@@ -1540,6 +1588,8 @@ func _open_microphone_app_settings() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_IN and current_section == "Settings":
 		_refresh_microphone_status()
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN and current_section == "Mods":
+		_refresh_mods_page()
 
 func _copy_input_report() -> void:
 	settings_status.text = "Input report copied. Paste it into your bug report." if runtime.copy_input_report() else "No input report is available yet. Launch a game first."

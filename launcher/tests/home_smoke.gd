@@ -16,6 +16,8 @@ class FakeRuntime extends RefCounted:
 	var last_sort := ""
 	var last_category := ""
 	var modrinth_installed := ""
+	var mod_changed := ""
+	var mod_removed := ""
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
@@ -58,7 +60,14 @@ class FakeRuntime extends RefCounted:
 				return true
 		return false
 	func get_instance_mods(_name: String) -> Dictionary:
-		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
+		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "profiles": [
+			{"enabled": true, "title": "Vivecraft"}, {"enabled": true, "title": "Example"}], "error": ""}
+	func set_mod_enabled(_name: String, filename: String, enabled: bool) -> String:
+		mod_changed = "%s:%s" % [filename, str(enabled)]
+		return "Changed"
+	func remove_mod(_name: String, filename: String) -> String:
+		mod_removed = filename
+		return "Removed"
 	func get_modrinth_snapshot() -> Dictionary:
 		return {"search_state": "ready", "search_instance": "My saved world", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
 	func search_modrinth_mods(_name: String, query: String, sort := "relevance", category := "all") -> bool:
@@ -257,6 +266,18 @@ func run_checks() -> void:
 	assert(ui.modrinth_category.size.y < 65)
 	assert(not ui.get_node("HomeTools").visible)
 	assert(ui.mods_list.get_item_count() == 2)
+	ui.mods_list.select(1)
+	ui._on_installed_mod_selected(1)
+	assert(ui.mod_toggle_button.disabled and ui.mod_remove_button.disabled)
+	ui.mods_list.select(0)
+	ui._on_installed_mod_selected(0)
+	assert(not ui.mod_toggle_button.disabled and not ui.mod_remove_button.disabled)
+	ui._toggle_selected_mod()
+	assert(fake.mod_changed == "example.jar:false")
+	ui.mods_list.select(0)
+	ui._request_remove_mod()
+	ui._confirm_remove_mod()
+	assert(fake.mod_removed == "example.jar")
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
 	ui.modrinth_search.text = "Sodium"

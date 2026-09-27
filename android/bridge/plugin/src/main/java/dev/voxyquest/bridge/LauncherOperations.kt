@@ -229,8 +229,7 @@ object LauncherOperations {
         val profiles = JSONArray()
         if (modsDirectory.isDirectory) {
             modsDirectory.listFiles()
-                ?.filter { it.isFile && (it.name.endsWith(".jar", true) ||
-                    (instance.loaderId() == "neoforge" && it.name.endsWith(".jar.disabled", true))) }
+                ?.filter { it.isFile && (it.name.endsWith(".jar", true) || it.name.endsWith(".jar.disabled", true)) }
                 ?.sortedBy { it.name.lowercase(Locale.ROOT) }
                 ?.forEach { file ->
                     mods.put(file.name)
@@ -271,15 +270,14 @@ object LauncherOperations {
     }
 
     @Synchronized
-    fun setNeoForgeModEnabled(name: String, filename: String, enabled: Boolean): String {
+    fun setModEnabled(name: String, filename: String, enabled: Boolean): String {
         if (isBusy() || MinecraftGameActivity.isRunning) return "Stop Minecraft before changing mods."
         if (!filename.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar(\\.disabled)?", RegexOption.IGNORE_CASE)))
             return "Invalid mod filename."
         val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
             ?: return "Instance no longer exists."
-        if (instance.loaderId() != "neoforge") return "Select a NeoForge instance."
-        if (filename.equals("Vivecraft.jar", true) || filename.equals("Vivecraft.jar.disabled", true))
-            return "Vivecraft is required for this VR instance."
+        if (instance.loaderId() !in setOf("fabric", "neoforge")) return "Unsupported mod loader."
+        if (isProtectedMod(filename)) return "This mod is required by the launcher."
         val root = File(Constants.USER_HOME, "instances").canonicalFile
         val game = File(instance.gameDir ?: return "Instance has no folder.").canonicalFile
         if (game == root || !game.toPath().startsWith(root.toPath())) return "Invalid instance folder."
@@ -295,6 +293,38 @@ object LauncherOperations {
         Files.move(source.toPath(), target.toPath())
         return "${if (enabled) "Enabled" else "Disabled"} $targetName. Restart Minecraft to apply."
     }
+
+    @Synchronized
+    fun removeMod(name: String, filename: String): String {
+        if (isBusy() || MinecraftGameActivity.isRunning) return "Stop Minecraft before changing mods."
+        if (!filename.matches(Regex("[A-Za-z0-9][A-Za-z0-9._+() -]{0,180}\\.jar(\\.disabled)?", RegexOption.IGNORE_CASE)))
+            return "Invalid mod filename."
+        if (isProtectedMod(filename)) return "This mod is required by the launcher."
+        val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+            ?: return "Instance no longer exists."
+        val root = File(Constants.USER_HOME, "instances").canonicalFile
+        val game = File(instance.gameDir ?: return "Instance has no folder.").canonicalFile
+        if (game == root || !game.toPath().startsWith(root.toPath())) return "Invalid instance folder."
+        val mods = File(game, "mods").canonicalFile
+        if (mods.parentFile != game) return "Invalid mods folder."
+        val source = File(mods, filename)
+        if (!source.isFile) return "Mod file no longer exists."
+        val backups = File(game, "voxyquest-backups/removed-mods").canonicalFile
+        if (!backups.toPath().startsWith(game.toPath())) return "Invalid backup folder."
+        Files.createDirectories(backups.toPath())
+        var index = 0
+        var backup: File
+        do {
+            backup = File(backups, "$filename.${System.currentTimeMillis()}${if (index == 0) "" else "-$index"}.bak")
+            index++
+        } while (backup.exists())
+        Files.move(source.toPath(), backup.toPath())
+        return "Removed $filename. Backup saved in voxyquest-backups/removed-mods. Restart Minecraft to apply."
+    }
+
+    private fun isProtectedMod(filename: String): Boolean =
+        filename.equals("Vivecraft.jar", true) || filename.equals("Vivecraft.jar.disabled", true) ||
+            filename.equals("Fabric-API.jar", true) || filename.equals("Fabric-API.jar.disabled", true)
 
     @Synchronized
     fun importMod(name: String, filename: String, input: java.io.InputStream): String {
@@ -330,7 +360,9 @@ object LauncherOperations {
                 val loader = instance.loaderId()
                 val id = ModrinthClient.modId(jar, loader)
                     ?: return "This is not a $loader mod JAR."
-                for (existing in mods.listFiles().orEmpty().filter { it.extension.equals("jar", true) }) {
+                for (existing in mods.listFiles().orEmpty().filter {
+                    it.name.endsWith(".jar", true) || it.name.endsWith(".jar.disabled", true)
+                }) {
                     val sameId = runCatching {
                         java.util.jar.JarFile(existing).use { installed ->
                             ModrinthClient.modId(installed, loader) == id

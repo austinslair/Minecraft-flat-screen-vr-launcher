@@ -313,8 +313,18 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun setNeoForgeModEnabled(name: String, filename: String, enabled: Boolean): String =
-        runCatching { LauncherOperations.setNeoForgeModEnabled(name, filename, enabled) }
+        runCatching { LauncherOperations.setModEnabled(name, filename, enabled) }
             .getOrElse { it.message ?: "Could not change the mod." }
+
+    @UsedByGodot
+    fun setModEnabled(name: String, filename: String, enabled: Boolean): String =
+        runCatching { LauncherOperations.setModEnabled(name, filename, enabled) }
+            .getOrElse { it.message ?: "Could not change the mod." }
+
+    @UsedByGodot
+    fun removeMod(name: String, filename: String): String =
+        runCatching { LauncherOperations.removeMod(name, filename) }
+            .getOrElse { it.message ?: "Could not remove the mod." }
 
     @UsedByGodot
     fun getModrinthSnapshotJson(): String = LauncherOperations.modrinthSnapshot()

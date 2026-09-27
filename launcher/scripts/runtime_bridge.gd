@@ -241,11 +241,17 @@ func get_instance_mods(instance_name: String) -> Dictionary:
 		return {"available": true, "mods": [], "error": "Invalid mods response"}
 	return parsed
 
-func set_neoforge_mod_enabled(instance_name: String, filename: String, enabled: bool) -> String:
+func set_mod_enabled(instance_name: String, filename: String, enabled: bool) -> String:
 	var plugin: Object = _refresh_plugin()
-	if not _plugin_has_method(plugin, &"setNeoForgeModEnabled"):
-		return "Update the Android runtime to manage NeoForge mods."
-	return str(plugin.setNeoForgeModEnabled(instance_name, filename, enabled))
+	if not _plugin_has_method(plugin, &"setModEnabled"):
+		return "Update the Android runtime to manage mods."
+	return str(plugin.setModEnabled(instance_name, filename, enabled))
+
+func remove_mod(instance_name: String, filename: String) -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"removeMod"):
+		return "Update the Android runtime to remove mods."
+	return str(plugin.removeMod(instance_name, filename))
 
 func launch_minecraft_vr(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
