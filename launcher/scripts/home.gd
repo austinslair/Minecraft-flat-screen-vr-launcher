@@ -1367,7 +1367,7 @@ func _toggle_selected_neoforge_mod() -> void:
 	if selected_items.is_empty() or selected_items[0] >= displayed_mods.size():
 		return
 	var entry: Dictionary = displayed_mods[selected_items[0]]
-	var result := runtime.set_neoforge_mod_enabled(selected_name, str(entry.filename), not bool(entry.enabled))
+	var result: String = runtime.set_neoforge_mod_enabled(selected_name, str(entry.filename), not bool(entry.enabled))
 	_refresh_mods_page()
 	mods_status.text = result
 
