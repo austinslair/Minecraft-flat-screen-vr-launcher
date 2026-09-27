@@ -33,6 +33,8 @@ class FakeRuntime extends RefCounted:
 		return snapshot
 	func get_install_versions() -> Array:
 		return ["test"]
+	func get_neoforge_versions() -> Array:
+		return ["1.21.5", "1.21.4", "1.21.1"]
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
 	func install_instance(_name: String, _version: String, _loader: String = "fabric") -> bool:
@@ -178,11 +180,17 @@ func run_checks() -> void:
 	assert(ui.install_submit.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS)
 	ui.install_loader.select(1)
 	ui._on_install_loader_selected(1)
-	assert(ui.install_version.item_count == 1)
+	assert(ui.install_version.item_count == 3)
 	assert(ui.install_version.get_item_text(0) == "1.21.5")
+	assert(ui.install_version.get_item_text(1) == "1.21.4")
+	assert(ui.install_version.get_item_text(2) == "1.21.1")
 	ui.install_name.text = "NeoForge test"
 	ui.install_submit.pressed.emit()
 	assert(fake.install_args == ["NeoForge test", "1.21.5", "neoforge"])
+	ui.install_version.select(1)
+	ui.install_name.text = "NeoForge 1.21.4 test"
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["NeoForge 1.21.4 test", "1.21.4", "neoforge"])
 	ui.install_loader.select(0)
 	ui._on_install_loader_selected(0)
 
