@@ -173,7 +173,8 @@ jobs:
                   metadata = tomllib.loads(archive.read('META-INF/neoforge.mods.toml').decode())
                   assert any(mod['modId'] == 'vivecraft' for mod in metadata['mods']), jar
                   dependencies = metadata['dependencies']['vivecraft']
-                  assert any(dep['modId'] == 'minecraft' and dep['versionRange'] == f'[{version}]'
+                  expected_range = '[1.21,1.21.1]' if version == '1.21.1' else f'[{version}]'
+                  assert any(dep['modId'] == 'minecraft' and dep['versionRange'] == expected_range
                              for dep in dependencies), jar
                   assert 'org/vivecraft/client_vr/provider/openxr/MCOpenXR.class' in archive.namelist(), jar
           PY
