@@ -41,7 +41,8 @@ public final class VivecraftRefreshRateFix {
         File stamp = new File(gameDir, "voxyquest-backups/vivecraft-openxr-v2.stamp");
         String identity = jar.length() + ":" + jar.lastModified();
         try {
-            if (stamp.isFile() && identity.equals(Files.readString(stamp.toPath()))) return false;
+            if (stamp.isFile() && identity.equals(new String(Files.readAllBytes(stamp.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8))) return false;
         } catch (IOException ignored) {
             // A damaged cache must not stop game startup.
         }
@@ -97,7 +98,8 @@ public final class VivecraftRefreshRateFix {
     private static void rememberVerified(File stamp, File jar) {
         try {
             Files.createDirectories(stamp.getParentFile().toPath());
-            Files.writeString(stamp.toPath(), jar.length() + ":" + jar.lastModified());
+            Files.write(stamp.toPath(), (jar.length() + ":" + jar.lastModified())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         } catch (IOException ignored) {
             // The patch is already verified; a cache write failure only costs a future check.
         }
