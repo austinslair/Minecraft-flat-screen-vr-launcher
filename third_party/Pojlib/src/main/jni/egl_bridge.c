@@ -12,10 +12,6 @@
 
 #include <EGL/egl.h>
 
-#ifdef GLES_TEST
-#include <GLES2/gl2.h>
-#endif
-
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <android/rect.h>
@@ -59,6 +55,7 @@ EGLConfig xrConfig;
 void* gbuffer;
 static ANativeWindow* flatWindow = NULL;
 static atomic_bool windowDetached = false;
+static atomic_bool vrMirrorDetached = false;
 
 JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_detachNative(JNIEnv* env, jclass clazz) {
     atomic_store(&windowDetached, true);
@@ -72,6 +69,7 @@ JNIEXPORT void JNICALL Java_pojlib_util_FlatDisplay_attachNative(JNIEnv* env, jc
         return;
     }
     flatWindow = ANativeWindow_fromSurface(env, surface);
+    atomic_store(&vrMirrorDetached, false);
     savedWidth = width;
     savedHeight = height;
 }
@@ -209,7 +207,15 @@ void pojavSwapBuffers() {
             xrEglSurface = fallback;
             ANativeWindow_release(flatWindow);
             flatWindow = NULL;
+            atomic_store(&vrMirrorDetached, true);
         }
+    }
+    // OpenXR presents the headset images itself. Once the Android mirror is
+    // detached, swapping a pbuffer every Minecraft frame can add an extra
+    // driver synchronization point without displaying anything.
+    if (atomic_load(&vrMirrorDetached)) {
+        glFlush();
+        return;
     }
     eglSwapBuffers_p(xrEglDisplay, xrEglSurface);
 }

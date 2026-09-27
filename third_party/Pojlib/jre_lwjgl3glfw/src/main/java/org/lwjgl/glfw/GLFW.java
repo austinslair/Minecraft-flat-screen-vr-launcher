@@ -1024,12 +1024,11 @@ public class GLFW
     }
 
     public static long glfwGetTimerValue() {
-        return System.currentTimeMillis();
+        return System.nanoTime();
     }
 
     public static long glfwGetTimerFrequency() {
-        // FIXME set correct value!!
-        return 60;
+        return 1_000_000_000L;
     }
 
     // GLFW Window functions
