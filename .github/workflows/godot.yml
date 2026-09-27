@@ -51,13 +51,25 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Processed Minecraft/NeoForge clients and Vivecraft only change when the
+      # preparation recipe changes. Reusing them avoids three installer runs and
+      # a Vivecraft remap on every launcher or Android source edit.
+      - name: Restore prepared NeoForge bundles
+        id: neoforge-bundles
+        uses: actions/cache/restore@v4
+        with:
+          path: third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          key: neoforge-bundles-${{ runner.os }}-${{ hashFiles('.github/workflows/godot.yml') }}
+
       - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
         with:
           repository: QuestCraftPlusPlus/VivecraftMod
           ref: 612a11ca6a30791cae34d410328bc75d08246970
           path: quest-vivecraft-openxr
 
       - name: Prepare NeoForge VR runtime
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
         run: |
           cd quest-vivecraft-openxr
           sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
@@ -115,6 +127,27 @@ jobs:
               assert isinstance(game[game.index("--fml.neoFormVersion") + 1], str), profile
               assert all(isinstance(arg, str) for key in ("jvm", "game") for arg in data["arguments"][key]), profile
           PY
+
+      - name: Verify prepared NeoForge bundles
+        run: |
+          ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          for version in 1.21.5 1.21.4 1.21.1; do
+            DIR="$ASSETS/$version"
+            if [ "$version" = 1.21.5 ]; then DIR="$ASSETS"; fi
+            for file in version.json client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
+              test -s "$DIR/$file"
+            done
+            unzip -Z1 "$DIR/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
+            unzip -Z1 "$DIR/universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+          done
+          unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
+
+      - name: Cache prepared NeoForge bundles
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          key: ${{ steps.neoforge-bundles.outputs.cache-primary-key }}
 
       - uses: actions/setup-java@v5
         with:
