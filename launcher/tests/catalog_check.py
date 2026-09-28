@@ -21,7 +21,8 @@ for entry in catalog["versions"]:
     mods = entry["coreMods"] + entry.get("defaultMods", [])
     slugs = [mod["slug"] for mod in mods]
     assert len(slugs) == len(set(slugs)), f"{version}: duplicate mod name"
-    assert {"Vivecraft", "Fabric-API"} <= set(slugs), f"{version}: core mod missing"
+    assert entry.get("defaultMods") == [], f"{version}: optional mods should start empty"
+    assert slugs == ["Vivecraft"], f"{version}: new Fabric instances must start with Vivecraft alone"
     for mod in mods:
         assert re.fullmatch(r"[A-Za-z0-9_-]+", mod["slug"]), f"{version}: bad mod name"
         url = urlparse(mod["download_link"])
@@ -29,11 +30,7 @@ for entry in catalog["versions"]:
             f"{version}: invalid download URL for {mod['slug']}"
         )
         filename = unquote(url.path.rsplit("/", 1)[-1])
-        if mod["slug"] in {"Vivecraft", "Fabric-API", "ImmediatelyFast"}:
+        if mod["slug"] == "Vivecraft":
             assert version in filename, f"{version}: {mod['slug']} points to {filename}"
-        if mod["slug"] == "Fabric-API":
-            assert mod["version"].split("+")[0] in filename, (
-                f"{version}: Fabric API version label differs from download"
-            )
 
 print(f"Catalog entries checked: {len(versions)}")

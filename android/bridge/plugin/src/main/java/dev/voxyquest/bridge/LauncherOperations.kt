@@ -323,8 +323,7 @@ object LauncherOperations {
     }
 
     private fun isProtectedMod(filename: String): Boolean =
-        filename.equals("Vivecraft.jar", true) || filename.equals("Vivecraft.jar.disabled", true) ||
-            filename.equals("Fabric-API.jar", true) || filename.equals("Fabric-API.jar.disabled", true)
+        filename.equals("Vivecraft.jar", true) || filename.equals("Vivecraft.jar.disabled", true)
 
     @Synchronized
     fun importMod(name: String, filename: String, input: java.io.InputStream): String {

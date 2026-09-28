@@ -1562,7 +1562,7 @@ func _on_installed_mod_selected(index: int) -> void:
 	if not is_instance_valid(mod_toggle_button) or index < 0 or index >= displayed_mods.size():
 		return
 	var entry: Dictionary = displayed_mods[index]
-	var protected := str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled", "fabric-api.jar", "fabric-api.jar.disabled"]
+	var protected := str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled"]
 	mod_toggle_button.disabled = protected or install_busy
 	mod_remove_button.disabled = protected or install_busy
 	mod_toggle_button.text = "Disable" if bool(entry.enabled) else "Enable"
