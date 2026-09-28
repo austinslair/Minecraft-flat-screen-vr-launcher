@@ -1193,18 +1193,16 @@ func _render_mods_page() -> void:
 	modrinth_results.add_theme_constant_override("separation", 8)
 	results_scroll.add_child(modrinth_results)
 	_show_modrinth_empty("Find something new", "Search the catalog to see mods that match this loader and Minecraft version.")
-	var install_row := HBoxContainer.new()
-	install_row.add_theme_constant_override("separation", 12)
-	browser.add_child(install_row)
+	modrinth_status = _make_label("Choose a result to see details.", 14, true)
+	modrinth_status.custom_minimum_size.y = 22
+	modrinth_status.autowrap_mode = TextServer.AUTOWRAP_OFF
+	modrinth_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	browser.add_child(modrinth_status)
 	modrinth_install_button = _make_button("Install mod  ↓", _install_modrinth, true)
 	modrinth_install_button.custom_minimum_size = Vector2(185, 44)
+	modrinth_install_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	modrinth_install_button.disabled = true
-	install_row.add_child(modrinth_install_button)
-	modrinth_status = _make_label("Choose a result to see details.", 14, true)
-	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	modrinth_status.clip_text = true
-	install_row.add_child(modrinth_status)
+	browser.add_child(modrinth_install_button)
 	var collection := _page_card(columns, "Installed", "Mods in this instance")
 	collection.custom_minimum_size.x = 535
 	var collection_actions := HBoxContainer.new()
