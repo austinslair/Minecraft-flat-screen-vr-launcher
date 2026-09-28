@@ -1107,33 +1107,56 @@ func _poll_install() -> void:
 func _render_mods_page() -> void:
 	_clear_workspace()
 	modrinth_icon_queue.clear()
-	workspace_title.text = "Mods"
-	workspace_subtitle.text = "Browse compatible mods from Modrinth or import a local JAR."
+	workspace_title.text = "Mod workshop"
+	workspace_subtitle.text = "Find compatible mods and manage what is installed in your world."
 	if selected_name.is_empty():
-		var empty := _page_card(workspace_body, "Choose an instance first", "Select an instance before adding or viewing mods.")
-		var choose := _make_button("Choose instance", _open_section.bind("Instances"), true)
+		var empty := _page_card(workspace_body, "Start with an instance", "Mods belong to a Minecraft instance. Pick one to browse compatible releases and manage its JAR files.")
+		empty.custom_minimum_size.y = 175
+		var choose := _make_button("Open instances  →", _open_section.bind("Instances"), true)
 		choose.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		empty.add_child(choose)
 		return
 
 	var selected := _selected_instance()
 	var loader := _loader_label(selected)
+	var context := PanelContainer.new()
+	context.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("223c49"), Color("223c49")))
+	workspace_body.add_child(context)
+	var context_row := HBoxContainer.new()
+	context_row.add_theme_constant_override("separation", 20)
+	context.add_child(context_row)
+	var context_text := VBoxContainer.new()
+	context_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	context_text.add_theme_constant_override("separation", 3)
+	context_row.add_child(context_text)
+	var eyebrow := _make_label("ACTIVE INSTANCE  /  %s" % loader.to_upper(), 12)
+	eyebrow.add_theme_color_override("font_color", Color("90d6df"))
+	context_text.add_child(eyebrow)
+	var identity := _make_label("%s   ·   Minecraft %s" % [selected_name, str(selected.get("version", ""))], 21)
+	identity.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	identity.add_theme_color_override("font_color", Color.WHITE)
+	context_text.add_child(identity)
+	var change := _make_button("Change instance", _open_section.bind("Instances"))
+	change.custom_minimum_size = Vector2(170, 42)
+	change.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	context_row.add_child(change)
 	var columns := HBoxContainer.new()
-	columns.add_theme_constant_override("separation", 20)
+	columns.add_theme_constant_override("separation", 16)
 	workspace_body.add_child(columns)
-	var browser := _page_card(columns, "Discover mods", "Modrinth · %s · Minecraft %s" % [loader, str(selected.get("version", ""))])
-	browser.custom_minimum_size.x = 850
+	var browser := _page_card(columns, "Discover", "Compatible %s mods from Modrinth" % loader)
+	browser.custom_minimum_size.x = 805
 	last_modrinth_results = ""
 	var search_row := HBoxContainer.new()
 	search_row.add_theme_constant_override("separation", 10)
 	browser.add_child(search_row)
 	modrinth_search = LineEdit.new()
-	modrinth_search.placeholder_text = "Search mods by name…"
-	modrinth_search.custom_minimum_size.y = 50
+	modrinth_search.placeholder_text = "Search by name or keyword"
+	modrinth_search.custom_minimum_size.y = 44
 	modrinth_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	modrinth_search.text_submitted.connect(func(_text: String): _search_modrinth())
 	search_row.add_child(modrinth_search)
-	modrinth_search_button = _make_button("Search", _search_modrinth, true)
+	modrinth_search_button = _make_button("Find mods  →", _search_modrinth, true)
+	modrinth_search_button.custom_minimum_size = Vector2(150, 44)
 	search_row.add_child(modrinth_search_button)
 	var filters := HBoxContainer.new()
 	filters.add_theme_constant_override("separation", 10)
@@ -1142,78 +1165,100 @@ func _render_mods_page() -> void:
 	modrinth_sort = OptionButton.new()
 	for label in ["Relevance", "Most downloaded", "Most followed", "Newest", "Recently updated"]:
 		modrinth_sort.add_item(label)
-	modrinth_sort.custom_minimum_size = Vector2(225, 46)
+	modrinth_sort.custom_minimum_size = Vector2(220, 42)
 	modrinth_sort.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	modrinth_sort.item_selected.connect(func(_index: int): _search_modrinth())
 	filters.add_child(modrinth_sort)
 	modrinth_category = OptionButton.new()
 	for label in ["All categories", "Optimization", "Utility", "Adventure", "Library", "Decoration"]:
 		modrinth_category.add_item(label)
-	modrinth_category.custom_minimum_size = Vector2(225, 46)
+	modrinth_category.custom_minimum_size = Vector2(220, 42)
 	modrinth_category.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	modrinth_category.item_selected.connect(func(_index: int): _search_modrinth())
 	filters.add_child(modrinth_category)
-	var compatibility := _make_label("%s · Minecraft %s" % [loader, str(selected.get("version", ""))], 14, true)
-	compatibility.custom_minimum_size = Vector2(230, 46)
+	var compatibility := _make_label("MATCHES YOUR VERSION", 12, true)
+	compatibility.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	compatibility.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	compatibility.custom_minimum_size.y = 42
 	compatibility.autowrap_mode = TextServer.AUTOWRAP_OFF
 	compatibility.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	filters.add_child(compatibility)
 	var results_scroll := ScrollContainer.new()
-	results_scroll.custom_minimum_size.y = 360
+	results_scroll.custom_minimum_size.y = 260
 	results_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	browser.add_child(results_scroll)
 	modrinth_results = VBoxContainer.new()
 	modrinth_results.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	modrinth_results.add_theme_constant_override("separation", 10)
+	modrinth_results.add_theme_constant_override("separation", 8)
 	results_scroll.add_child(modrinth_results)
+	_show_modrinth_empty("Find something new", "Search the catalog to see mods that match this loader and Minecraft version.")
 	var install_row := HBoxContainer.new()
 	install_row.add_theme_constant_override("separation", 12)
 	browser.add_child(install_row)
-	modrinth_install_button = _make_button("Install selected", _install_modrinth, true)
+	modrinth_install_button = _make_button("Install mod  ↓", _install_modrinth, true)
+	modrinth_install_button.custom_minimum_size = Vector2(185, 44)
 	modrinth_install_button.disabled = true
 	install_row.add_child(modrinth_install_button)
-	modrinth_status = _make_label("Search to find mods for this instance.", 15, true)
+	modrinth_status = _make_label("Choose a result to see details.", 14, true)
 	modrinth_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	modrinth_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	modrinth_status.clip_text = true
 	install_row.add_child(modrinth_status)
-	var collection := _page_card(columns, "Installed mods", selected_name)
+	var collection := _page_card(columns, "Installed", "Mods in this instance")
+	collection.custom_minimum_size.x = 535
+	var collection_actions := HBoxContainer.new()
+	collection_actions.add_theme_constant_override("separation", 8)
+	collection.add_child(collection_actions)
+	var import_button := _make_button("+  Import JAR", _add_mod, true)
+	import_button.custom_minimum_size = Vector2(165, 42)
+	collection_actions.add_child(import_button)
+	var refresh_button := _make_button("Refresh", _refresh_mods_page)
+	refresh_button.custom_minimum_size = Vector2(120, 42)
+	collection_actions.add_child(refresh_button)
 	installed_mod_search = LineEdit.new()
-	installed_mod_search.placeholder_text = "Filter installed mods…"
+	installed_mod_search.placeholder_text = "Filter your installed mods"
+	installed_mod_search.custom_minimum_size.y = 42
 	installed_mod_search.text_changed.connect(func(_text: String): _refresh_mods_page())
 	collection.add_child(installed_mod_search)
+	var installed_filters := HBoxContainer.new()
+	installed_filters.add_theme_constant_override("separation", 8)
+	collection.add_child(installed_filters)
 	installed_mod_sort = OptionButton.new()
 	installed_mod_sort.add_item("Name A–Z")
 	installed_mod_sort.add_item("Name Z–A")
+	installed_mod_sort.custom_minimum_size.y = 42
+	installed_mod_sort.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	installed_mod_sort.item_selected.connect(func(_index: int): _refresh_mods_page())
-	collection.add_child(installed_mod_sort)
+	installed_filters.add_child(installed_mod_sort)
 	installed_mod_filter = OptionButton.new()
 	for label in ["All mods", "Enabled", "Disabled"]:
 		installed_mod_filter.add_item(label)
+	installed_mod_filter.custom_minimum_size.y = 42
+	installed_mod_filter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	installed_mod_filter.item_selected.connect(func(_index: int): _refresh_mods_page())
-	collection.add_child(installed_mod_filter)
+	installed_filters.add_child(installed_mod_filter)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 280)
+	mods_list.custom_minimum_size = Vector2(0, 220)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	mods_list.add_theme_font_size_override("font_size", 18)
+	mods_list.add_theme_font_size_override("font_size", 15)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	mods_list.item_selected.connect(_on_installed_mod_selected)
 	collection.add_child(mods_list)
-	mods_status = _make_label("", 15, true)
+	mods_status = _make_label("", 13, true)
 	collection.add_child(mods_status)
-	var actions := GridContainer.new()
-	actions.columns = 2
-	actions.add_theme_constant_override("h_separation", 12)
-	actions.add_theme_constant_override("v_separation", 12)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
 	collection.add_child(actions)
-	actions.add_child(_make_button("Import JAR", _add_mod, true))
-	mod_toggle_button = _make_button("Disable selected", _toggle_selected_mod)
+	mod_toggle_button = _make_button("Disable", _toggle_selected_mod)
+	mod_toggle_button.custom_minimum_size = Vector2(160, 44)
 	mod_toggle_button.disabled = true
 	actions.add_child(mod_toggle_button)
-	mod_remove_button = _make_button("Remove selected", _request_remove_mod)
+	mod_remove_button = _make_button("Remove", _request_remove_mod, false, true)
+	mod_remove_button.custom_minimum_size = Vector2(145, 44)
 	mod_remove_button.disabled = true
 	actions.add_child(mod_remove_button)
-	actions.add_child(_make_button("Refresh", _refresh_mods_page))
-	collection.add_child(_make_label("Local JAR imports must match your Minecraft version. Modrinth installs include required dependencies. Removed mods are backed up in this instance.", 15, true))
+	collection.add_child(_make_label("Required mods stay protected · removed mods are backed up.", 12, true))
 	if not is_instance_valid(mod_remove_confirm):
 		mod_remove_confirm = ConfirmationDialog.new()
 		mod_remove_confirm.title = "Remove mod"
@@ -1233,6 +1278,7 @@ func _search_modrinth() -> void:
 	for child in modrinth_results.get_children():
 		modrinth_results.remove_child(child)
 		child.queue_free()
+	_show_modrinth_empty("Searching catalog", "Finding builds compatible with your instance…")
 	_update_modrinth_install_button()
 	var sorts := ["relevance", "downloads", "follows", "newest", "updated"]
 	var categories := ["all", "optimization", "utility", "adventure", "library", "decoration"]
@@ -1242,6 +1288,10 @@ func _search_modrinth() -> void:
 		modrinth_timer.start()
 	else:
 		modrinth_status.text = "Search is unavailable. Use the Android build with the Modrinth bridge."
+		for child in modrinth_results.get_children():
+			modrinth_results.remove_child(child)
+			child.queue_free()
+		_show_modrinth_empty("Search unavailable", "Use the Android launcher build to browse Modrinth.")
 
 func _update_modrinth_install_button() -> void:
 	if not is_instance_valid(modrinth_install_button):
@@ -1276,17 +1326,28 @@ func _poll_modrinth() -> void:
 		for child in modrinth_results.get_children():
 			modrinth_results.remove_child(child)
 			child.queue_free()
+		if results.is_empty():
+			_show_modrinth_empty("No matching mods", "Try another keyword or category. Results are limited to this Minecraft version.")
 		for index in results.size():
 			var hit: Dictionary = results[index]
 			var card := Button.new()
-			card.custom_minimum_size.y = 94
+			card.custom_minimum_size.y = 86
 			card.toggle_mode = true
 			card.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			card.text = "%s\n%s · %s downloads\n%s" % [
+			card.text = "%s\n%s  ·  %s downloads" % [
 				str(hit.get("title", "Mod")), str(hit.get("author", "Modrinth")),
-				str(hit.get("downloads", 0)), str(hit.get("description", "")).left(145)]
+				str(hit.get("downloads", 0))]
 			card.tooltip_text = str(hit.get("description", ""))
-			card.add_theme_font_size_override("font_size", 16)
+			card.add_theme_font_size_override("font_size", 17)
+			card.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("f5f8f6"), Color("d9e3de")))
+			card.add_theme_stylebox_override("hover", preload("res://scripts/ui_theme.gd").surface(Color("eaf5f6"), Color("7eb9c9")))
+			card.add_theme_stylebox_override("pressed", preload("res://scripts/ui_theme.gd").surface(Color("dceff3"), Color("3999bd")))
+			card.add_theme_stylebox_override("hover_pressed", preload("res://scripts/ui_theme.gd").surface(Color("dceff3"), Color("3999bd")))
+			card.add_theme_color_override("font_color", Color("203b41"))
+			card.add_theme_color_override("font_pressed_color", Color("183c4c"))
+			card.add_theme_color_override("font_hover_color", Color("183c4c"))
+			card.add_theme_color_override("font_hover_pressed_color", Color("183c4c"))
+			card.expand_icon = true
 			card.pressed.connect(_select_modrinth_result.bind(index))
 			modrinth_results.add_child(card)
 			_load_modrinth_icon(str(hit.get("icon_url", "")), card)
@@ -1295,6 +1356,11 @@ func _poll_modrinth() -> void:
 		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
 	elif search_state == "error":
 		modrinth_status.text = str(snapshot.get("search_message", "Search failed."))
+		if modrinth_results.get_child_count() == 1 and modrinth_results.get_child(0) is PanelContainer:
+			var old_placeholder := modrinth_results.get_child(0)
+			modrinth_results.remove_child(old_placeholder)
+			old_placeholder.queue_free()
+			_show_modrinth_empty("Search unavailable", "Check your connection and try again.")
 	var install_state := str(snapshot.get("install_state", "idle"))
 	var was_busy := install_busy
 	install_busy = install_state == "installing"
@@ -1319,6 +1385,29 @@ func _select_modrinth_result(index: int) -> void:
 		card.button_pressed = i == index
 	modrinth_status.text = str(modrinth_hits[index].get("description", ""))
 	_update_modrinth_install_button()
+
+func _show_modrinth_empty(title: String, detail: String) -> void:
+	if not is_instance_valid(modrinth_results):
+		return
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.y = 210
+	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("f5f8f6"), Color("d9e3de")))
+	modrinth_results.add_child(panel)
+	var content := VBoxContainer.new()
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 10)
+	panel.add_child(content)
+	var glyph := _make_label("◇", 34)
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.add_theme_color_override("font_color", Color("3999bd"))
+	content.add_child(glyph)
+	var heading := _make_label(title, 18)
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_override("font", preload("res://assets/fonts/DejaVuSans-Bold.ttf"))
+	content.add_child(heading)
+	var description := _make_label(detail, 14, true)
+	description.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	content.add_child(description)
 
 func _load_modrinth_icon(url: String, card: Button) -> void:
 	if not url.begins_with("https://cdn.modrinth.com/"):
@@ -1426,7 +1515,7 @@ func _on_installed_mod_selected(index: int) -> void:
 	var protected := str(entry.filename).to_lower() in ["vivecraft.jar", "vivecraft.jar.disabled", "fabric-api.jar", "fabric-api.jar.disabled"]
 	mod_toggle_button.disabled = protected or install_busy
 	mod_remove_button.disabled = protected or install_busy
-	mod_toggle_button.text = "Disable selected" if bool(entry.enabled) else "Enable selected"
+	mod_toggle_button.text = "Disable" if bool(entry.enabled) else "Enable"
 
 func _toggle_selected_mod() -> void:
 	if not is_instance_valid(mods_list):
