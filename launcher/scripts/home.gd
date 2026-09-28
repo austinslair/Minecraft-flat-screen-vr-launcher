@@ -1184,8 +1184,8 @@ func _render_mods_page() -> void:
 	compatibility.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	filters.add_child(compatibility)
 	var results_scroll := ScrollContainer.new()
-	results_scroll.custom_minimum_size.y = 260
-	results_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	results_scroll.custom_minimum_size.y = 160
+	results_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	browser.add_child(results_scroll)
 	modrinth_results = VBoxContainer.new()
@@ -1239,7 +1239,7 @@ func _render_mods_page() -> void:
 	installed_mod_filter.item_selected.connect(func(_index: int): _refresh_mods_page())
 	installed_filters.add_child(installed_mod_filter)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 220)
+	mods_list.custom_minimum_size = Vector2(0, 130)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 15)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
