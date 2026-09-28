@@ -57,6 +57,7 @@ var install_feedback := ""
 
 var mods_list: ItemList
 var mods_status: Label
+var installed_mod_details: Label
 var mod_toggle_button: Button
 var mod_remove_button: Button
 var mod_remove_confirm: ConfirmationDialog
@@ -73,6 +74,8 @@ var modrinth_results: VBoxContainer
 var modrinth_selected := -1
 var modrinth_install_button: Button
 var modrinth_status: Label
+var modrinth_details: Label
+var modrinth_project_button: Button
 var modrinth_hits: Array = []
 var modrinth_timer: Timer
 var last_modrinth_results := ""
@@ -568,6 +571,9 @@ func _clear_workspace() -> void:
 	modrinth_results = null
 	modrinth_install_button = null
 	modrinth_status = null
+	modrinth_details = null
+	modrinth_project_button = null
+	installed_mod_details = null
 	account_page_title = null
 	account_page_status = null
 	account_page_code = null
@@ -1198,11 +1204,22 @@ func _render_mods_page() -> void:
 	modrinth_status.autowrap_mode = TextServer.AUTOWRAP_OFF
 	modrinth_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	browser.add_child(modrinth_status)
+	modrinth_details = _make_label("Select a result for its description and categories.", 13, true)
+	modrinth_details.custom_minimum_size.y = 38
+	modrinth_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	browser.add_child(modrinth_details)
+	var discover_actions := HBoxContainer.new()
+	discover_actions.add_theme_constant_override("separation", 10)
+	browser.add_child(discover_actions)
 	modrinth_install_button = _make_button("Install mod  ↓", _install_modrinth, true)
 	modrinth_install_button.custom_minimum_size = Vector2(185, 44)
 	modrinth_install_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	modrinth_install_button.disabled = true
-	browser.add_child(modrinth_install_button)
+	discover_actions.add_child(modrinth_install_button)
+	modrinth_project_button = _make_button("Project page  ↗", _open_modrinth_project)
+	modrinth_project_button.custom_minimum_size = Vector2(170, 44)
+	modrinth_project_button.disabled = true
+	discover_actions.add_child(modrinth_project_button)
 	var collection := _page_card(columns, "Installed", "Mods in this instance")
 	collection.custom_minimum_size.x = 535
 	var collection_actions := HBoxContainer.new()
@@ -1243,6 +1260,10 @@ func _render_mods_page() -> void:
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	mods_list.item_selected.connect(_on_installed_mod_selected)
 	collection.add_child(mods_list)
+	installed_mod_details = _make_label("Select a mod to inspect its file and version.", 13, true)
+	installed_mod_details.custom_minimum_size.y = 30
+	installed_mod_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	collection.add_child(installed_mod_details)
 	mods_status = _make_label("", 13, true)
 	collection.add_child(mods_status)
 	var actions := HBoxContainer.new()
@@ -1272,6 +1293,8 @@ func _search_modrinth() -> void:
 	last_modrinth_results = ""
 	modrinth_hits.clear()
 	modrinth_selected = -1
+	if is_instance_valid(modrinth_details):
+		modrinth_details.text = "Select a result for its description and categories."
 	modrinth_icon_queue.clear()
 	for child in modrinth_results.get_children():
 		modrinth_results.remove_child(child)
@@ -1295,6 +1318,17 @@ func _update_modrinth_install_button() -> void:
 	if not is_instance_valid(modrinth_install_button):
 		return
 	modrinth_install_button.disabled = install_busy or modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size()
+	if is_instance_valid(modrinth_project_button):
+		modrinth_project_button.disabled = modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size()
+
+func _open_modrinth_project() -> void:
+	if modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size():
+		return
+	var id := str(modrinth_hits[modrinth_selected].get("id", ""))
+	var safe_id := RegEx.new()
+	safe_id.compile("^[A-Za-z0-9]{8,16}$")
+	if safe_id.search(id):
+		OS.shell_open("https://modrinth.com/mod/%s" % id)
 
 func _install_modrinth() -> void:
 	if modrinth_selected < 0 or modrinth_selected >= modrinth_hits.size():
@@ -1332,9 +1366,9 @@ func _poll_modrinth() -> void:
 			card.custom_minimum_size.y = 86
 			card.toggle_mode = true
 			card.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			card.text = "%s\n%s  ·  %s downloads" % [
+			card.text = "%s\n%s  ·  %s downloads  ·  %s followers" % [
 				str(hit.get("title", "Mod")), str(hit.get("author", "Modrinth")),
-				str(hit.get("downloads", 0))]
+				str(hit.get("downloads", 0)), str(hit.get("follows", 0))]
 			card.tooltip_text = str(hit.get("description", ""))
 			card.add_theme_font_size_override("font_size", 17)
 			card.add_theme_stylebox_override("normal", preload("res://scripts/ui_theme.gd").surface(Color("f5f8f6"), Color("d9e3de")))
@@ -1346,10 +1380,12 @@ func _poll_modrinth() -> void:
 			card.add_theme_color_override("font_hover_color", Color("183c4c"))
 			card.add_theme_color_override("font_hover_pressed_color", Color("183c4c"))
 			card.expand_icon = true
+			card.icon = preload("res://assets/textures/mod_fallback.svg")
 			card.pressed.connect(_select_modrinth_result.bind(index))
 			modrinth_results.add_child(card)
 			_load_modrinth_icon(str(hit.get("icon_url", "")), card)
 		modrinth_status.text = "%d compatible mod(s) found." % results.size() if not results.is_empty() else "No matching %s mods for this version." % _loader_label(_selected_instance())
+		modrinth_details.text = "Select a result for its description and categories."
 	elif search_state == "searching":
 		modrinth_status.text = str(snapshot.get("search_message", "Searching…"))
 	elif search_state == "error":
@@ -1382,6 +1418,16 @@ func _select_modrinth_result(index: int) -> void:
 		var card := modrinth_results.get_child(i) as Button
 		card.button_pressed = i == index
 	modrinth_status.text = str(modrinth_hits[index].get("description", ""))
+	var hit: Dictionary = modrinth_hits[index]
+	var categories: Array = hit.get("categories", [])
+	var labels: Array[String] = []
+	for category in categories:
+		var label := str(category)
+		if label not in ["fabric", "neoforge"] and labels.size() < 3:
+			labels.append(label.capitalize())
+	modrinth_details.text = "%s\n%s" % [
+		str(hit.get("description", "No description available.")).left(125),
+		" · ".join(labels) if not labels.is_empty() else "Compatible with this instance"]
 	_update_modrinth_install_button()
 
 func _show_modrinth_empty(title: String, detail: String) -> void:
@@ -1464,6 +1510,8 @@ func _refresh_mods_page() -> void:
 		return
 	mods_list.clear()
 	displayed_mods.clear()
+	if is_instance_valid(installed_mod_details):
+		installed_mod_details.text = "Select a mod to inspect its file and version."
 	if is_instance_valid(mod_toggle_button):
 		mod_toggle_button.disabled = true
 	if is_instance_valid(mod_remove_button):
@@ -1498,7 +1546,7 @@ func _refresh_mods_page() -> void:
 		entries.reverse()
 	for entry in entries:
 		displayed_mods.append(entry)
-		mods_list.add_item("%s%s  %s\n%s" % ["" if entry.enabled else "[Disabled] ", entry.title, entry.version, str(entry.description).left(85)])
+		mods_list.add_item("%s%s  %s\n%s" % ["" if entry.enabled else "[Disabled] ", entry.title, entry.version, str(entry.description).left(85)], preload("res://assets/textures/mod_fallback.svg"))
 		mods_list.set_item_tooltip(mods_list.item_count - 1, "%s\n%s" % [entry.description, entry.filename])
 	var enabled_count := 0
 	for profile in profiles:
@@ -1514,6 +1562,9 @@ func _on_installed_mod_selected(index: int) -> void:
 	mod_toggle_button.disabled = protected or install_busy
 	mod_remove_button.disabled = protected or install_busy
 	mod_toggle_button.text = "Disable" if bool(entry.enabled) else "Enable"
+	if is_instance_valid(installed_mod_details):
+		installed_mod_details.text = "%s · %s\n%s" % [str(entry.filename), str(entry.version),
+			str(entry.description).left(85) if not str(entry.description).is_empty() else "No description in mod metadata."]
 
 func _toggle_selected_mod() -> void:
 	if not is_instance_valid(mods_list):

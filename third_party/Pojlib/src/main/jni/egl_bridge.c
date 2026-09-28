@@ -210,11 +210,10 @@ void pojavSwapBuffers() {
             atomic_store(&vrMirrorDetached, true);
         }
     }
-    // OpenXR presents the headset images itself. Once the Android mirror is
-    // detached, swapping a pbuffer every Minecraft frame can add an extra
-    // driver synchronization point without displaying anything.
+    // OpenXR submits the headset images through its own frame lifecycle. The
+    // detached 1x1 pbuffer is never presented, so neither a swap nor a flush
+    // is needed here. Both can force needless driver work every game frame.
     if (atomic_load(&vrMirrorDetached)) {
-        glFlush();
         return;
     }
     eglSwapBuffers_p(xrEglDisplay, xrEglSurface);

@@ -42,7 +42,9 @@ internal object ModrinthClient {
                 .put("description", hit.optString("description"))
                 .put("author", hit.optString("author"))
                 .put("icon_url", hit.optString("icon_url"))
-                .put("downloads", hit.optLong("downloads")))
+                .put("downloads", hit.optLong("downloads"))
+                .put("follows", hit.optLong("follows"))
+                .put("categories", hit.optJSONArray("categories") ?: JSONArray()))
         }
         return results
     }
