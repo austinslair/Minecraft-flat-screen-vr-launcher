@@ -1190,7 +1190,7 @@ func _render_mods_page() -> void:
 	compatibility.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	filters.add_child(compatibility)
 	var results_scroll := ScrollContainer.new()
-	results_scroll.custom_minimum_size.y = 160
+	results_scroll.custom_minimum_size.y = 112
 	results_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	browser.add_child(results_scroll)
@@ -1205,7 +1205,7 @@ func _render_mods_page() -> void:
 	modrinth_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	browser.add_child(modrinth_status)
 	modrinth_details = _make_label("Select a result for its description and categories.", 13, true)
-	modrinth_details.custom_minimum_size.y = 38
+	modrinth_details.custom_minimum_size.y = 32
 	modrinth_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	browser.add_child(modrinth_details)
 	var discover_actions := HBoxContainer.new()
@@ -1254,14 +1254,14 @@ func _render_mods_page() -> void:
 	installed_mod_filter.item_selected.connect(func(_index: int): _refresh_mods_page())
 	installed_filters.add_child(installed_mod_filter)
 	mods_list = ItemList.new()
-	mods_list.custom_minimum_size = Vector2(0, 130)
+	mods_list.custom_minimum_size = Vector2(0, 100)
 	mods_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	mods_list.add_theme_font_size_override("font_size", 15)
 	mods_list.add_theme_stylebox_override("panel", style_box(Color("f6f8f2"), Color("cbd5c8")))
 	mods_list.item_selected.connect(_on_installed_mod_selected)
 	collection.add_child(mods_list)
 	installed_mod_details = _make_label("Select a mod to inspect its file and version.", 13, true)
-	installed_mod_details.custom_minimum_size.y = 30
+	installed_mod_details.custom_minimum_size.y = 22
 	installed_mod_details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	collection.add_child(installed_mod_details)
 	mods_status = _make_label("", 13, true)
@@ -1434,7 +1434,7 @@ func _show_modrinth_empty(title: String, detail: String) -> void:
 	if not is_instance_valid(modrinth_results):
 		return
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size.y = 210
+	panel.custom_minimum_size.y = 112
 	panel.add_theme_stylebox_override("panel", preload("res://scripts/ui_theme.gd").surface(Color("f5f8f6"), Color("d9e3de")))
 	modrinth_results.add_child(panel)
 	var content := VBoxContainer.new()
