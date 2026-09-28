@@ -77,6 +77,9 @@ var modrinth_hits: Array = []
 var modrinth_timer: Timer
 var last_modrinth_results := ""
 var last_modrinth_install_state := ""
+var modrinth_icon_queue: Array = []
+var modrinth_icon_active := 0
+var modrinth_icon_cache: Dictionary = {}
 
 var account_page_title: Label
 var account_page_status: Label
@@ -599,6 +602,7 @@ func _navigate(button: Button) -> void:
 func _open_section(section: String) -> void:
 	if is_instance_valid(modrinth_timer) and section != "Mods":
 		modrinth_timer.stop()
+		modrinth_icon_queue.clear()
 	var nav_button := get_node_or_null(section)
 	if nav_button is Button and nav_button in nav_buttons:
 		_select_nav(nav_button)
@@ -1102,6 +1106,7 @@ func _poll_install() -> void:
 
 func _render_mods_page() -> void:
 	_clear_workspace()
+	modrinth_icon_queue.clear()
 	workspace_title.text = "Mods"
 	workspace_subtitle.text = "Browse compatible mods from Modrinth or import a local JAR."
 	if selected_name.is_empty():
@@ -1224,6 +1229,7 @@ func _search_modrinth() -> void:
 	last_modrinth_results = ""
 	modrinth_hits.clear()
 	modrinth_selected = -1
+	modrinth_icon_queue.clear()
 	for child in modrinth_results.get_children():
 		modrinth_results.remove_child(child)
 		child.queue_free()
@@ -1266,6 +1272,7 @@ func _poll_modrinth() -> void:
 		last_modrinth_results = signature
 		modrinth_hits = results
 		modrinth_selected = -1
+		modrinth_icon_queue.clear()
 		for child in modrinth_results.get_children():
 			modrinth_results.remove_child(child)
 			child.queue_free()
@@ -1289,8 +1296,10 @@ func _poll_modrinth() -> void:
 	elif search_state == "error":
 		modrinth_status.text = str(snapshot.get("search_message", "Search failed."))
 	var install_state := str(snapshot.get("install_state", "idle"))
+	var was_busy := install_busy
 	install_busy = install_state == "installing"
-	_update_play()
+	if install_busy != was_busy:
+		_update_play()
 	if install_state == "installing":
 		modrinth_status.text = str(snapshot.get("install_message", "Installing…"))
 		modrinth_install_button.disabled = true
@@ -1314,21 +1323,46 @@ func _select_modrinth_result(index: int) -> void:
 func _load_modrinth_icon(url: String, card: Button) -> void:
 	if not url.begins_with("https://cdn.modrinth.com/"):
 		return
+	if modrinth_icon_cache.has(url):
+		card.icon = modrinth_icon_cache[url]
+		return
+	modrinth_icon_queue.append({"url": url, "card": card})
+	_start_modrinth_icons()
+
+func _start_modrinth_icons() -> void:
+	# Decode at most two icons at once so result rendering remains responsive.
+	while modrinth_icon_active < 2 and not modrinth_icon_queue.is_empty():
+		var entry: Dictionary = modrinth_icon_queue.pop_front()
+		var card := entry["card"] as Button
+		if not is_instance_valid(card) or not card.is_inside_tree():
+			continue
+		_request_modrinth_icon(str(entry["url"]), card)
+
+func _request_modrinth_icon(url: String, card: Button) -> void:
 	var request := HTTPRequest.new()
-	card.add_child(request)
+	add_child(request)
+	modrinth_icon_active += 1
 	request.request_completed.connect(func(result: int, response: int, _headers: PackedStringArray, body: PackedByteArray):
-		if result == HTTPRequest.RESULT_SUCCESS and response == 200 and body.size() < 524288:
+		if is_instance_valid(card) and card.is_inside_tree() and result == HTTPRequest.RESULT_SUCCESS and response == 200 and body.size() < 524288:
 			var picture := Image.new()
 			var format_error := picture.load_png_from_buffer(body)
 			if format_error != OK:
 				format_error = picture.load_webp_from_buffer(body)
 			if format_error == OK:
 				picture.resize(48, 48)
-				card.icon = ImageTexture.create_from_image(picture)
+				var icon := ImageTexture.create_from_image(picture)
+				if modrinth_icon_cache.size() >= 128:
+					modrinth_icon_cache.erase(modrinth_icon_cache.keys()[0])
+				modrinth_icon_cache[url] = icon
+				card.icon = icon
 		request.queue_free()
+		modrinth_icon_active -= 1
+		_start_modrinth_icons()
 	)
 	if request.request(url) != OK:
 		request.queue_free()
+		modrinth_icon_active -= 1
+		_start_modrinth_icons()
 
 func _add_mod() -> void:
 	if selected_name.is_empty() or install_busy:

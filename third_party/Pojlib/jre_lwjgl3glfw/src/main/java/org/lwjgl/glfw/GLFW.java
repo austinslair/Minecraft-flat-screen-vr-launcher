@@ -35,7 +35,9 @@ public class GLFW
     private static long gamepadFileModifiedAt = -1;
     private static String gamepadPath;
     private static File gamepadFile;
+    private static final boolean flatGamepadEnabled = System.getProperty("glfwstub.gamepadStateFile") != null;
     private static synchronized void readGamepad() {
+        if (!flatGamepadEnabled) return;
         long now = System.currentTimeMillis();
         // Flat mode writes this file on input changes. VR has no flat gamepad
         // file, so avoid opening a missing path on every rendered frame.
@@ -990,8 +992,13 @@ public class GLFW
     }
 
     public static void glfwSwapBuffers(@NativeType("GLFWwindow *") long window) {
+        // Report the game's render-loop cadence at a low rate during VR play.
+        // This is not the headset compositor's frame rate, but it identifies
+        // long launcher/GLFW stalls without allocating or writing each frame.
+        long swapStarted = vrRenderMetrics ? System.nanoTime() : 0L;
         long __functionAddress = Functions.SwapBuffers;
         invokePV(window, __functionAddress);
+        if (vrRenderMetrics) recordVrSwap(swapStarted, System.nanoTime());
         // Let the Android host reveal the surface after Minecraft presents its first frame.
         // A marker is used because this class runs inside the embedded JVM.
         if (!firstFrameReported) {
@@ -1006,6 +1013,35 @@ public class GLFW
     }
 
     private static boolean firstFrameReported;
+    private static final boolean vrRenderMetrics = Boolean.getBoolean("voxyquest.vrRenderMetrics");
+    private static long vrMetricsStarted;
+    private static long vrMetricsLastFrame;
+    private static long vrMetricsFrames;
+    private static long vrMetricsLongestGap;
+    private static long vrMetricsLongestSwap;
+
+    private static void recordVrSwap(long started, long finished) {
+        if (vrMetricsStarted == 0L) {
+            vrMetricsStarted = finished;
+            vrMetricsLastFrame = finished;
+            return;
+        }
+        vrMetricsFrames++;
+        vrMetricsLongestGap = Math.max(vrMetricsLongestGap, finished - vrMetricsLastFrame);
+        vrMetricsLongestSwap = Math.max(vrMetricsLongestSwap, finished - started);
+        vrMetricsLastFrame = finished;
+        long elapsed = finished - vrMetricsStarted;
+        if (elapsed >= 10_000_000_000L) {
+            System.out.println("VoxyQuest VR render loop: " +
+                Math.round(vrMetricsFrames * 1_000_000_000.0 / elapsed) +
+                " swaps/s, longest gap " + (vrMetricsLongestGap / 1_000_000L) +
+                "ms, longest swap " + (vrMetricsLongestSwap / 1_000_000L) + "ms");
+            vrMetricsStarted = finished;
+            vrMetricsFrames = 0L;
+            vrMetricsLongestGap = 0L;
+            vrMetricsLongestSwap = 0L;
+        }
+    }
 
     public static void glfwSwapInterval(int interval) {
         long __functionAddress = Functions.SwapInterval;
@@ -1121,7 +1157,7 @@ public class GLFW
     public static void glfwSetWindowIcon(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWimage const *") GLFWImage.Buffer images) {}
 
     public static void glfwPollEvents() {
-        readGamepad();
+        if (flatGamepadEnabled) readGamepad();
         if (gamepadPresent != gamepadWasPresent) {
             gamepadWasPresent = gamepadPresent;
             if (mGLFWJoystickCallback != null)
@@ -1257,7 +1293,7 @@ public class GLFW
     }
 
     public static boolean glfwJoystickPresent(int jid) {
-        readGamepad();
+        if (flatGamepadEnabled) readGamepad();
         return jid == 0 && gamepadPresent;
     }
     public static String glfwGetJoystickName(int jid) {

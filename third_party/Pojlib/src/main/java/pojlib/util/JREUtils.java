@@ -210,6 +210,11 @@ public class JREUtils {
     }
 
     public static int launchJavaVM(final Activity activity, final List<String> JVMArgs, MinecraftInstances.Instance instance) throws Throwable {
+        return launchJavaVM(activity, JVMArgs, instance, true);
+    }
+
+    public static int launchJavaVM(final Activity activity, final List<String> JVMArgs,
+                                   MinecraftInstances.Instance instance, boolean flatGamepad) throws Throwable {
         // The embedded JVM loads filesystem paths, unlike ART's APK zip loader.
         // Fail before entering native code if export did not extract these libraries.
         for (String library : new String[]{"libpojavexec.so", "liblwjgl.so", "libjnidispatch.so"}) {
@@ -223,7 +228,7 @@ public class JREUtils {
         setJavaEnvironment(activity, instance);
 
         final String graphicsLib = loadGraphicsLibrary();
-        List<String> userArgs = getJavaArgs(activity, instance);
+        List<String> userArgs = getJavaArgs(activity, instance, flatGamepad);
 
         // Add automatically generated args. Keep the initial heap much smaller than
         // the maximum heap: on Quest the OpenXR/Godot/native side remains resident,
@@ -333,6 +338,11 @@ public class JREUtils {
      * @return A list filled with args.
      */
     public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance) throws IOException {
+        return getJavaArgs(ctx, instance, true);
+    }
+
+    public static List<String> getJavaArgs(Context ctx, MinecraftInstances.Instance instance,
+                                           boolean flatGamepad) throws IOException {
         File resConfFile = new File(Constants.USER_HOME + "/hacks/resolv.conf");
         try {
             if(!resConfFile.exists()) {
@@ -342,7 +352,7 @@ public class JREUtils {
         } catch (IOException e) {
             Logger.getInstance().appendToLog("Couldn't write DNS servers! " + e.getMessage());
         }
-        return new ArrayList<>(Arrays.asList(
+        ArrayList<String> args = new ArrayList<>(Arrays.asList(
                 "-Djava.home=" + new File(ctx.getFilesDir(), "runtimes/JRE"),
                 "-Djava.io.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
                 "-Duser.home=" + instance.gameDir,
@@ -357,7 +367,6 @@ public class JREUtils {
                 "-Djava.library.path=" + ctx.getApplicationInfo().nativeLibraryDir,
                 "-Dglfwstub.windowWidth=" + FlatDisplay.width,
                 "-Dglfwstub.windowHeight=" + FlatDisplay.height,
-                "-Dglfwstub.gamepadStateFile=" + new File(ctx.getFilesDir(), "flat-gamepad.bin").getAbsolutePath(),
                 "-Dvoxyquest.readyFile=" + new File(ctx.getFilesDir(), "minecraft-first-frame").getAbsolutePath(),
                 "-Dglfwstub.initEgl=false",
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
@@ -366,6 +375,13 @@ public class JREUtils {
                 "-Dsodium.checks.issue2561=false",
                 "-Dorg.sqlite.lib.path=" + ctx.getApplicationInfo().nativeLibraryDir
         ));
+        if (flatGamepad) {
+            args.add("-Dglfwstub.gamepadStateFile=" +
+                    new File(ctx.getFilesDir(), "flat-gamepad.bin").getAbsolutePath());
+        } else {
+            args.add("-Dvoxyquest.vrRenderMetrics=true");
+        }
+        return args;
     }
 
     /**

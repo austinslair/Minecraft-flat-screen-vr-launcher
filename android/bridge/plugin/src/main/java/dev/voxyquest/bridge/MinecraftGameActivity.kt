@@ -177,7 +177,7 @@ open class MinecraftGameActivity : Activity() {
                     android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
                 }.isSuccess
                 val exitCode = try {
-                    JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance)
+                    JREUtils.launchJavaVM(this, instance.generateLaunchArgs(account), instance, !vr)
                 } finally {
                     if (raised) runCatching { android.os.Process.setThreadPriority(oldPriority) }
                 }
