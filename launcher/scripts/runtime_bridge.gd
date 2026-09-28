@@ -70,6 +70,17 @@ func copy_input_report() -> bool:
 	var plugin: Object = _refresh_plugin()
 	return plugin != null and _plugin_has_method(plugin, &"copyInputReport") and bool(plugin.copyInputReport())
 
+func get_latest_log_info() -> Dictionary:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getLatestLogInfoJson"):
+		return {"available": false, "name": "", "bytes": 0}
+	var parsed: Variant = JSON.parse_string(str(plugin.getLatestLogInfoJson()))
+	return parsed if parsed is Dictionary else {"available": false, "name": "", "bytes": 0}
+
+func export_latest_log() -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"exportLatestLog") and bool(plugin.exportLatestLog())
+
 func get_microphone_permission_state() -> String:
 	var plugin: Object = _refresh_plugin()
 	if not _plugin_has_method(plugin, &"getMicrophonePermissionState"):

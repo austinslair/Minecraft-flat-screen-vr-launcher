@@ -18,12 +18,18 @@ class FakeRuntime extends RefCounted:
 	var modrinth_installed := ""
 	var mod_changed := ""
 	var mod_removed := ""
+	var log_exported := false
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
 		return true
 	func get_info() -> Dictionary:
 		return {"available": true, "engine": "Godot", "bridge_version": "test", "pojlib": "godot_host_ready"}
+	func get_latest_log_info() -> Dictionary:
+		return {"available": true, "name": "previouslog.txt", "bytes": 4096}
+	func export_latest_log() -> bool:
+		log_exported = true
+		return true
 	func get_microphone_permission_state() -> String:
 		return "granted" if microphone_allowed else "denied"
 	func request_microphone_access() -> bool:
@@ -317,6 +323,10 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
 	assert(ui.workspace_title.text == "Settings")
+	assert(not ui.settings_log_export_button.disabled)
+	ui.settings_log_export_button.pressed.emit()
+	assert(fake.log_exported)
+	assert(ui.settings_log_status.text.contains("Downloads"))
 	assert(ui.microphone_status.text.contains("off"))
 	ui.microphone_grant_button.pressed.emit()
 	ui._refresh_microphone_status()

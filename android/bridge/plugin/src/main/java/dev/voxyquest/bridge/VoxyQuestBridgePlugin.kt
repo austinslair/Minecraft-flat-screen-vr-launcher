@@ -167,6 +167,38 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         return true
     }
 
+    private fun latestCapturedLog(): File? {
+        val latest = File(Constants.USER_HOME, "latestlog.txt")
+        val previous = File(Constants.USER_HOME, "previouslog.txt")
+        // Logger rotates the last game session when the launcher starts. An
+        // empty/new launcher log should not hide the captured game log.
+        val candidates = listOf(latest, previous).filter { it.isFile && it.length() > 0L }
+        return candidates.firstOrNull { it.name == "latestlog.txt" &&
+            runCatching { it.useLines { lines -> lines.any { line -> line.contains("VoxyQuest launch: game activity created") } } }
+                .getOrDefault(false) }
+            ?: candidates.firstOrNull { it.name == "previouslog.txt" }
+            ?: candidates.firstOrNull()
+    }
+
+    @UsedByGodot
+    fun getLatestLogInfoJson(): String {
+        val log = latestCapturedLog()
+        return JSONObject().put("available", log != null)
+            .put("name", log?.name ?: "")
+            .put("bytes", log?.length() ?: 0L).toString()
+    }
+
+    @UsedByGodot
+    fun exportLatestLog(): Boolean {
+        val host = activity ?: return false
+        val log = latestCapturedLog() ?: return false
+        return runCatching {
+            host.startActivity(Intent(host, LogExportActivity::class.java)
+                .putExtra("log_name", log.name))
+            true
+        }.getOrDefault(false)
+    }
+
     @UsedByGodot
     fun isMicrosoftLoginConfigured(): Boolean = BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()
 

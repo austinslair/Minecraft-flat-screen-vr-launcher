@@ -92,6 +92,8 @@ var account_page_copy: Button
 var account_page_cancel: Button
 
 var settings_status: Label
+var settings_log_status: Label
+var settings_log_export_button: Button
 var microphone_status: Label
 var microphone_grant_button: Button
 
@@ -581,6 +583,8 @@ func _clear_workspace() -> void:
 	account_page_copy = null
 	account_page_cancel = null
 	settings_status = null
+	settings_log_status = null
+	settings_log_export_button = null
 	microphone_status = null
 	microphone_grant_button = null
 
@@ -1698,8 +1702,21 @@ func _cancel_account_login() -> void:
 func _render_settings_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Settings"
-	workspace_subtitle.text = "Launcher and runtime status."
-	var selection := _page_card(workspace_body, "Game selection", "Choose which installed instance the Play button opens.")
+	workspace_subtitle.text = "Manage your launcher, permissions, and diagnostic logs."
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 16)
+	workspace_body.add_child(columns)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size.x = 690
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_constant_override("separation", 16)
+	columns.add_child(left)
+	var right := VBoxContainer.new()
+	right.custom_minimum_size.x = 690
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 16)
+	columns.add_child(right)
+	var selection := _page_card(left, "Game selection", "Choose which installed instance the Play button opens.")
 	_detail_row(selection, "Selected instance", selected_name if not selected_name.is_empty() else "None selected")
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -1708,7 +1725,7 @@ func _render_settings_page() -> void:
 	var clear_button := _make_button("Clear selection", _clear_instance_selection)
 	clear_button.disabled = selected_name.is_empty()
 	row.add_child(clear_button)
-	var microphone := _page_card(workspace_body, "Microphone", "Allow Minecraft voice chat mods to use your headset microphone.")
+	var microphone := _page_card(left, "Microphone", "Allow voice chat mods to use your headset microphone.")
 	microphone_status = _make_label("", 16, true)
 	microphone.add_child(microphone_status)
 	var microphone_actions := HBoxContainer.new()
@@ -1718,19 +1735,46 @@ func _render_settings_page() -> void:
 	microphone_actions.add_child(microphone_grant_button)
 	microphone_actions.add_child(_make_button("Android app permissions", _open_microphone_app_settings))
 	_refresh_microphone_status()
+	var shortcuts := _page_card(left, "Manage your launcher", "Jump to your account or installed mods.")
+	var shortcut_row := HBoxContainer.new()
+	shortcut_row.add_theme_constant_override("separation", 12)
+	shortcuts.add_child(shortcut_row)
+	shortcut_row.add_child(_make_button("Accounts  →", _open_section.bind("Accounts")))
+	shortcut_row.add_child(_make_button("Mods  →", _open_section.bind("Mods")))
+	var log_info: Dictionary = runtime.get_latest_log_info()
+	var logs := _page_card(right, "Launch logs", "Save the captured Minecraft launch log to your device.")
+	settings_log_status = _make_label("", 15, true)
+	if bool(log_info.get("available", false)):
+		settings_log_status.text = "%s · %s KB available" % [
+			"Latest session" if str(log_info.get("name", "")) == "latestlog.txt" else "Previous session",
+			str(ceili(float(log_info.get("bytes", 0)) / 1024.0))]
+	else:
+		settings_log_status.text = "No log yet. Launch Minecraft once to capture one."
+	logs.add_child(settings_log_status)
+	settings_log_export_button = _make_button("Export log  ↓", _export_latest_log, true)
+	settings_log_export_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	settings_log_export_button.disabled = not bool(log_info.get("available", false))
+	logs.add_child(settings_log_export_button)
 	var info: Dictionary = runtime.get_info()
-	var diagnostics := _page_card(workspace_body, "Launcher status")
+	var diagnostics := _page_card(right, "Launcher status")
 	_detail_row(diagnostics, "Host engine", str(info.get("engine", "Godot")))
 	_detail_row(diagnostics, "Android bridge", str(info.get("bridge_version", "Unavailable")))
 	_detail_row(diagnostics, "Pojlib runtime", str(info.get("pojlib", "Not loaded")))
+	var diagnostic_actions := HBoxContainer.new()
+	diagnostic_actions.add_theme_constant_override("separation", 10)
+	diagnostics.add_child(diagnostic_actions)
 	var refresh := _make_button("Refresh launcher data", _refresh_launcher_data)
-	refresh.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	diagnostics.add_child(refresh)
+	diagnostic_actions.add_child(refresh)
 	var copy_input := _make_button("Copy input report", _copy_input_report)
-	copy_input.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	diagnostics.add_child(copy_input)
+	diagnostic_actions.add_child(copy_input)
 	settings_status = _make_label("", 16, true)
 	diagnostics.add_child(settings_status)
+
+func _export_latest_log() -> void:
+	if runtime.export_latest_log():
+		settings_log_status.text = "Choose Downloads or another location to save the log."
+	else:
+		settings_log_status.text = "Could not open log export. Launch Minecraft first."
 
 func _refresh_microphone_status() -> void:
 	if not is_instance_valid(microphone_status):
