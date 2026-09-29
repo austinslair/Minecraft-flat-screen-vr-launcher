@@ -29,6 +29,8 @@ public final class VivecraftRefreshRateFix {
     static final String TEXTURE_CLASS = "org/vivecraft/client_vr/VRTextureTarget.class";
     static final String REFRESH_METHOD = "initDisplayRefreshRate";
     static final String ORIGINAL_REFRESH_METHOD = "voxyquest$initDisplayRefreshRate";
+    /** Bumped whenever the patch changes, so installs verified by an older build are checked again. */
+    static final String STAMP = "voxyquest-backups/vivecraft-openxr-v3.stamp";
     private VivecraftRefreshRateFix() {}
 
     public static boolean apply(File gameDir) throws IOException {
@@ -41,7 +43,7 @@ public final class VivecraftRefreshRateFix {
         if (!jar.isFile()) return false;
         // A verified patch stays valid until the JAR changes. Avoid hashing the
         // whole archive and inflating the bundled NeoForge archive on each launch.
-        File stamp = new File(gameDir, "voxyquest-backups/vivecraft-openxr-v3.stamp");
+        File stamp = new File(gameDir, STAMP);
         String identity = jar.length() + ":" + jar.lastModified();
         try {
             if (stamp.isFile() && identity.equals(new String(Files.readAllBytes(stamp.toPath()),

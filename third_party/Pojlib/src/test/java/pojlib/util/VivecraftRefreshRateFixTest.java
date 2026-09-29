@@ -208,7 +208,7 @@ public class VivecraftRefreshRateFixTest {
         try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
             assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), bundled));
         }
-        Path stamp = game.resolve("voxyquest-backups/vivecraft-openxr-v2.stamp");
+        Path stamp = game.resolve(VivecraftRefreshRateFix.STAMP);
         assertTrue(Files.isRegularFile(stamp));
         Files.writeString(stamp, "damaged cache");
         try (InputStream bundled = Files.newInputStream(Paths.get(source))) {
