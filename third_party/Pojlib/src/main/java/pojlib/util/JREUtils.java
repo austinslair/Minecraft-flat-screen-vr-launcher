@@ -275,6 +275,11 @@ public class JREUtils {
         // Java should run at max
         userArgs.add("-XX:+UnlockExperimentalVMOptions");
         userArgs.add("-XX:+UseCriticalJavaThreadPriority");
+        // HotSpot ignores Java thread priorities on Linux unless this is set, which left the
+        // flag above and the priorities Minecraft/Sodium give their threads with no effect.
+        userArgs.add("-XX:ThreadPriorityPolicy=1");
+        // Skip the hsperfdata memory-mapped file and the sampler thread that updates it.
+        userArgs.add("-XX:-UsePerfData");
 
         // Android sig fix
         userArgs.add("-XX:+UseSignalChaining");

@@ -15,6 +15,7 @@ import pojlib.account.LoginHelper
 import pojlib.install.VoxyQuestInstaller
 import pojlib.util.JREUtils
 import pojlib.util.Logger
+import pojlib.util.PerformanceTuning
 import pojlib.util.VLoader
 import pojlib.util.json.MinecraftInstances
 
@@ -149,6 +150,7 @@ open class MinecraftGameActivity : Activity() {
                     VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
                     MinecraftInstances.configurePlayMode(instance, vr)
                 }
+                PerformanceTuning.apply(java.io.File(instance.gameDir), vr)
                 API.currentInstance = instance
                 API.gameReady = false
                 configureJvmMemory()

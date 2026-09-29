@@ -35,3 +35,13 @@ Validation required on a headset: install a catalog version, interrupt and resum
 transfer, rename the instance, import a compatible mod, sign in, and launch each mode.
 Confirm VR tracking, flat mouse capture/release, keyboard movement, sound, and return to
 launcher. Headless UI tests cannot verify these device behaviors.
+
+## Performance defaults
+
+Each launch sets vsync on for Flatscreen, which stops Android from rendering frames it
+throws away, and off for VR, where OpenXR paces frames. The first launch of an instance
+after this update also turns off GL debug output, moves nearby chunk rebuilds off the render
+thread, fixes an out-of-range simulation distance, and switches the VR menu world to the
+panorama. Later changes you make in-game are kept. Repair no longer overwrites
+`options.txt`, mod configs or the server list. The JVM now honors thread priorities, and
+Minecraft's render thread starts with display priority.
