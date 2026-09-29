@@ -73,3 +73,19 @@ The JVM heap can now grow to 3 GiB, but never past half of the memory free at la
 Higher render distances need that headroom, and a full heap costs frames in collector work.
 Whether a given mod pack and render distance reach 100 fps still depends on the headset,
 the mods and the world. Minecraft's F3 screen shows the frame rate you actually get.
+
+## Loading time
+
+- **Class Data Sharing:** the first time you leave Minecraft with *Quit Game*, Java saves
+  the classes it loaded to `voxyquest-cache/classes.jsa` in the instance folder. Later
+  launches map that file instead of reading and parsing the classes again. That exit takes
+  a few seconds longer while the file is written. Closing the app any other way skips the
+  save, so it waits for the next normal quit. A new Java runtime or classpath rebuilds it
+  automatically.
+- **No bytecode verification** for game and mod classes, which a modded game loads by the
+  tens of thousands.
+- **MobileGlues shader cache:** the first launch translates every shader. Later launches
+  reuse the cache.
+
+Any of these flags that an older Java runtime does not recognise is ignored.
+The launch log timestamps each stage, so Settings → Export log shows where the time goes.

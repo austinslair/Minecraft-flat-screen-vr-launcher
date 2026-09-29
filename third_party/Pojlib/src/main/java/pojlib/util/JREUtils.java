@@ -283,6 +283,22 @@ public class JREUtils {
         // Skip the hsperfdata memory-mapped file and the sampler thread that updates it.
         userArgs.add("-XX:-UsePerfData");
 
+        // Loading speed. A runtime without one of these flags skips it instead of refusing
+        // to start.
+        userArgs.add("-XX:+IgnoreUnrecognizedVMOptions");
+        // Class Data Sharing: the first launch that quits normally writes the classes it
+        // loaded to this archive, and later launches map them instead of parsing them again.
+        // It is rebuilt by itself when the classpath or Java runtime changes.
+        File classArchive = new File(instance.gameDir, "voxyquest-cache/classes.jsa");
+        if (classArchive.getParentFile().isDirectory() || classArchive.getParentFile().mkdirs()) {
+            userArgs.add("-XX:SharedArchiveFile=" + classArchive.getAbsolutePath());
+            userArgs.add("-XX:+AutoCreateSharedArchive");
+        }
+        // Skip bytecode verification for game and mod classes; Minecraft and a mod pack load
+        // tens of thousands of them. Mods already run with full access, so verification adds
+        // load time without adding protection.
+        userArgs.add("-XX:-BytecodeVerificationRemote");
+
         // Android sig fix
         userArgs.add("-XX:+UseSignalChaining");
 
