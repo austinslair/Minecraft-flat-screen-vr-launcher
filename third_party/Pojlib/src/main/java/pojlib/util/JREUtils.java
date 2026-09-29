@@ -42,6 +42,8 @@ public class JREUtils {
     public static String jvmLibraryPath;
     private static String sNativeLibDir;
     private static String runtimeDir;
+    /** Translation layer for the next launch; set by the game activity before launchJavaVM. */
+    public static volatile Renderer renderer = Renderer.DEFAULT;
 
     public static String findInLdLibPath(String libName) {
         if(Os.getenv("LD_LIBRARY_PATH")==null) {
@@ -170,7 +172,7 @@ public class JREUtils {
         //envMap.put("APP_HOME", Constants.USER_HOME);
         envMap.put("TMPDIR", activity.getCacheDir().getAbsolutePath());
         envMap.put("VR_MODEL", API.model);
-        envMap.put("POJLIB_RENDERER", "LightThinWrapper");
+        envMap.putAll(renderer.environment(activity.getFilesDir()));
         envMap.put("VOXYQUEST_LAUNCH_LOG", new File(Constants.USER_HOME, "latestlog.txt").getAbsolutePath());
 
         envMap.put("LD_LIBRARY_PATH", LD_LIBRARY_PATH);
@@ -187,7 +189,7 @@ public class JREUtils {
             }
             reader.close();
         }
-        envMap.put("LIBGL_ES", "2");
+        envMap.put("LIBGL_ES", renderer.glesVersion);
         for (Map.Entry<String, String> env : envMap.entrySet()) {
             Logger.getInstance().appendToLog("Added custom env: " + env.getKey() + "=" + env.getValue());
             Os.setenv(env.getKey(), env.getValue(), true);
@@ -439,7 +441,7 @@ public class JREUtils {
      * @return The name of the loaded library
      */
     public static String loadGraphicsLibrary(){
-        return "libltw.so";
+        return renderer.library;
     }
 
     public static native long getEGLContextPtr();

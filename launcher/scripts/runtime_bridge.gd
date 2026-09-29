@@ -272,6 +272,17 @@ func launch_minecraft_flat(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
 	return _plugin_has_method(plugin, &"launchMinecraftFlat") and bool(plugin.launchMinecraftFlat(instance_name))
 
+## Renderer for VR and Flatscreen launches: "mobileglues" (default) or "ltw".
+func get_renderer() -> String:
+	var plugin: Object = _refresh_plugin()
+	if not _plugin_has_method(plugin, &"getRenderer"):
+		return "mobileglues"
+	return str(plugin.getRenderer())
+
+func set_renderer(renderer_id: String) -> bool:
+	var plugin: Object = _refresh_plugin()
+	return _plugin_has_method(plugin, &"setRenderer") and bool(plugin.setRenderer(renderer_id))
+
 func add_instance_mod(instance_name: String) -> bool:
 	var plugin: Object = _refresh_plugin()
 	return _plugin_has_method(plugin, &"addInstanceMod") and bool(plugin.addInstanceMod(instance_name))

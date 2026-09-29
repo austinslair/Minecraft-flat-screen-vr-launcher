@@ -39,6 +39,7 @@ jobs:
             "build-tools;35.0.1" \
             "build-tools;36.0.0" \
             "cmake;3.10.2.4988404" \
+            "cmake;3.22.1" \
             "ndk;26.1.10909125" \
             "ndk;28.1.13356709"
 
@@ -217,6 +218,9 @@ jobs:
           test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
           test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/MobileGlues-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar
+          unzip -l launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar | grep -q 'jni/arm64-v8a/libmobileglues.so'
           test -f launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar
           test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
           test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
@@ -334,6 +338,8 @@ jobs:
           grep -Fq 'Ldev/voxyquest/bridge/LauncherOperations;' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
           grep -Fq 'Ldev/voxyquest/bridge/ModrinthClient;' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
           grep -Fq 'installInstance' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libmobileglues.so'
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libltw.so'
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4

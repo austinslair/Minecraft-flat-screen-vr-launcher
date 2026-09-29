@@ -85,8 +85,15 @@ void pojavTerminate() {
 }
 
 void dlsym_egl() {
-    void* handle = dlopen("libltw.so", RTLD_NOW);
+    // The renderer supplies EGL too, so contexts and surfaces are ones it knows about.
+    const char* eglLib = getenv("POJAVEXEC_EGL");
+    void* handle = dlopen(eglLib && *eglLib ? eglLib : "libltw.so", RTLD_NOW);
+    if (!handle) {
+        printf("EGLBridge: Error loading %s: %s\n", eglLib ? eglLib : "libltw.so", dlerror());
+        return;
+    }
     eglGetProcAddress_p = (eglGetProcAddress_t*) dlsym(handle, "eglGetProcAddress");
+    if (!eglGetProcAddress_p) return;
     eglGetDisplay_p = (eglGetDisplay_t*) eglGetProcAddress_p("eglGetDisplay");
     eglInitialize_p = (eglInitialize_t*) eglGetProcAddress_p("eglInitialize");
     eglChooseConfig_p = (eglChooseConfig_t*) eglGetProcAddress_p("eglChooseConfig");
@@ -108,6 +115,7 @@ void* pojavGetCurrentContext() {
 
 int xrEglInit() {
     dlsym_egl();
+    if (!eglGetDisplay_p || !eglInitialize_p || !eglChooseConfig_p) return 0;
 
     if (xrEglDisplay == NULL || xrEglDisplay == EGL_NO_DISPLAY) {
         xrEglDisplay = eglGetDisplay_p(EGL_DEFAULT_DISPLAY);

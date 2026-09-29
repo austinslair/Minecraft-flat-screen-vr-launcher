@@ -50,11 +50,14 @@ dependencies {
 }
 
 val syncToGodot by tasks.registering(Copy::class) {
-    dependsOn("assembleDebug", "assembleRelease", ":pojlib:assembleDebug", ":pojlib:assembleRelease")
+    dependsOn("assembleDebug", "assembleRelease", ":pojlib:assembleDebug", ":pojlib:assembleRelease",
+        ":mobileglues:assembleDebug", ":mobileglues:assembleRelease")
     into(addonDir)
     from("export_scripts_template")
     from("build/outputs/aar/$pluginName-debug.aar") { into("bin/debug") }
     from("build/outputs/aar/$pluginName-release.aar") { into("bin/release") }
     from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-debug.aar")) { into("bin/debug") }
     from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-release.aar")) { into("bin/release") }
+    from(project(":mobileglues").layout.buildDirectory.file("outputs/aar/MobileGlues-debug.aar")) { into("bin/debug") }
+    from(project(":mobileglues").layout.buildDirectory.file("outputs/aar/MobileGlues-release.aar")) { into("bin/release") }
 }

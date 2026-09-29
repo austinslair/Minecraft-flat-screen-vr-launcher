@@ -15,6 +15,7 @@ func _exit_tree() -> void:
 class VoxyQuestAndroidExportPlugin extends EditorExportPlugin:
 	const PLUGIN_NAME := "VoxyQuestBridge"
 	const POJLIB_NAME := "PojlibRuntime"
+	const RENDERER_NAME := "MobileGlues"
 
 	func _supports_platform(platform: EditorExportPlatform) -> bool:
 		return platform is EditorExportPlatformAndroid
@@ -23,7 +24,8 @@ class VoxyQuestAndroidExportPlugin extends EditorExportPlugin:
 		var variant := "debug" if debug else "release"
 		return PackedStringArray([
 			PLUGIN_NAME + "/bin/" + variant + "/" + PLUGIN_NAME + "-" + variant + ".aar",
-			PLUGIN_NAME + "/bin/" + variant + "/" + POJLIB_NAME + "-" + variant + ".aar"
+			PLUGIN_NAME + "/bin/" + variant + "/" + POJLIB_NAME + "-" + variant + ".aar",
+			PLUGIN_NAME + "/bin/" + variant + "/" + RENDERER_NAME + "-" + variant + ".aar"
 		])
 
 	func _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:

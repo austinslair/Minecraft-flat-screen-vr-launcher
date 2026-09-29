@@ -16,12 +16,14 @@ import pojlib.install.VoxyQuestInstaller
 import pojlib.util.JREUtils
 import pojlib.util.Logger
 import pojlib.util.PerformanceTuning
+import pojlib.util.Renderer
 import pojlib.util.VLoader
 import pojlib.util.json.MinecraftInstances
 
 /** Dedicated game host; the launcher itself never starts an OpenXR session. */
 open class MinecraftGameActivity : Activity() {
     companion object {
+        const val EXTRA_RENDERER = "renderer"
         @Volatile var isRunning = false
             private set
     }
@@ -167,6 +169,8 @@ open class MinecraftGameActivity : Activity() {
                     VLoader.setAndroidInitInfo(this)
                     Logger.getInstance().appendToLog("VoxyQuest launch: OpenXR configuration ready")
                 }
+                JREUtils.renderer = Renderer.fromId(intent.getStringExtra(EXTRA_RENDERER))
+                Logger.getInstance().appendToLog("VoxyQuest launch: renderer ${JREUtils.renderer.displayName}")
                 Logger.getInstance().appendToLog("VoxyQuest launch: starting Java VM")
                 Logger.getInstance().appendToLog(
                     "VoxyQuest launch: Java entry after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",

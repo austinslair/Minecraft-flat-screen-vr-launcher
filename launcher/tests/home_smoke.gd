@@ -1,6 +1,7 @@
 extends SceneTree
 
 class FakeRuntime extends RefCounted:
+	var renderer := "mobileglues"
 	var snapshot := {"available": true, "instances": [], "error": ""}
 	var auth := {"configured": true, "state": "idle", "signed_in": false, "device_code": "", "profile_name": ""}
 	var renamed := false
@@ -101,6 +102,11 @@ class FakeRuntime extends RefCounted:
 		return true
 	func add_instance_mod(name: String) -> bool:
 		imported = name
+		return true
+	func get_renderer() -> String:
+		return renderer
+	func set_renderer(renderer_id: String) -> bool:
+		renderer = renderer_id
 		return true
 
 class CatalogPlugin extends RefCounted:
@@ -323,6 +329,14 @@ func run_checks() -> void:
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
 	assert(ui.workspace_title.text == "Settings")
+	var renderer_picker: OptionButton = ui.find_child("RendererPicker", true, false)
+	assert(renderer_picker != null and renderer_picker.selected == 0)
+	renderer_picker.item_selected.emit(1)
+	assert(fake.renderer == "ltw")
+	assert(ui.renderer_status.text.contains("LightThinWrapper"))
+	ui._render_settings_page()
+	assert(ui.find_child("RendererPicker", true, false).selected == 1)
+	fake.renderer = "mobileglues"
 	assert(not ui.settings_log_export_button.disabled)
 	ui.settings_log_export_button.pressed.emit()
 	assert(fake.log_exported)

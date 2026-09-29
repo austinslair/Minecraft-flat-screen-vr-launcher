@@ -45,3 +45,16 @@ thread, fixes an out-of-range simulation distance, and switches the VR menu worl
 panorama. Later changes you make in-game are kept. Repair no longer overwrites
 `options.txt`, mod configs or the server list. The JVM now honors thread priorities, and
 Minecraft's render thread starts with display priority.
+
+## Renderer
+
+Settings → Renderer chooses the OpenGL translation layer for VR and Flatscreen launches.
+The default is MobileGlues (`flat_screen/renderer/`, built by CI as `libmobileglues.so`).
+It keeps translated shaders in a persistent cache under the app's private `mobileglues/`
+directory, which you can tune in `config.json` there. It also enables the TGS Quest
+upload patches, which reduce the stalls heavy mod packs cause while streaming chunks and
+textures. In VR, the OpenXR runtime's swapchain textures reach MobileGlues as names it did
+not create. It passes them straight to the driver and starts tracking them on first use.
+LightThinWrapper, the renderer VoxyQuest used before, is still available. Switch to it if a
+mod renders incorrectly or VR fails to start. The launch log records which renderer ran.
+MobileGlues has not yet been measured on a headset.

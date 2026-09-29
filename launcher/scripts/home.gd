@@ -18,6 +18,7 @@ var nav_buttons: Array[Button] = []
 var runtime: RefCounted = VoxyQuestRuntimeBridge.new()
 var selected_name := ""
 var play_mode := "vr"
+const RENDERERS := [["mobileglues", "MobileGlues (faster with mods)"], ["ltw", "LightThinWrapper (original)"]]
 var installed_instances: Array = []
 var instance_read_error := ""
 var signed_in := false
@@ -95,6 +96,7 @@ var settings_status: Label
 var settings_log_status: Label
 var settings_log_export_button: Button
 var microphone_status: Label
+var renderer_status: Label
 var microphone_grant_button: Button
 
 func _ready() -> void:
@@ -1699,6 +1701,30 @@ func _cancel_account_login() -> void:
 	runtime.cancel_microsoft_login()
 	_refresh_auth_ui()
 
+func _build_renderer_setting(parent: Control) -> void:
+	var card := _page_card(parent, "Renderer",
+		"Used for VR and Flatscreen. MobileGlues caches translated shaders and avoids upload stalls, which helps heavily modded instances. If a mod renders incorrectly, switch to LightThinWrapper.")
+	var picker := OptionButton.new()
+	picker.name = "RendererPicker"
+	picker.custom_minimum_size = Vector2(360, 46)
+	picker.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	picker.add_theme_font_size_override("font_size", 17)
+	for entry in RENDERERS:
+		picker.add_item(str(entry[1]))
+	var current: String = runtime.get_renderer()
+	for index in RENDERERS.size():
+		if RENDERERS[index][0] == current:
+			picker.select(index)
+	card.add_child(picker)
+	renderer_status = _make_label("Takes effect the next time you press Play.", 15, true)
+	card.add_child(renderer_status)
+	picker.item_selected.connect(_on_renderer_selected)
+
+func _on_renderer_selected(index: int) -> void:
+	var saved: bool = runtime.set_renderer(str(RENDERERS[index][0]))
+	if is_instance_valid(renderer_status):
+		renderer_status.text = ("%s will be used next launch." % RENDERERS[index][1]) if saved else "Could not save the renderer choice."
+
 func _render_settings_page() -> void:
 	_clear_workspace()
 	workspace_title.text = "Settings"
@@ -1725,6 +1751,7 @@ func _render_settings_page() -> void:
 	var clear_button := _make_button("Clear selection", _clear_instance_selection)
 	clear_button.disabled = selected_name.is_empty()
 	row.add_child(clear_button)
+	_build_renderer_setting(left)
 	var microphone := _page_card(left, "Microphone", "Allow voice chat mods to use your headset microphone.")
 	microphone_status = _make_label("", 16, true)
 	microphone.add_child(microphone_status)

@@ -15,6 +15,7 @@ import org.json.JSONObject
 import pojlib.util.Constants
 import pojlib.util.GsonUtils
 import pojlib.util.Logger
+import pojlib.util.Renderer
 import pojlib.util.json.MinecraftInstances
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
@@ -31,6 +32,8 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     companion object {
         private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
         private const val MICROPHONE_PERMISSION_REQUEST = 2471
+        private const val PREFERENCES = "voxyquest_launcher"
+        private const val KEY_RENDERER = "renderer"
     }
 
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
@@ -379,6 +382,24 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     @UsedByGodot
     fun launchMinecraftFlat(name: String): Boolean = launchMinecraft(name, false)
 
+    /** Renderer id for VR and Flatscreen launches: "mobileglues" (default) or "ltw". */
+    @UsedByGodot
+    fun getRenderer(): String = selectedRenderer().id
+
+    @UsedByGodot
+    fun setRenderer(id: String): Boolean {
+        val host = activity ?: return false
+        val renderer = Renderer.fromId(id)
+        if (renderer.id != id) return false
+        host.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+            .putString(KEY_RENDERER, renderer.id).apply()
+        return true
+    }
+
+    private fun selectedRenderer(): Renderer = Renderer.fromId(activity
+        ?.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        ?.getString(KEY_RENDERER, null))
+
     @UsedByGodot
     fun addInstanceMod(name: String): Boolean {
         val host = activity ?: return false
@@ -403,6 +424,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
                 host,
                 if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,
             ).putExtra("instance_name", name)
+                .putExtra(MinecraftGameActivity.EXTRA_RENDERER, selectedRenderer().id)
             host.startActivity(intent)
             // Keep the Godot host Activity alive behind Minecraft. Finishing the Godot Activity
             // tears down the process on Android, which also terminates the Minecraft Activity.
