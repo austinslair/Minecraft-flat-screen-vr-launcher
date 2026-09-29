@@ -58,6 +58,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.14.3"
+          # The default only saves on main, so every branch build re-downloaded ~1 GB of
+          # dependencies and the NeoForge toolchains. Let branch builds save too.
+          cache-read-only: false
 
       - uses: actions/setup-java@v5
         with:
