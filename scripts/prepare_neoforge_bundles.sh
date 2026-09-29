@@ -5,24 +5,50 @@
 # Expects the three Vivecraft checkouts in the working directory, as godot.yml provides.
 set -eu
 
+# maven.neoforged.net and the Mojang/Forge mirrors occasionally answer 502/503. Retry the
+# network-heavy commands with a growing pause instead of failing the whole build.
+retry() {
+  attempt=1
+  until "$@"; do
+    if [ "$attempt" -ge 4 ]; then
+      echo "Failed after $attempt attempts: $*" >&2
+      return 1
+    fi
+    echo "Attempt $attempt failed, retrying in $((attempt * 20))s: $*" >&2
+    sleep $((attempt * 20))
+    attempt=$((attempt + 1))
+  done
+}
+
+# Only the NeoForge jar is needed. Vivecraft's settings.gradle includes every platform
+# regardless of enabled_platforms, and configuring :forge alone runs Forge's full MCP
+# pipeline (minutes per checkout), so drop the unused projects before building.
+neoforge_only() {
+  sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
+  sed -i '/^include("fabric")$/d; /^include("forge")$/d' settings.gradle
+}
+
+# Gradle's own retry gives up after a few short attempts; allow more, with longer backoff.
+GRADLE_RETRY_ARGS="-Dorg.gradle.internal.repository.max.retries=6 -Dorg.gradle.internal.repository.initial.backoff=2000"
+
 cd quest-vivecraft-openxr
-sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
-bash ./gradlew :neoforge:remapJar --no-daemon
+neoforge_only
+retry bash ./gradlew :neoforge:remapJar --no-daemon $GRADLE_RETRY_ARGS
 cd ..
 ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
 mkdir -p "$ASSETS" "$RUNNER_TEMP/neoforge-client"
 cp quest-vivecraft-openxr/neoforge/build/libs/vivecraft-1.21.5-1.3.4-neoforge.jar "$ASSETS/vivecraft.jar"
 for MC_VERSION in 1.21.4 1.21.1; do
   cd "quest-vivecraft-openxr-$MC_VERSION"
-  sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
-  bash ./gradlew :neoforge:remapJar --no-daemon
+  neoforge_only
+  retry bash ./gradlew :neoforge:remapJar --no-daemon $GRADLE_RETRY_ARGS
   cd ..
   mkdir -p "$ASSETS/$MC_VERSION"
   cp "quest-vivecraft-openxr-$MC_VERSION/neoforge/build/libs/vivecraft-$MC_VERSION-1.2.5-neoforge.jar" "$ASSETS/$MC_VERSION/vivecraft.jar"
 done
-curl -fsSL --retry 3 https://maven.neoforged.net/releases/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-installer.jar -o "$RUNNER_TEMP/neoforge-installer.jar"
+curl -fsSL --retry 5 --retry-delay 10 https://maven.neoforged.net/releases/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-installer.jar -o "$RUNNER_TEMP/neoforge-installer.jar"
 printf '{"profiles":{}}' > "$RUNNER_TEMP/neoforge-client/launcher_profiles.json"
-java -jar "$RUNNER_TEMP/neoforge-installer.jar" --installClient "$RUNNER_TEMP/neoforge-client"
+retry java -jar "$RUNNER_TEMP/neoforge-installer.jar" --installClient "$RUNNER_TEMP/neoforge-client"
 cp "$RUNNER_TEMP/neoforge-client/versions/neoforge-21.5.2-beta/neoforge-21.5.2-beta.json" "$ASSETS/version.json"
 cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-client.jar" "$ASSETS/client.jar"
 cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-universal.jar" "$ASSETS/universal.jar"
@@ -43,8 +69,8 @@ for spec in "1.21.4:21.4.150" "1.21.1:21.1.220"; do
   CLIENT_DIR="$RUNNER_TEMP/neoforge-client-$MC_VERSION"
   mkdir -p "$VERSION_ASSETS" "$CLIENT_DIR"
   printf '{"profiles":{}}' > "$CLIENT_DIR/launcher_profiles.json"
-  curl -fsSL --retry 3 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-installer.jar" -o "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar"
-  java -jar "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar" --installClient "$CLIENT_DIR"
+  curl -fsSL --retry 5 --retry-delay 10 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-installer.jar" -o "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar"
+  retry java -jar "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar" --installClient "$CLIENT_DIR"
   cp "$CLIENT_DIR/versions/neoforge-$NEO_VERSION/neoforge-$NEO_VERSION.json" "$VERSION_ASSETS/version.json"
   cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-client.jar" "$VERSION_ASSETS/client.jar"
   cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-universal.jar" "$VERSION_ASSETS/universal.jar"
