@@ -24,8 +24,8 @@ jobs:
       VIVECRAFT_REF_1_21_5: 612a11ca6a30791cae34d410328bc75d08246970
       VIVECRAFT_REF_1_21_4: 60ffc92889fed3d1a92127b1b66516dd2354bbeb
       VIVECRAFT_REF_1_21_1: 29599bbd50aa61d9408c5bc80299e1a7a406d7c4
-      VOXYQUEST_NATIVE_CACHE: ${{ github.workspace }}/../voxyquest-native-cache
-      CCACHE_DIR: ${{ github.workspace }}/../voxyquest-native-cache/ccache
+      VOXYQUEST_NATIVE_CACHE: ${{ github.workspace }}/.voxyquest-native-cache
+      CCACHE_DIR: ${{ github.workspace }}/.voxyquest-native-cache/ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 1G

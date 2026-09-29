@@ -48,3 +48,6 @@ android/bridge/plugin/build/
 *.user
 *.suo
 *.userprefs
+
+# CI compiler/ThinLTO cache for the native renderer
+.voxyquest-native-cache/
