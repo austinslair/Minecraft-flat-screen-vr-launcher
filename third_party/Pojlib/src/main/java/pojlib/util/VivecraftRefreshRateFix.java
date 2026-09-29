@@ -8,8 +8,9 @@ import java.util.*;
 import java.util.zip.*;
 
 /** Compatibility fix for the verified Quest OpenXR releases in the runtime catalog.
- * Refresh-rate selection is optional: retain the runtime default instead of
- * allowing an empty enumeration to abort the entire OpenXR session.
+ * Refresh-rate selection is optional: Vivecraft still asks the headset for its highest
+ * rate (120 Hz on Quest 3, so VR can run above 72/90 fps), but a failure keeps the
+ * runtime default instead of an empty enumeration aborting the entire OpenXR session.
  */
 public final class VivecraftRefreshRateFix {
     // These are the exact Fabric OpenXR archives advertised by runtime_mods.json.
@@ -26,6 +27,8 @@ public final class VivecraftRefreshRateFix {
     ));
     static final String CLASS = "org/vivecraft/client_vr/provider/openxr/MCOpenXR.class";
     static final String TEXTURE_CLASS = "org/vivecraft/client_vr/VRTextureTarget.class";
+    static final String REFRESH_METHOD = "initDisplayRefreshRate";
+    static final String ORIGINAL_REFRESH_METHOD = "voxyquest$initDisplayRefreshRate";
     private VivecraftRefreshRateFix() {}
 
     public static boolean apply(File gameDir) throws IOException {
@@ -38,7 +41,7 @@ public final class VivecraftRefreshRateFix {
         if (!jar.isFile()) return false;
         // A verified patch stays valid until the JAR changes. Avoid hashing the
         // whole archive and inflating the bundled NeoForge archive on each launch.
-        File stamp = new File(gameDir, "voxyquest-backups/vivecraft-openxr-v2.stamp");
+        File stamp = new File(gameDir, "voxyquest-backups/vivecraft-openxr-v3.stamp");
         String identity = jar.length() + ":" + jar.lastModified();
         try {
             if (stamp.isFile() && identity.equals(new String(Files.readAllBytes(stamp.toPath()),
@@ -46,6 +49,9 @@ public final class VivecraftRefreshRateFix {
         } catch (IOException ignored) {
             // A damaged cache must not stop game startup.
         }
+        // Earlier versions removed the refresh-rate request outright, pinning VR to the
+        // headset's default rate. Start again from the untouched JAR kept in the backups.
+        restoreUnstubbedBackup(gameDir, jar);
         String originalSha = sha256(jar);
         int neoForgeState = bundledNeoForge == null ? 0 : bundledNeoForgeState(jar, bundledNeoForge);
         if (!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) return false;
@@ -105,30 +111,120 @@ public final class VivecraftRefreshRateFix {
         }
     }
 
+    /**
+     * Moves Vivecraft's refresh-rate selection into a private method and replaces it with a
+     * wrapper that calls it inside a catch-all. The original body, including its own
+     * try-with-resources handler for the LWJGL MemoryStack, is kept byte for byte.
+     */
     static byte[] patchClass(byte[] original) throws IOException {
         ClassReader reader = new ClassReader(original);
         if (!(reader.getClassName() + ".class").equals(CLASS))
             throw new IOException("Unexpected refresh-rate patch target");
+        String owner = reader.getClassName();
         ClassWriter writer = new ClassWriter(0);
-        int[] patched = {0};
+        int[] refreshAccess = {-1};
+        boolean[] alreadyWrapped = {false};
         reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
             @Override public MethodVisitor visitMethod(int access, String name,
                     String descriptor, String signature, String[] exceptions) {
-                MethodVisitor method = super.visitMethod(access, name, descriptor, signature, exceptions);
-                if (name.equals("initDisplayRefreshRate") && descriptor.equals("()V") &&
-                        (access & Opcodes.ACC_STATIC) == 0) {
-                    method.visitCode();
-                    method.visitInsn(Opcodes.RETURN);
-                    method.visitMaxs(0, 1);
-                    method.visitEnd();
-                    patched[0]++;
-                    return null;
+                if (name.equals(ORIGINAL_REFRESH_METHOD)) alreadyWrapped[0] = true;
+                if (name.equals(REFRESH_METHOD) && descriptor.equals("()V") &&
+                        (access & Opcodes.ACC_STATIC) == 0 && refreshAccess[0] == -1) {
+                    refreshAccess[0] = access;
+                    int hidden = (access & ~(Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED))
+                            | Opcodes.ACC_PRIVATE | Opcodes.ACC_SYNTHETIC;
+                    return super.visitMethod(hidden, ORIGINAL_REFRESH_METHOD, descriptor, signature, exceptions);
                 }
-                return method;
+                return super.visitMethod(access, name, descriptor, signature, exceptions);
+            }
+
+            @Override public void visitEnd() {
+                if (refreshAccess[0] != -1 && !alreadyWrapped[0]) {
+                    MethodVisitor wrapper = super.visitMethod(refreshAccess[0], REFRESH_METHOD, "()V", null, null);
+                    Label start = new Label(), end = new Label(), handler = new Label();
+                    wrapper.visitCode();
+                    wrapper.visitTryCatchBlock(start, end, handler, "java/lang/Throwable");
+                    wrapper.visitLabel(start);
+                    wrapper.visitVarInsn(Opcodes.ALOAD, 0);
+                    wrapper.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, ORIGINAL_REFRESH_METHOD, "()V", false);
+                    wrapper.visitLabel(end);
+                    wrapper.visitInsn(Opcodes.RETURN);
+                    wrapper.visitLabel(handler);
+                    wrapper.visitFrame(Opcodes.F_FULL, 1, new Object[]{owner}, 1, new Object[]{"java/lang/Throwable"});
+                    wrapper.visitInsn(Opcodes.POP);
+                    wrapper.visitInsn(Opcodes.RETURN);
+                    wrapper.visitMaxs(1, 1);
+                    wrapper.visitEnd();
+                }
+                super.visitEnd();
             }
         }, 0);
-        if (patched[0] != 1) throw new IOException("Unexpected Vivecraft refresh-rate method");
+        if (refreshAccess[0] == -1 || alreadyWrapped[0])
+            throw new IOException("Unexpected Vivecraft refresh-rate method");
         return writer.toByteArray();
+    }
+
+    /** True for the earlier patch, which replaced the method with a bare return (maxStack 0). */
+    static boolean hasRefreshStub(byte[] bytes) {
+        boolean[] stub = {false};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if (!name.equals(REFRESH_METHOD) || !descriptor.equals("()V")) return null;
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMaxs(int maxStack, int maxLocals) {
+                        if (maxStack == 0) stub[0] = true;
+                    }
+                };
+            }
+        }, 0);
+        return stub[0];
+    }
+
+    /** Replaces a JAR carrying the earlier stub with the newest backup of the same build. */
+    static boolean restoreUnstubbedBackup(File gameDir, File jar) throws IOException {
+        byte[] current = readEntry(jar, CLASS);
+        if (current == null || !hasRefreshStub(current)) return false;
+        File[] backups = new File(gameDir, "voxyquest-backups").listFiles(
+                (dir, name) -> name.startsWith("Vivecraft-") && name.endsWith(".jar"));
+        if (backups == null) return false;
+        Arrays.sort(backups, Comparator.comparingLong(File::lastModified).reversed());
+        Set<String> entries = entryNames(jar);
+        for (File backup : backups) {
+            byte[] candidate = readEntry(backup, CLASS);
+            if (candidate == null || hasRefreshStub(candidate) || !entries.equals(entryNames(backup))) continue;
+            File temporary = File.createTempFile("vivecraft-restore-", ".tmp", jar.getParentFile());
+            try {
+                Files.copy(backup.toPath(), temporary.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.move(temporary.toPath(), jar.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException e) {
+                    Files.move(temporary.toPath(), jar.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                }
+            } finally { Files.deleteIfExists(temporary.toPath()); }
+            return true;
+        }
+        return false;
+    }
+
+    private static byte[] readEntry(File archive, String name) {
+        try (ZipFile zip = new ZipFile(archive)) {
+            ZipEntry entry = zip.getEntry(name);
+            if (entry == null) return null;
+            try (InputStream input = zip.getInputStream(entry)) { return input.readAllBytes(); }
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static Set<String> entryNames(File archive) throws IOException {
+        Set<String> names = new HashSet<>();
+        try (ZipFile zip = new ZipFile(archive)) {
+            Enumeration<? extends ZipEntry> all = zip.entries();
+            while (all.hasMoreElements()) names.add(all.nextElement().getName());
+        }
+        return names;
     }
 
     /** OpenXR owns and allocates swapchain images; allocating them again raises GL_INVALID_OPERATION. */

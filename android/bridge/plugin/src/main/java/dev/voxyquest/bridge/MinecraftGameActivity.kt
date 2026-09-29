@@ -57,7 +57,9 @@ open class MinecraftGameActivity : Activity() {
         surface.isFocusable = true
         surface.isFocusableInTouchMode = true
         surface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: android.view.SurfaceHolder) {}
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                if (!vr) fastestRefreshRate?.let { hintSurfaceFrameRate(holder.surface, it) }
+            }
             override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) {
                 if (width <= 0 || height <= 0) return
                 pojlib.util.FlatDisplay.attach(holder.surface, width, height)
@@ -92,7 +94,35 @@ open class MinecraftGameActivity : Activity() {
         frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
         frame.bringChildToFront(loading)
         setContentView(frame)
+        if (!vr) requestFastestDisplayMode()
         surface.requestFocus()
+    }
+
+    private var fastestRefreshRate: Float? = null
+
+    /**
+     * Flat mode: vsync paces Minecraft to the display, so a panel left at 60/72/90 Hz caps
+     * the frame rate there. Ask for the fastest mode at the current resolution instead.
+     */
+    private fun requestFastestDisplayMode() {
+        runCatching {
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            val current = display.mode
+            val fastest = display.supportedModes
+                .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+                .maxByOrNull { it.refreshRate } ?: return
+            fastestRefreshRate = fastest.refreshRate
+            window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
+            Logger.getInstance().appendToLog(
+                "VoxyQuest launch: display ${current.refreshRate}Hz, requested ${fastest.refreshRate}Hz",
+            )
+        }
+    }
+
+    private fun hintSurfaceFrameRate(surface: android.view.Surface, rate: Float) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) return
+        runCatching { surface.setFrameRate(rate, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) }
     }
 
     private fun configureJvmMemory() {
@@ -104,7 +134,9 @@ open class MinecraftGameActivity : Activity() {
         // graphics drivers, native libraries, and the still-resident Godot host all need
         // room outside the Java heap. The previous 1 GiB minimum left only ~336 MiB when
         // the device reported 1360 MiB usable, which can make Android kill the process.
-        val heapMb = (usableMb / 2L).coerceIn(768L, 1536L)
+        // Up to 3 GiB where half of the free memory allows it: mods and long render distances
+        // otherwise keep the collector running against a full heap, which costs frames.
+        val heapMb = (usableMb / 2L).coerceIn(768L, 3072L)
         API.customRAMValue = true
         API.memoryValue = heapMb.toString()
         Logger.getInstance().appendToLog(

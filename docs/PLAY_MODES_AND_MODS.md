@@ -58,3 +58,18 @@ not create. It passes them straight to the driver and starts tracking them on fi
 LightThinWrapper, the renderer VoxyQuest used before, is still available. Switch to it if a
 mod renders incorrectly or VR fails to start. The launch log records which renderer ran.
 MobileGlues has not yet been measured on a headset.
+
+## Frame rate
+
+Minecraft's frame cap defaults to Unlimited. Existing instances get this once, and a cap
+you set yourself afterwards is kept. Frames are still paced to the display:
+- **VR:** Vivecraft asks the headset for its highest refresh rate (120 Hz on Quest 3).
+  If the request fails, VR keeps the headset's default instead of failing to start.
+  Instances patched by earlier builds are restored from `voxyquest-backups` and patched again.
+- **Flatscreen:** the game window asks Android for the display's fastest mode, and vsync
+  follows it. The launch log records the rate you got.
+
+The JVM heap can now grow to 3 GiB, but never past half of the memory free at launch.
+Higher render distances need that headroom, and a full heap costs frames in collector work.
+Whether a given mod pack and render distance reach 100 fps still depends on the headset,
+the mods and the world. Minecraft's F3 screen shows the frame rate you actually get.

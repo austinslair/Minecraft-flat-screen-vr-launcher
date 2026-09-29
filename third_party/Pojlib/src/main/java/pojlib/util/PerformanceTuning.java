@@ -23,7 +23,7 @@ import java.util.Map;
  * before they existed get them, and later changes made in-game are kept.
  */
 public final class PerformanceTuning {
-    static final int DEFAULTS_VERSION = 1;
+    static final int DEFAULTS_VERSION = 2;
     static final String MARKER = "config/voxyquest-performance-defaults";
     /** Minecraft rejects lower values and silently falls back to its default of 12. */
     static final int MIN_SIMULATION_DISTANCE = 5;
@@ -32,24 +32,31 @@ public final class PerformanceTuning {
 
     public static void apply(File gameDir, boolean vr) throws IOException {
         File marker = new File(gameDir, MARKER);
-        boolean upgrade = readVersion(marker) < DEFAULTS_VERSION;
+        int version = readVersion(marker);
 
         Map<String, String> options = new LinkedHashMap<>();
-        if (upgrade) {
+        if (version < 1) {
             // GL debug output makes the GLES driver validate and report on every call.
             options.put("glDebugVerbosity", "0");
             // Rebuild nearby chunks on worker threads instead of stalling the render thread.
             options.put("prioritizeChunkUpdates", "0");
+        }
+        if (version < 2) {
+            // "Unlimited". A 90 fps cap held VR below a 120 Hz headset and flat mode below
+            // fast displays; vsync (flat) and OpenXR (VR) already pace frames to the display.
+            options.put("maxFps", "260");
         }
         // With a swap interval of 0 Android discards frames that never reach the display, so
         // flat mode renders (and heats the device) for nothing. OpenXR paces VR frames itself.
         options.put("enableVsync", Boolean.toString(!vr));
         updateOptions(new File(gameDir, "options.txt"), options);
 
-        if (upgrade) {
-            // The VR menu world is a downloaded, fully rendered level; the panorama is not.
-            updateJson(new File(gameDir, "config/vivecraft-client-config.json"),
-                    "menuWorldSelection", "NONE");
+        if (version < DEFAULTS_VERSION) {
+            if (version < 1) {
+                // The VR menu world is a downloaded, fully rendered level; the panorama is not.
+                updateJson(new File(gameDir, "config/vivecraft-client-config.json"),
+                        "menuWorldSelection", "NONE");
+            }
             Files.createDirectories(marker.getParentFile().toPath());
             writeAtomically(marker, Integer.toString(DEFAULTS_VERSION));
         }

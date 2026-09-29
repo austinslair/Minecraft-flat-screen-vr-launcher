@@ -34,6 +34,92 @@ public class VivecraftRefreshRateFixTest {
         Class<?> after = load(VivecraftRefreshRateFix.patchClass(fixture()));
         after.getMethod("initDisplayRefreshRate").invoke(after.getConstructor().newInstance());
     }
+    /** Like Vivecraft's method: requests a rate, guarded by its own try/finally-style handler. */
+    static byte[] requestingFixture() {
+        String owner = VivecraftRefreshRateFix.CLASS.replace(".class", "");
+        ClassWriter w = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        w.visit(Opcodes.V17, Opcodes.ACC_PUBLIC, owner, null, "java/lang/Object", null);
+        w.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "requested", "I", null, null).visitEnd();
+        MethodVisitor c = w.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        c.visitCode(); c.visitVarInsn(Opcodes.ALOAD, 0);
+        c.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Object", "<init>", "()V", false);
+        c.visitInsn(Opcodes.RETURN); c.visitMaxs(1, 1); c.visitEnd();
+        MethodVisitor m = w.visitMethod(Opcodes.ACC_PRIVATE, "initDisplayRefreshRate", "()V", null, null);
+        Label start = new Label(), end = new Label(), handler = new Label();
+        m.visitCode();
+        m.visitTryCatchBlock(start, end, handler, "java/lang/Throwable");
+        m.visitLabel(start);
+        m.visitIntInsn(Opcodes.SIPUSH, 120);
+        m.visitFieldInsn(Opcodes.PUTSTATIC, owner, "requested", "I");
+        m.visitLabel(end);
+        m.visitInsn(Opcodes.RETURN);
+        m.visitLabel(handler);
+        m.visitInsn(Opcodes.ATHROW);
+        m.visitMaxs(1, 1); m.visitEnd();
+        MethodVisitor call = w.visitMethod(Opcodes.ACC_PUBLIC, "start", "()V", null, null);
+        call.visitCode(); call.visitVarInsn(Opcodes.ALOAD, 0);
+        call.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, "initDisplayRefreshRate", "()V", false);
+        call.visitInsn(Opcodes.RETURN); call.visitMaxs(1, 1); call.visitEnd();
+        w.visitEnd(); return w.toByteArray();
+    }
+
+    @Test public void refreshRequestStillRunsAfterPatching() throws Exception {
+        Class<?> after = load(VivecraftRefreshRateFix.patchClass(requestingFixture()));
+        after.getMethod("start").invoke(after.getConstructor().newInstance());
+        assertEquals(120, after.getField("requested").getInt(null));
+        assertFalse(VivecraftRefreshRateFix.hasRefreshStub(VivecraftRefreshRateFix.patchClass(requestingFixture())));
+    }
+
+    @Test public void patchingTwiceIsRejected() throws Exception {
+        byte[] once = VivecraftRefreshRateFix.patchClass(fixture());
+        try {
+            VivecraftRefreshRateFix.patchClass(once);
+            fail("an already wrapped class must not be wrapped again");
+        } catch (IOException expected) { }
+    }
+
+    /** What the earlier fix produced: the method body replaced by a bare return. */
+    static byte[] stubbedFixture() {
+        ClassReader reader = new ClassReader(requestingFixture());
+        ClassWriter writer = new ClassWriter(0);
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                MethodVisitor method = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if (!name.equals("initDisplayRefreshRate")) return method;
+                method.visitCode(); method.visitInsn(Opcodes.RETURN); method.visitMaxs(0, 1); method.visitEnd();
+                return null;
+            }
+        }, 0);
+        return writer.toByteArray();
+    }
+
+    static void writeJar(Path jar, byte[] openXrClass) throws IOException {
+        try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(Files.newOutputStream(jar))) {
+            out.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json")); out.write('{'); out.closeEntry();
+            out.putNextEntry(new java.util.zip.ZipEntry(VivecraftRefreshRateFix.CLASS)); out.write(openXrClass); out.closeEntry();
+        }
+    }
+
+    @Test public void stubbedInstallIsRestoredFromMatchingBackup() throws Exception {
+        Path game = Files.createTempDirectory("vivecraft-restore-test");
+        Path jar = game.resolve("mods/Vivecraft.jar");
+        Path backups = game.resolve("voxyquest-backups");
+        Files.createDirectories(jar.getParent());
+        Files.createDirectories(backups);
+        writeJar(jar, stubbedFixture());
+        assertTrue(VivecraftRefreshRateFix.hasRefreshStub(stubbedFixture()));
+        Path original = backups.resolve("Vivecraft-abc.jar");
+        writeJar(original, requestingFixture());
+        assertTrue(VivecraftRefreshRateFix.restoreUnstubbedBackup(game.toFile(), jar.toFile()));
+        assertArrayEquals(Files.readAllBytes(original), Files.readAllBytes(jar));
+        // Nothing to do once restored, and a stubbed backup is never used.
+        assertFalse(VivecraftRefreshRateFix.restoreUnstubbedBackup(game.toFile(), jar.toFile()));
+        writeJar(jar, stubbedFixture());
+        writeJar(original, stubbedFixture());
+        assertFalse(VivecraftRefreshRateFix.restoreUnstubbedBackup(game.toFile(), jar.toFile()));
+    }
+
     @Test public void swapchainTextureUsesExistingOpenXRStorage() throws Exception {
         ClassWriter w = new ClassWriter(0);
         w.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, VivecraftRefreshRateFix.TEXTURE_CLASS.replace(".class", ""), null, "java/lang/Object", null);
