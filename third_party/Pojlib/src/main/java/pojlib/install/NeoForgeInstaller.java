@@ -25,7 +25,7 @@ final class NeoForgeInstaller {
     private static final Bundle[] BUNDLES = {
             new Bundle("1.21.5", "21.5.2-beta", ASSET_ROOT, "1.3.4"),
             new Bundle("1.21.4", "21.4.150", ASSET_ROOT + "1.21.4/", "1.2.5"),
-            new Bundle("1.21.1", "21.1.220", ASSET_ROOT + "1.21.1/", "1.2.5")
+            new Bundle("1.21.1", "21.1.228", ASSET_ROOT + "1.21.1/", "1.2.5")
     };
 
     private static final class Bundle {
@@ -177,6 +177,16 @@ final class NeoForgeInstaller {
         File clientJvm = new File(activity.getFilesDir(), "runtimes/JRE/lib/client/libjvm.so");
         if ((!server.isFile() && !clientJvm.isFile()) || !VoxyQuestInstaller.isInstalled(instance))
             throw new IOException("NeoForge runtime installation is incomplete");
+    }
+
+    /**
+     * True when the instance was installed with an older bundled NeoForge build.
+     * Its saved classpath and launch arguments still name that build, so mods that
+     * require the bundled version (Create's Sable needs 21.1.228) would refuse to load.
+     */
+    static boolean needsLoaderUpgrade(MinecraftInstances.Instance instance) {
+        if (instance.gameLaunchArgs == null) return false;
+        return !java.util.Arrays.asList(instance.gameLaunchArgs).contains(bundle(instance.versionName).loader);
     }
 
     /** The production NeoForge locator loads these by Maven path, not from -cp. */

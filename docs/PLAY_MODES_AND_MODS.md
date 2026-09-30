@@ -84,3 +84,10 @@ the mods and the world. Minecraft's F3 screen shows the frame rate you actually 
 Any of these flags that an older Java runtime does not recognise is ignored. Class Data
 Sharing would help too, but the bundled Java 22 runtime ships without the base archive it needs.
 The launch log timestamps each stage, so Settings → Export log shows where the time goes.
+
+## NeoForge versions
+
+NeoForge 1.21.1 instances run NeoForge 21.1.228, which Create 6's Sable dependency requires.
+An instance installed with an older bundled NeoForge is moved to the bundled build the next
+time you press Play. That launch downloads the new NeoForge libraries, so it needs network
+access and takes longer. Worlds, mods and configs are kept.

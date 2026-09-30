@@ -62,7 +62,7 @@ unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = 
 # Each additional Minecraft version needs its own processed client and
 # profile. Keep them isolated so the NeoForge locator cannot load the
 # wrong game classes when instances switch versions.
-for spec in "1.21.4:21.4.150" "1.21.1:21.1.220"; do
+for spec in "1.21.4:21.4.150" "1.21.1:21.1.228"; do
   MC_VERSION="${spec%%:*}"
   NEO_VERSION="${spec#*:}"
   VERSION_ASSETS="$ASSETS/$MC_VERSION"
@@ -86,7 +86,7 @@ python3 - <<'PY'
 import json
 from pathlib import Path
 root = Path("third_party/Pojlib/src/main/assets/voxyquest/neoforge")
-for version, loader in (("1.21.5", "21.5.2-beta"), ("1.21.4", "21.4.150"), ("1.21.1", "21.1.220")):
+for version, loader in (("1.21.5", "21.5.2-beta"), ("1.21.4", "21.4.150"), ("1.21.1", "21.1.228")):
     profile = root / ("" if version == "1.21.5" else version) / "version.json"
     data = json.loads(profile.read_text())
     assert data["id"] == f"neoforge-{loader}", profile

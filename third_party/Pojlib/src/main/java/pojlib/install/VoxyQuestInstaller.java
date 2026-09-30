@@ -33,9 +33,30 @@ public final class VoxyQuestInstaller {
 
     public static void ensureLaunchRuntime(Activity activity, MinecraftInstances.Instance instance) throws IOException {
         if ("neoforge".equals(instance.loaderId())) {
+            if (NeoForgeInstaller.needsLoaderUpgrade(instance)) upgradeNeoForge(activity, instance);
             NeoForgeInstaller.ensureSystemJars(activity, instance.versionName);
             NeoForgeInstaller.useNeoForgeGlfw(activity, instance);
         }
+    }
+
+    /** Repairs an instance onto the bundled NeoForge build, keeping worlds, mods and configs. */
+    private static void upgradeNeoForge(Activity activity, MinecraftInstances.Instance instance) throws IOException {
+        pojlib.util.Logger.getInstance().appendToLog(
+                "VoxyQuest launch: upgrading " + instance.instanceName + " to the bundled NeoForge");
+        try {
+            NeoForgeInstaller.prepareAndDownload(activity, instance, instance.instanceName, instance.versionName,
+                    new File(instance.gameDir).getName(),
+                    message -> pojlib.util.Logger.getInstance().appendToLog("VoxyQuest launch: " + message));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("NeoForge upgrade failed", e);
+        }
+        MinecraftInstances registry = readRegistry();
+        MinecraftInstances.Instance[] saved = registry.instances;
+        for (int i = 0; i < saved.length; i++)
+            if (instance.instanceName.equals(saved[i].instanceName)) saved[i] = instance;
+        saveRegistry(registry);
     }
 
     public static String[] neoForgeVersions() {
