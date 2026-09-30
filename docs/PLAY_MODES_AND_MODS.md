@@ -91,3 +91,20 @@ NeoForge 1.21.1 instances run NeoForge 21.1.228, which Create 6's Sable dependen
 An instance installed with an older bundled NeoForge is moved to the bundled build the next
 time you press Play. That launch downloads the new NeoForge libraries, so it needs network
 access and takes longer. Worlds, mods and configs are kept.
+
+## Mods with native libraries
+
+Some mods ship native code built only for desktop computers. The Quest cannot load it, so
+the launcher carries Android builds for these mods:
+
+- **Distance Horizons (Fabric and NeoForge):** DH compresses its LOD data with zstd and
+  stops the game at startup if the library does not load. The Android build is used
+  automatically.
+- **Sable, which Create 6 needs:** Sable unpacks its physics library into the game folder on
+  shared storage and crashes when a world loads. Android does not allow loading native code
+  from there. On launch, VoxyQuest patches Sable's loader to use the Android build. It keeps
+  the original JAR in `voxyquest-backups`. Only Sable 2.0.5 is supported, because each Sable
+  release changes the library's interface. The launch log says when another version is found.
+
+Distance Horizons in VR has not been tested on a headset. It renders its LODs once per eye,
+so expect a larger frame-rate cost than on a flat screen.

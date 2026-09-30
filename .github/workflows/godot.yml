@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       # Quest OpenXR Vivecraft sources for the bundled NeoForge builds. These and
       # scripts/prepare_neoforge_bundles.sh are the only inputs of the NeoForge bundle
@@ -24,6 +24,10 @@ jobs:
       VIVECRAFT_REF_1_21_5: 612a11ca6a30791cae34d410328bc75d08246970
       VIVECRAFT_REF_1_21_4: 60ffc92889fed3d1a92127b1b66516dd2354bbeb
       VIVECRAFT_REF_1_21_1: 29599bbd50aa61d9408c5bc80299e1a7a406d7c4
+      # Sources of the Android builds of mod natives that ship only for desktop Linux.
+      ZSTD_JNI_REF: v1.5.7-12
+      # Must match SableNativeFix.SUPPORTED_VERSION.
+      SABLE_REF: mc1.21.1-2.0.5-neoforge
       VOXYQUEST_NATIVE_CACHE: ${{ github.workspace }}/.voxyquest-native-cache
       CCACHE_DIR: ${{ github.workspace }}/.voxyquest-native-cache/ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
@@ -159,6 +163,49 @@ jobs:
           key: native-renderer-${{ runner.os }}-${{ github.sha }}
           restore-keys: native-renderer-${{ runner.os }}-
 
+      # Distant Horizons' zstd and Create's Sable physics ship natives only for desktop
+      # Linux. Cached on their sources and build scripts; the Rust build is slow cold.
+      - name: Restore Android mod natives
+        id: mod-natives
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libzstd_jni_voxyquest.so
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libsable_rapier.so
+          key: mod-natives-${{ runner.os }}-${{ env.ZSTD_JNI_REF }}-${{ env.SABLE_REF }}-${{ hashFiles('scripts/build_zstd_jni_android.sh', 'scripts/build_sable_rapier_android.sh') }}
+
+      - uses: actions/checkout@v6
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        with:
+          repository: luben/zstd-jni
+          ref: ${{ env.ZSTD_JNI_REF }}
+          path: zstd-jni-src
+
+      - uses: actions/checkout@v6
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        with:
+          repository: ryanhcode/sable
+          ref: ${{ env.SABLE_REF }}
+          path: sable-src
+
+      - name: Build Android mod natives
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        run: |
+          export ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/28.1.13356709
+          LIBS=third_party/Pojlib/src/main/jniLibs/arm64-v8a
+          bash scripts/build_zstd_jni_android.sh zstd-jni-src "$LIBS/libzstd_jni_voxyquest.so"
+          bash scripts/build_sable_rapier_android.sh sable-src "$LIBS/libsable_rapier.so"
+          rm -rf zstd-jni-src sable-src
+
+      - name: Cache Android mod natives
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libzstd_jni_voxyquest.so
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libsable_rapier.so
+          key: ${{ steps.mod-natives.outputs.cache-primary-key }}
+
       - name: Build Godot + Pojlib Android runtime
         run: |
           bash scripts/rebuild_glfw_bridge.sh
@@ -180,12 +227,17 @@ jobs:
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ClasspathUtils.java third_party/Pojlib/src/test/java/pojlib/util/ClasspathUtilsTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.ClasspathUtilsTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.SableNativeFixTest
 
       - name: Verify launcher and account runtime
         run: |
           test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
           test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
+          for lib in libzstd_jni_voxyquest.so libsable_rapier.so; do
+            unzip -Z1 launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar | grep -Fx "jni/arm64-v8a/$lib"
+          done
           test -f launcher/addons/VoxyQuestBridge/bin/debug/MobileGlues-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar
           unzip -l launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar | grep -q 'jni/arm64-v8a/libmobileglues.so'

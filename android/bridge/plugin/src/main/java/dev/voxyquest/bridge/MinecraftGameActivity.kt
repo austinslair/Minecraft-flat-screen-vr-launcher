@@ -17,6 +17,7 @@ import pojlib.util.JREUtils
 import pojlib.util.Logger
 import pojlib.util.PerformanceTuning
 import pojlib.util.Renderer
+import pojlib.util.SableNativeFix
 import pojlib.util.VLoader
 import pojlib.util.json.MinecraftInstances
 
@@ -183,6 +184,20 @@ open class MinecraftGameActivity : Activity() {
                 if (instance.loaderId() != "neoforge" ||
                     VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
                     MinecraftInstances.configurePlayMode(instance, vr)
+                }
+                if (File(applicationInfo.nativeLibraryDir, "libsable_rapier.so").isFile) {
+                    try {
+                        val sable = SableNativeFix.apply(File(instance.gameDir))
+                        if (sable.patched.isNotEmpty()) Logger.getInstance().appendToLog(
+                            "VoxyQuest launch: patched ${sable.patched} to load Sable's Android physics natives",
+                        )
+                        if (sable.unsupported.isNotEmpty()) Logger.getInstance().appendToLog(
+                            "VoxyQuest launch: ${sable.unsupported} is not Sable " +
+                                "${SableNativeFix.SUPPORTED_VERSION}; its physics natives cannot load on Android",
+                        )
+                    } catch (e: java.io.IOException) {
+                        Logger.getInstance().appendToLog("VoxyQuest launch: Sable natives not patched: ${e.message}")
+                    }
                 }
                 PerformanceTuning.apply(java.io.File(instance.gameDir), vr)
                 API.currentInstance = instance

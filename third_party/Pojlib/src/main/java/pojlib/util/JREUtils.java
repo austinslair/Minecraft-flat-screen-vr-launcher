@@ -390,6 +390,11 @@ public class JREUtils {
                 "-Dsodium.checks.issue2561=false",
                 "-Dorg.sqlite.lib.path=" + ctx.getApplicationInfo().nativeLibraryDir
         ));
+        // Android builds of mod natives that ship only for desktop Linux (see scripts/build_*_android.sh).
+        File zstd = new File(ctx.getApplicationInfo().nativeLibraryDir, "libzstd_jni_voxyquest.so");
+        if (zstd.isFile()) args.add("-DZstdNativePath=" + zstd.getAbsolutePath());
+        File sable = new File(ctx.getApplicationInfo().nativeLibraryDir, "libsable_rapier.so");
+        if (sable.isFile()) args.add("-D" + SableNativeFix.PROPERTY + "=" + sable.getAbsolutePath());
         if (flatGamepad) {
             args.add("-Dglfwstub.gamepadStateFile=" +
                     new File(ctx.getFilesDir(), "flat-gamepad.bin").getAbsolutePath());
