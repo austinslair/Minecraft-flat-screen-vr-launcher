@@ -16,6 +16,9 @@ public final class VivecraftRefreshRateFix {
     // These are the exact Fabric OpenXR archives advertised by runtime_mods.json.
     // Leave unknown/user-supplied Vivecraft builds untouched.
     private static final Set<String> SUPPORTED_SHA256 = new HashSet<>(Arrays.asList(
+            "22eb7e3057b458d5d1eb0873b8298a3621e29be7544fa86c25ae7a457700d7dd", // 1.21.11
+            "60958a8ab2cfb49f7f74dfd9075c5111468aa34af5b5e59b230e9836bf36b495", // 1.21.10
+            "75f76e8b10470505d88d4aa1ff088c67850f1e0f865bba9a7628ae3266c8517e", // 1.21.8
             "9208355cebed5f7c11dabc9c4e563549db90404f9690c6569fe2062c0c0f8358", // 1.21.5
             "6c35acbb4c0121541ab48abf101be4d0ed89c40bd0a483915e919fbfdba30567", // 1.21.4
             "82080a982e4457e59768682a6f94c390727c3e10919fc45bd7257356fdf3b41a", // 1.21.1

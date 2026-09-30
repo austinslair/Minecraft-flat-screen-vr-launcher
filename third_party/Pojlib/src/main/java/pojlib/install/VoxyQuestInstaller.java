@@ -33,7 +33,7 @@ public final class VoxyQuestInstaller {
 
     public static void ensureLaunchRuntime(Activity activity, MinecraftInstances.Instance instance) throws IOException {
         if ("neoforge".equals(instance.loaderId())) {
-            if (NeoForgeInstaller.needsLoaderUpgrade(instance)) upgradeNeoForge(activity, instance);
+            if (NeoForgeInstaller.needsLoaderUpgrade(activity, instance)) upgradeNeoForge(activity, instance);
             NeoForgeInstaller.ensureSystemJars(activity, instance.versionName);
             NeoForgeInstaller.useNeoForgeGlfw(activity, instance);
         }

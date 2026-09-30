@@ -26,6 +26,8 @@ retry() {
 neoforge_only() {
   sed -i 's/^enabled_platforms=.*/enabled_platforms=neoforge/' gradle.properties
   sed -i '/^include("fabric")$/d; /^include("forge")$/d' settings.gradle
+  # Newer Quest branches keep the NeoForge sources but leave them out of the build.
+  grep -qx 'include("neoforge")' settings.gradle || echo 'include("neoforge")' >> settings.gradle
 }
 
 # Gradle's own retry gives up after a few short attempts; allow more, with longer backoff.
@@ -38,13 +40,14 @@ cd ..
 ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
 mkdir -p "$ASSETS" "$RUNNER_TEMP/neoforge-client"
 cp quest-vivecraft-openxr/neoforge/build/libs/vivecraft-1.21.5-1.3.4-neoforge.jar "$ASSETS/vivecraft.jar"
-for MC_VERSION in 1.21.4 1.21.1; do
+for MC_VERSION in 1.21.8 1.21.4 1.21.1; do
   cd "quest-vivecraft-openxr-$MC_VERSION"
   neoforge_only
+  VIVECRAFT_VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
   retry bash ./gradlew :neoforge:remapJar --no-daemon $GRADLE_RETRY_ARGS
   cd ..
   mkdir -p "$ASSETS/$MC_VERSION"
-  cp "quest-vivecraft-openxr-$MC_VERSION/neoforge/build/libs/vivecraft-$MC_VERSION-1.2.5-neoforge.jar" "$ASSETS/$MC_VERSION/vivecraft.jar"
+  cp "quest-vivecraft-openxr-$MC_VERSION/neoforge/build/libs/vivecraft-$MC_VERSION-$VIVECRAFT_VERSION-neoforge.jar" "$ASSETS/$MC_VERSION/vivecraft.jar"
 done
 curl -fsSL --retry 5 --retry-delay 10 https://maven.neoforged.net/releases/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-installer.jar -o "$RUNNER_TEMP/neoforge-installer.jar"
 printf '{"profiles":{}}' > "$RUNNER_TEMP/neoforge-client/launcher_profiles.json"
@@ -62,9 +65,22 @@ unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = 
 # Each additional Minecraft version needs its own processed client and
 # profile. Keep them isolated so the NeoForge locator cannot load the
 # wrong game classes when instances switch versions.
-for spec in "1.21.4:21.4.150" "1.21.1:21.1.228"; do
+# A version ending in ".*" installs the newest stable release of that NeoForge line.
+latest_neoforge() {
+  prefix="${1%\*}"
+  retry curl -fsSL --retry 5 --retry-delay 10 https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml \
+    -o "$RUNNER_TEMP/neoforge-metadata.xml"
+  sed -n 's:.*<version>\(.*\)</version>.*:\1:p' "$RUNNER_TEMP/neoforge-metadata.xml" |
+    grep -E "^${prefix//./\\.}[0-9]+$" | sort -V | tail -n 1
+}
+
+for spec in "1.21.8:21.8.*" "1.21.4:21.4.150" "1.21.1:21.1.228"; do
   MC_VERSION="${spec%%:*}"
   NEO_VERSION="${spec#*:}"
+  case "$NEO_VERSION" in
+    *\*) NEO_VERSION=$(latest_neoforge "$NEO_VERSION"); test -n "$NEO_VERSION" ;;
+  esac
+  echo "NeoForge for $MC_VERSION: $NEO_VERSION"
   VERSION_ASSETS="$ASSETS/$MC_VERSION"
   CLIENT_DIR="$RUNNER_TEMP/neoforge-client-$MC_VERSION"
   mkdir -p "$VERSION_ASSETS" "$CLIENT_DIR"
@@ -86,10 +102,16 @@ python3 - <<'PY'
 import json
 from pathlib import Path
 root = Path("third_party/Pojlib/src/main/assets/voxyquest/neoforge")
-for version, loader in (("1.21.5", "21.5.2-beta"), ("1.21.4", "21.4.150"), ("1.21.1", "21.1.228")):
+for version, loader in (("1.21.8", "21.8.*"), ("1.21.5", "21.5.2-beta"), ("1.21.4", "21.4.150"),
+                        ("1.21.1", "21.1.228")):
     profile = root / ("" if version == "1.21.5" else version) / "version.json"
     data = json.loads(profile.read_text())
-    assert data["id"] == f"neoforge-{loader}", profile
+    if loader.endswith("*"):
+        assert data["id"].startswith("neoforge-" + loader[:-1]), profile
+    else:
+        assert data["id"] == f"neoforge-{loader}", profile
+    # The launcher starts NeoForge through ModLauncher, which NeoForge 21.9 removed.
+    assert data["mainClass"] == "cpw.mods.bootstraplauncher.BootstrapLauncher", profile
     game = data["arguments"]["game"]
     assert game[game.index("--fml.mcVersion") + 1] == version, profile
     assert isinstance(game[game.index("--fml.neoFormVersion") + 1], str), profile

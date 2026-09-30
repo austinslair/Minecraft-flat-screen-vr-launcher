@@ -21,6 +21,7 @@ jobs:
       # Quest OpenXR Vivecraft sources for the bundled NeoForge builds. These and
       # scripts/prepare_neoforge_bundles.sh are the only inputs of the NeoForge bundle
       # cache, so unrelated workflow edits no longer force a full rebuild.
+      VIVECRAFT_REF_1_21_8: e2721516060a053fd78617f6cc3e1bd68bb16e0c
       VIVECRAFT_REF_1_21_5: 612a11ca6a30791cae34d410328bc75d08246970
       VIVECRAFT_REF_1_21_4: 60ffc92889fed3d1a92127b1b66516dd2354bbeb
       VIVECRAFT_REF_1_21_1: 29599bbd50aa61d9408c5bc80299e1a7a406d7c4
@@ -79,7 +80,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: third_party/Pojlib/src/main/assets/voxyquest/neoforge
-          key: neoforge-bundles-${{ runner.os }}-${{ env.VIVECRAFT_REF_1_21_5 }}-${{ env.VIVECRAFT_REF_1_21_4 }}-${{ env.VIVECRAFT_REF_1_21_1 }}-${{ hashFiles('scripts/prepare_neoforge_bundles.sh') }}
+          key: neoforge-bundles-${{ runner.os }}-${{ env.VIVECRAFT_REF_1_21_8 }}-${{ env.VIVECRAFT_REF_1_21_5 }}-${{ env.VIVECRAFT_REF_1_21_4 }}-${{ env.VIVECRAFT_REF_1_21_1 }}-${{ hashFiles('scripts/prepare_neoforge_bundles.sh') }}
 
       - uses: actions/checkout@v6
         if: steps.neoforge-bundles.outputs.cache-hit != 'true'
@@ -87,6 +88,13 @@ jobs:
           repository: QuestCraftPlusPlus/VivecraftMod
           ref: ${{ env.VIVECRAFT_REF_1_21_5 }}
           path: quest-vivecraft-openxr
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: ${{ env.VIVECRAFT_REF_1_21_8 }}
+          path: quest-vivecraft-openxr-1.21.8
 
       - uses: actions/checkout@v6
         if: steps.neoforge-bundles.outputs.cache-hit != 'true'
@@ -109,7 +117,7 @@ jobs:
       - name: Verify prepared NeoForge bundles
         run: |
           ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
-          for version in 1.21.5 1.21.4 1.21.1; do
+          for version in 1.21.8 1.21.5 1.21.4 1.21.1; do
             DIR="$ASSETS/$version"
             if [ "$version" = 1.21.5 ]; then DIR="$ASSETS"; fi
             for file in version.json client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
@@ -123,13 +131,13 @@ jobs:
           from pathlib import Path
           import tomllib, zipfile
           root = Path('third_party/Pojlib/src/main/assets/voxyquest/neoforge')
-          for version in ('1.21.5', '1.21.4', '1.21.1'):
+          for version in ('1.21.8', '1.21.5', '1.21.4', '1.21.1'):
               jar = root / ('' if version == '1.21.5' else version) / 'vivecraft.jar'
               with zipfile.ZipFile(jar) as archive:
                   metadata = tomllib.loads(archive.read('META-INF/neoforge.mods.toml').decode())
                   assert any(mod['modId'] == 'vivecraft' for mod in metadata['mods']), jar
                   dependencies = metadata['dependencies']['vivecraft']
-                  expected_range = '[1.21,1.21.1]' if version == '1.21.1' else f'[{version}]'
+                  expected_range = {'1.21.1': '[1.21,1.21.1]', '1.21.8': '[1.21.7,1.21.8]'}.get(version, f'[{version}]')
                   assert any(dep['modId'] == 'minecraft' and dep['versionRange'] == expected_range
                              for dep in dependencies), jar
                   assert 'org/vivecraft/client_vr/provider/openxr/MCOpenXR.class' in archive.namelist(), jar

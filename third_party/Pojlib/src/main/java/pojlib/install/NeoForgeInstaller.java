@@ -23,21 +23,39 @@ import pojlib.util.json.ProjectInfo;
 final class NeoForgeInstaller {
     private static final String ASSET_ROOT = "voxyquest/neoforge/";
     private static final Bundle[] BUNDLES = {
+            // CI installs the newest 21.8.x NeoForge; the bundled profile names the exact build.
+            new Bundle("1.21.8", "21.8.*", ASSET_ROOT + "1.21.8/", "1.3.4"),
             new Bundle("1.21.5", "21.5.2-beta", ASSET_ROOT, "1.3.4"),
             new Bundle("1.21.4", "21.4.150", ASSET_ROOT + "1.21.4/", "1.2.5"),
             new Bundle("1.21.1", "21.1.228", ASSET_ROOT + "1.21.1/", "1.2.5")
     };
 
     private static final class Bundle {
-        final String version, loader, assets;
+        final String version, assets;
         final boolean vr;
         final String vivecraftVersion;
+        /** An exact NeoForge version, or a {@code major.minor.*} pattern read from the profile. */
+        private final String loaderPattern;
+        private volatile String loader;
         Bundle(String version, String loader, String assets, String vivecraftVersion) {
             this.version = version;
-            this.loader = loader;
+            this.loaderPattern = loader;
+            this.loader = loader.endsWith("*") ? null : loader;
             this.assets = assets;
             this.vr = vivecraftVersion != null;
             this.vivecraftVersion = vivecraftVersion;
+        }
+
+        boolean accepts(String candidate) {
+            return loaderPattern.endsWith("*")
+                    ? candidate.startsWith(loaderPattern.substring(0, loaderPattern.length() - 1))
+                            && candidate.length() > loaderPattern.length() - 1
+                    : candidate.equals(loaderPattern);
+        }
+
+        String loader(Activity activity) throws IOException {
+            if (loader == null) loader = profile(activity, this).id.substring("neoforge-".length());
+            return loader;
         }
     }
 
@@ -73,7 +91,7 @@ final class NeoForgeInstaller {
                 activity.getAssets().open(bundle.assets + "version.json"), StandardCharsets.UTF_8)) {
             VersionInfo info = GsonUtils.GLOBAL_GSON.fromJson(reader, VersionInfo.class);
             if (info == null || info.id == null || info.libraries == null || info.arguments == null ||
-                    !info.id.equals("neoforge-" + bundle.loader) ||
+                    !info.id.startsWith("neoforge-") || !bundle.accepts(info.id.substring("neoforge-".length())) ||
                     !"cpw.mods.bootstraplauncher.BootstrapLauncher".equals(info.mainClass))
                 throw new IOException("Packaged NeoForge " + bundle.version + " profile is incomplete");
             return info;
@@ -131,12 +149,13 @@ final class NeoForgeInstaller {
         }
         String lwjgl = PojlibRuntime.installLWJGL(activity);
         String neoLwjgl = PojlibRuntime.installNeoForgeLWJGL(activity);
+        String loader = bundle.loader(activity);
         File neoRoot = new File(Constants.USER_HOME,
-                "libraries/net/neoforged/neoforge/" + bundle.loader);
+                "libraries/net/neoforged/neoforge/" + loader);
         File universal = copyJar(activity, bundle, "universal.jar", new File(neoRoot,
-                "neoforge-" + bundle.loader + "-universal.jar"));
+                "neoforge-" + loader + "-universal.jar"));
         File patched = copyJar(activity, bundle, "client.jar", new File(neoRoot,
-                "neoforge-" + bundle.loader + "-client.jar"));
+                "neoforge-" + loader + "-client.jar"));
         ensureSystemJars(activity, bundle, neoForm);
         // NeoForge's production locators discover both the processed Minecraft
         // client and NeoForge universal by Maven path. Boot classpath entries for
@@ -184,9 +203,9 @@ final class NeoForgeInstaller {
      * Its saved classpath and launch arguments still name that build, so mods that
      * require the bundled version (Create's Sable needs 21.1.228) would refuse to load.
      */
-    static boolean needsLoaderUpgrade(MinecraftInstances.Instance instance) {
+    static boolean needsLoaderUpgrade(Activity activity, MinecraftInstances.Instance instance) throws IOException {
         if (instance.gameLaunchArgs == null) return false;
-        return !java.util.Arrays.asList(instance.gameLaunchArgs).contains(bundle(instance.versionName).loader);
+        return !java.util.Arrays.asList(instance.gameLaunchArgs).contains(bundle(instance.versionName).loader(activity));
     }
 
     /** The production NeoForge locator loads these by Maven path, not from -cp. */
@@ -202,23 +221,25 @@ final class NeoForgeInstaller {
                 "net/minecraft/client/Minecraft.class");
         ensureJar(activity, bundle, "minecraft-extra.jar", new File(root, "client-" + version + "-extra.jar"),
                 "assets/.mcassetsroot");
+        String loader = bundle.loader(activity);
         File neoRoot = new File(Constants.USER_HOME,
-                "libraries/net/neoforged/neoforge/" + bundle.loader);
+                "libraries/net/neoforged/neoforge/" + loader);
         ensureJar(activity, bundle, "client.jar", new File(neoRoot,
-                "neoforge-" + bundle.loader + "-client.jar"), "net/minecraft/client/Minecraft.class");
+                "neoforge-" + loader + "-client.jar"), "net/minecraft/client/Minecraft.class");
         ensureJar(activity, bundle, "universal.jar", new File(neoRoot,
-                "neoforge-" + bundle.loader + "-universal.jar"), "META-INF/neoforge.mods.toml");
+                "neoforge-" + loader + "-universal.jar"), "META-INF/neoforge.mods.toml");
     }
 
     static void useNeoForgeGlfw(Activity activity, MinecraftInstances.Instance instance) throws IOException {
         Bundle bundle = bundle(instance.versionName);
+        String loader = bundle.loader(activity);
         String original = Constants.USER_HOME + "/lwjgl3/lwjgl-glfw-classes.jar";
         String replacement = PojlibRuntime.installNeoForgeLWJGL(activity);
         instance.classpath = ClasspathUtils.excluding(instance.classpath.replace(original, replacement),
-                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + bundle.loader
-                        + "/neoforge-" + bundle.loader + "-client.jar").getPath(),
-                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + bundle.loader
-                        + "/neoforge-" + bundle.loader + "-universal.jar").getPath(),
+                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + loader
+                        + "/neoforge-" + loader + "-client.jar").getPath(),
+                new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + loader
+                        + "/neoforge-" + loader + "-universal.jar").getPath(),
                 new File(Constants.USER_HOME, "versions/" + bundle.version + "/client.jar").getPath());
     }
 

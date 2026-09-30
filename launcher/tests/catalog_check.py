@@ -29,8 +29,11 @@ for entry in catalog["versions"]:
         assert url.scheme == "https" and url.netloc and url.path.endswith(".jar"), (
             f"{version}: invalid download URL for {mod['slug']}"
         )
-        filename = unquote(url.path.rsplit("/", 1)[-1])
+        # Newer Quest builds are named vivecraft.jar; their release tag carries the version.
+        path = unquote(url.path)
         if mod["slug"] == "Vivecraft":
-            assert version in filename, f"{version}: {mod['slug']} points to {filename}"
+            assert re.search(rf"(?<![0-9.]){re.escape(version)}(?![0-9])", path), (
+                f"{version}: {mod['slug']} points to {path}"
+            )
 
 print(f"Catalog entries checked: {len(versions)}")

@@ -6,6 +6,13 @@ it is not an unrestricted list of every Minecraft release. Downloads run off the
 Use Repair / resume selected to rerun installation for an existing instance with the same
 version. Use a separate instance for a different Minecraft version.
 
+Fabric instances go up to Minecraft 1.21.11, using the Quest OpenXR Vivecraft builds that
+QuestCraft publishes for 1.21.8, 1.21.10 and 1.21.11. NeoForge instances go up to 1.21.8. CI
+builds that Vivecraft from the fork's `OpenXR-1.21.8` branch, whose NeoForge support is not
+otherwise released, and bundles the newest NeoForge 21.8 release. NeoForge 21.9 and later no
+longer start through ModLauncher, which the launcher's NeoForge support relies on. Minecraft
+26.x has no Quest Vivecraft build yet. None of the new versions have been tested on a headset.
+
 Instances can be selected, renamed, removed with confirmation, or repaired. The play mode
 selector chooses Virtual reality or Flatscreen for the next launch. Home's Quick Info and
 Play tooltip reflect that choice. Sign in and finish installing before pressing Play.
@@ -24,10 +31,17 @@ for the selected Minecraft version and install their dependencies. The importer 
 writes during installs or gameplay. Mod removal and enable/disable controls are not
 available yet.
 
-The Android launcher also searches Modrinth for Fabric mods filtered to the selected
-instance's Minecraft version. Choose a result and Install selected. The bridge selects
-a compatible version, resolves required Modrinth dependencies, checks SHA-512 hashes
-and Fabric metadata, and refuses to overwrite installed files. Search and downloads
+The Android launcher also searches Modrinth for mods filtered to the selected instance's
+loader and Minecraft version. Results only include mods that have a build for both, because
+Modrinth's filters match a mod's versions separately. Choose a result and Install selected. The
+bridge selects a compatible version, resolves required Modrinth dependencies, checks SHA-512
+hashes and mod metadata, and refuses to overwrite installed files.
+
+A dependency pinned to a build for another Minecraft version is replaced by the newest
+compatible build of the same mod. A dependency that has no build for the instance, or is
+hosted outside Modrinth, no longer stops the install. The result message lists it, and
+dependencies already in the mods folder are left out of that list. Unusual characters in
+filenames are replaced. NeoForge library JARs that have no `neoforge.mods.toml` are accepted. Search and downloads
 run off the UI thread. Network access is required; desktop previews cannot download
 mods. Local JAR imports still require you to provide dependencies separately.
 
