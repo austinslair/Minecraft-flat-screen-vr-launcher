@@ -35,6 +35,7 @@ public class PerformanceTuningTest {
                 dir.resolve("config/vivecraft-client-config.json")), StandardCharsets.UTF_8)).getAsJsonObject();
         assertEquals("NONE", vivecraft.get("menuWorldSelection").getAsString());
         assertEquals("true", vivecraft.get("vrEnabled").getAsString());
+        assertEquals("OFF", vivecraft.get("displayMirrorMode").getAsString());
         assertEquals(PerformanceTuning.DEFAULTS_VERSION,
                 PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
     }
@@ -42,21 +43,50 @@ public class PerformanceTuningTest {
     @Test public void laterLaunchesKeepPlayerChoices() throws Exception {
         Path dir = instance("glDebugVerbosity:1");
         PerformanceTuning.apply(dir.toFile(), true);
-        Files.write(dir.resolve("options.txt"), Arrays.asList("glDebugVerbosity:2", "simulationDistance:8", "maxFps:60"),
+        Files.write(dir.resolve("options.txt"), Arrays.asList("glDebugVerbosity:2", "simulationDistance:12", "maxFps:60"),
                 StandardCharsets.UTF_8);
         PerformanceTuning.apply(dir.toFile(), true);
-        assertEquals(Arrays.asList("glDebugVerbosity:2", "simulationDistance:8", "maxFps:60", "enableVsync:false"), options(dir));
+        assertEquals(Arrays.asList("glDebugVerbosity:2", "simulationDistance:12", "maxFps:60", "enableVsync:false"), options(dir));
     }
 
-    @Test public void instancesFromTheFirstUpgradeOnlyGetTheFrameCapChange() throws Exception {
-        Path dir = instance("glDebugVerbosity:2", "maxFps:90");
+    @Test public void instancesFromTheFirstUpgradeOnlyGetLaterDefaults() throws Exception {
+        Path dir = instance("glDebugVerbosity:2", "maxFps:90", "simulationDistance:12");
         Files.write(dir.resolve(PerformanceTuning.MARKER), "1".getBytes(StandardCharsets.UTF_8));
         PerformanceTuning.apply(dir.toFile(), false);
-        assertEquals(Arrays.asList("glDebugVerbosity:2", "maxFps:260", "enableVsync:true"), options(dir));
-        JsonObject vivecraft = JsonParser.parseString(new String(Files.readAllBytes(
-                dir.resolve("config/vivecraft-client-config.json")), StandardCharsets.UTF_8)).getAsJsonObject();
+        assertEquals(Arrays.asList("glDebugVerbosity:2", "maxFps:260", "simulationDistance:8", "enableVsync:true"),
+                options(dir));
+        JsonObject vivecraft = vivecraft(dir);
         assertEquals("BOTH", vivecraft.get("menuWorldSelection").getAsString());
-        assertEquals(2, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+        assertEquals("OFF", vivecraft.get("displayMirrorMode").getAsString());
+        assertEquals(3, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+    }
+
+    @Test public void newInstancesGetDefaultsOnceMinecraftHasWrittenOptions() throws Exception {
+        Path dir = Files.createTempDirectory("voxyquest-tuning-");
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertFalse(new File(dir.toFile(), "options.txt").exists());
+        assertEquals("OFF", vivecraft(dir).get("displayMirrorMode").getAsString());
+        assertEquals("NONE", vivecraft(dir).get("menuWorldSelection").getAsString());
+        assertEquals(0, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+
+        Files.write(dir.resolve("options.txt"), Arrays.asList("version:3955", "simulationDistance:12", "maxFps:120"),
+                StandardCharsets.UTF_8);
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertEquals(Arrays.asList("version:3955", "simulationDistance:8", "maxFps:260",
+                "glDebugVerbosity:0", "prioritizeChunkUpdates:0", "enableVsync:false"), options(dir));
+        assertEquals(3, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+    }
+
+    @Test public void legacyVivecraftProfilesAreLeftForVivecraftToImport() throws Exception {
+        Path dir = Files.createTempDirectory("voxyquest-tuning-");
+        Files.write(dir.resolve("optionsviveprofiles.txt"), "{}".getBytes(StandardCharsets.UTF_8));
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertFalse(dir.resolve("config/vivecraft-client-config.json").toFile().exists());
+    }
+
+    private static JsonObject vivecraft(Path dir) throws Exception {
+        return JsonParser.parseString(new String(Files.readAllBytes(
+                dir.resolve("config/vivecraft-client-config.json")), StandardCharsets.UTF_8)).getAsJsonObject();
     }
 
     @Test public void vsyncFollowsPlayModeEveryLaunch() throws Exception {

@@ -23,16 +23,26 @@ import java.util.Map;
  * before they existed get them, and later changes made in-game are kept.
  */
 public final class PerformanceTuning {
-    static final int DEFAULTS_VERSION = 2;
+    static final int DEFAULTS_VERSION = 3;
     static final String MARKER = "config/voxyquest-performance-defaults";
     /** Minecraft rejects lower values and silently falls back to its default of 12. */
     static final int MIN_SIMULATION_DISTANCE = 5;
+    /**
+     * The Quest gives Java 3 CPU threads, shared by the render thread, the integrated server,
+     * chunk builders and the collector. Minecraft's default of 12 ticks 625 chunks; 8 ticks 289.
+     * Render distance is separate and unaffected.
+     */
+    static final int DEFAULT_MAX_SIMULATION_DISTANCE = 8;
 
     private PerformanceTuning() {}
 
     public static void apply(File gameDir, boolean vr) throws IOException {
         File marker = new File(gameDir, MARKER);
         int version = readVersion(marker);
+        File optionsFile = new File(gameDir, "options.txt");
+        // Minecraft writes options.txt on its first run. Until then, keep the defaults pending
+        // so a new instance gets them on its second launch instead of never.
+        boolean haveOptions = optionsFile.isFile();
 
         Map<String, String> options = new LinkedHashMap<>();
         if (version < 1) {
@@ -49,16 +59,24 @@ public final class PerformanceTuning {
         // With a swap interval of 0 Android discards frames that never reach the display, so
         // flat mode renders (and heats the device) for nothing. OpenXR paces VR frames itself.
         options.put("enableVsync", Boolean.toString(!vr));
-        updateOptions(new File(gameDir, "options.txt"), options);
+        int maxSimulationDistance = version < 3 ? DEFAULT_MAX_SIMULATION_DISTANCE : Integer.MAX_VALUE;
+        updateOptions(optionsFile, options, maxSimulationDistance);
 
         if (version < DEFAULTS_VERSION) {
+            File vivecraft = new File(gameDir, "config/vivecraft-client-config.json");
             if (version < 1) {
                 // The VR menu world is a downloaded, fully rendered level; the panorama is not.
-                updateJson(new File(gameDir, "config/vivecraft-client-config.json"),
-                        "menuWorldSelection", "NONE");
+                updateJson(gameDir, vivecraft, "menuWorldSelection", "NONE");
             }
-            Files.createDirectories(marker.getParentFile().toPath());
-            writeAtomically(marker, Integer.toString(DEFAULTS_VERSION));
+            if (version < 3) {
+                // The desktop mirror is invisible on a headset, but Vivecraft still copies an
+                // eye to it every frame, and its first/third person modes render the world again.
+                updateJson(gameDir, vivecraft, "displayMirrorMode", "OFF");
+            }
+            if (haveOptions) {
+                Files.createDirectories(marker.getParentFile().toPath());
+                writeAtomically(marker, Integer.toString(DEFAULTS_VERSION));
+            }
         }
     }
 
@@ -72,8 +90,9 @@ public final class PerformanceTuning {
         }
     }
 
-    /** Replaces or appends {@code key:value} lines, keeping every other line as it was. */
-    static void updateOptions(File file, Map<String, String> overrides) throws IOException {
+    /** Replaces or appends {@code key:value} lines, keeping every other line as it was. Also clamps simulationDistance into [{@link #MIN_SIMULATION_DISTANCE}, maxSimulationDistance]. */
+    static void updateOptions(File file, Map<String, String> overrides, int maxSimulationDistance)
+            throws IOException {
         // Minecraft creates a missing options.txt itself; a partial one would lose its defaults.
         if (!file.isFile()) return;
         List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
@@ -84,9 +103,10 @@ public final class PerformanceTuning {
             int colon = line.indexOf(':');
             String key = colon < 0 ? null : line.substring(0, colon);
             String value = key == null ? null : pending.remove(key);
-            if (value == null && "simulationDistance".equals(key)
-                    && parseInt(line.substring(colon + 1), MIN_SIMULATION_DISTANCE) < MIN_SIMULATION_DISTANCE) {
-                value = Integer.toString(MIN_SIMULATION_DISTANCE);
+            if (value == null && "simulationDistance".equals(key)) {
+                int current = parseInt(line.substring(colon + 1), MIN_SIMULATION_DISTANCE);
+                int clamped = Math.max(MIN_SIMULATION_DISTANCE, Math.min(current, maxSimulationDistance));
+                if (clamped != current) value = Integer.toString(clamped);
             }
             String updated = value == null ? line : key + ":" + value;
             changed |= !updated.equals(line);
@@ -99,8 +119,16 @@ public final class PerformanceTuning {
         if (changed) writeAtomically(file, String.join("\n", result) + "\n");
     }
 
-    static void updateJson(File file, String key, String value) throws IOException {
-        if (!file.isFile()) return;
+    static void updateJson(File gameDir, File file, String key, String value) throws IOException {
+        if (!file.isFile()) {
+            // Vivecraft only imports its legacy profile file when this one is missing.
+            if (new File(gameDir, "optionsviveprofiles.txt").exists()) return;
+            Files.createDirectories(file.getParentFile().toPath());
+            JsonObject created = new JsonObject();
+            created.addProperty(key, value);
+            writeAtomically(file, GsonUtils.GLOBAL_GSON.toJson(created));
+            return;
+        }
         JsonElement parsed;
         try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
             parsed = JsonParser.parseReader(reader);

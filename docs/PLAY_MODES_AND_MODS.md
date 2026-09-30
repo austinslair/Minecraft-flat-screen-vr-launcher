@@ -42,7 +42,13 @@ Each launch sets vsync on for Flatscreen, which stops Android from rendering fra
 throws away, and off for VR, where OpenXR paces frames. The first launch of an instance
 after this update also turns off GL debug output, moves nearby chunk rebuilds off the render
 thread, fixes an out-of-range simulation distance, and switches the VR menu world to the
-panorama. Later changes you make in-game are kept. Repair no longer overwrites
+panorama. A later update turns off Vivecraft's desktop mirror, which nobody sees on a
+headset. The mirror still cost a full-window copy every frame, and a whole extra world render
+in its first- and third-person modes. The same update lowers the simulation distance to 8
+if it was higher. Java gets only 3 CPU threads on the Quest, and they are shared by rendering,
+the built-in server and chunk building. Render distance is not changed. New instances get
+these defaults on their second launch, once Minecraft has written its settings. Later
+changes you make in-game are kept. Repair no longer overwrites
 `options.txt`, mod configs or the server list. The JVM now honors thread priorities, and
 Minecraft's render thread starts with display priority.
 
