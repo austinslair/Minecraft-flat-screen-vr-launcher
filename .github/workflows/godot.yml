@@ -437,15 +437,16 @@ jobs:
 
           Built from commit: $GITHUB_SHA
 
-          This is a prerelease test build signed with the alpha test key (Android version code 24).
+          This is an alpha test build signed with the alpha test key (Android version code 24).
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
-            gh release edit "$TAG" --notes-file release-notes.md
+            # Shown as Latest in the repository sidebar and served by releases/latest.
+            gh release edit "$TAG" --notes-file release-notes.md --prerelease=false --latest
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
               --title "VoxyQuest v0.1.0-alpha.24" \
               --notes-file release-notes.md \
-              --prerelease \
+              --latest \
               --target "$GITHUB_SHA"
           fi
