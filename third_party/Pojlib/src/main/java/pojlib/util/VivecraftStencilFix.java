@@ -21,7 +21,8 @@ public final class VivecraftStencilFix {
     static final String RENDERER = PACKAGE + "OpenXRStereoRenderer";
     static final String MCOPENXR = "L" + PACKAGE + "MCOpenXR;";
     static final String BASE = "org/vivecraft/client_vr/provider/VRRenderer";
-    static final String GET_MASK_DESCRIPTOR = "(Lorg/vivecraft/client_vr/render/RenderPass;)[F";
+    // RenderPass moved to org/vivecraft/api/client/data in Vivecraft for 1.21.8 and later, so the
+    // exact descriptor is read from VRRenderer.
     static final String HELPER = PACKAGE + "VoxyQuestStencil";
     static final String XR_HELPER = PACKAGE + "VoxyQuestXr.class";
 
@@ -33,9 +34,10 @@ public final class VivecraftStencilFix {
         if (!jar.isFile() || stencilHelper == null) return false;
         byte[] renderer = ModJarPatcher.readEntry(jar, RENDERER + ".class");
         byte[] base = ModJarPatcher.readEntry(jar, BASE + ".class");
-        if (renderer == null || base == null || !declares(base, "getStencilMask", GET_MASK_DESCRIPTOR)) return false;
+        String getMask = base == null ? null : maskDescriptor(base);
+        if (renderer == null || getMask == null) return false;
         Map<String, byte[]> entries = new LinkedHashMap<>();
-        if (!isPatched(renderer)) entries.put(RENDERER + ".class", patch(renderer));
+        if (!isPatched(renderer)) entries.put(RENDERER + ".class", patch(renderer, getMask));
         if (!Arrays.equals(stencilHelper, ModJarPatcher.readEntry(jar, HELPER + ".class")))
             entries.put(HELPER + ".class", stencilHelper);
         // Only refresh a VoxyQuestXr the performance patch already wired in.
@@ -47,7 +49,7 @@ public final class VivecraftStencilFix {
     }
 
     /** Both stencil methods of OpenXRStereoRenderer delegate to VoxyQuestStencil with its MCOpenXR. */
-    static byte[] patch(byte[] original) throws IOException {
+    static byte[] patch(byte[] original, String getMaskDescriptor) throws IOException {
         ClassReader reader = new ClassReader(original);
         if (!reader.getClassName().equals(RENDERER) || !reader.getSuperName().equals(BASE))
             throw new IOException("Unexpected Vivecraft OpenXR renderer");
@@ -66,7 +68,7 @@ public final class VivecraftStencilFix {
                 @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
                         String signature, String[] exceptions) {
                     boolean provides = name.equals("providesStencilMask") && descriptor.equals("()Z");
-                    boolean getMask = name.equals("getStencilMask") && descriptor.equals(GET_MASK_DESCRIPTOR);
+                    boolean getMask = name.equals("getStencilMask") && descriptor.equals(getMaskDescriptor);
                     if ((!provides && !getMask) || (access & Opcodes.ACC_STATIC) != 0)
                         return super.visitMethod(access, name, descriptor, signature, exceptions);
                     if (openxrField[0] == null) throw new IllegalStateException("no MCOpenXR field");
@@ -79,7 +81,7 @@ public final class VivecraftStencilFix {
 
                 @Override public void visitEnd() {
                     if (!hadGetMask[0] && openxrField[0] != null) {
-                        emit(super.visitMethod(Opcodes.ACC_PUBLIC, "getStencilMask", GET_MASK_DESCRIPTOR, null, null),
+                        emit(super.visitMethod(Opcodes.ACC_PUBLIC, "getStencilMask", getMaskDescriptor, null, null),
                                 true, openxrField[0]);
                     }
                     super.visitEnd();
@@ -125,12 +127,17 @@ public final class VivecraftStencilFix {
         return found[0];
     }
 
-    private static boolean declares(byte[] type, String method, String descriptor) {
-        boolean[] found = {false};
-        new ClassReader(type).accept(new ClassVisitor(Opcodes.ASM9) {
+    /** VRRenderer's getStencilMask(RenderPass) descriptor, or null when it has none. */
+    static String maskDescriptor(byte[] base) {
+        String[] found = {null};
+        new ClassReader(base).accept(new ClassVisitor(Opcodes.ASM9) {
             @Override public MethodVisitor visitMethod(int access, String name, String desc,
                     String signature, String[] exceptions) {
-                if (name.equals(method) && desc.equals(descriptor)) found[0] = true;
+                Type[] arguments = Type.getArgumentTypes(desc);
+                if (name.equals("getStencilMask") && (access & Opcodes.ACC_STATIC) == 0 &&
+                        arguments.length == 1 && arguments[0].getSort() == Type.OBJECT &&
+                        arguments[0].getInternalName().endsWith("/RenderPass") &&
+                        Type.getReturnType(desc).getDescriptor().equals("[F")) found[0] = desc;
                 return null;
             }
         }, ClassReader.SKIP_CODE);

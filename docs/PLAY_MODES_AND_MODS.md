@@ -132,10 +132,11 @@ The launch log timestamps each stage, so Settings → Export log shows where the
 ## Desktop mirror
 
 VR launches turn Vivecraft's desktop mirror off, since the Quest has no desktop to show it on.
-Vivecraft still posted a "Mirror is OFF" notice every frame, and drawing it cleared the whole
-window-sized target (2960x1440 on Quest 3, colour and depth) and drew text into it, using memory
-bandwidth the eye images need on every frame. VR launches remove that notice; the other mirror
-modes are unchanged.
+Vivecraft still drew to the whole window-sized target (2960x1440 on Quest 3) every frame: older
+builds post a "Mirror is OFF" notice that clears it and draws text into it, and the builds for
+1.21.8 and later post a translated notice or clear it to black. That used memory bandwidth the eye
+images need on every frame. VR launches remove the notice and the clear in the mirror-off branch,
+on Fabric and NeoForge alike; the other mirror modes are unchanged.
 
 ## Lens-hidden area
 

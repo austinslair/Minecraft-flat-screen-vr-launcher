@@ -240,10 +240,17 @@ jobs:
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/VivecraftRefreshRateFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftRefreshRateFixTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftStencilFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftStencilFixTest.java
-          VOXYQUEST_VIVECRAFT_STENCIL_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestStencil.bin \
-            java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftStencilFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftMirrorFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftMirrorFixTest.java
-          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftMirrorFixTest
+          # Vivecraft for 1.21.8 and later moved RenderPass and rewrote the mirror code, so the
+          # stencil and mirror patches are tested against both generations.
+          curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/6.0.1-1.21.11/vivecraft.jar -o "$RUNNER_TEMP/vivecraft-1.21.11.jar"
+          for jar in "$VOXYQUEST_VIVECRAFT_TEST_JAR" "$RUNNER_TEMP/vivecraft-1.21.11.jar"; do
+            VOXYQUEST_VIVECRAFT_TEST_JAR="$jar" \
+            VOXYQUEST_VIVECRAFT_STENCIL_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestStencil.bin \
+              java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftStencilFixTest
+            VOXYQUEST_VIVECRAFT_TEST_JAR="$jar" \
+              java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftMirrorFixTest
+          done
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ClasspathUtils.java third_party/Pojlib/src/test/java/pojlib/util/ClasspathUtilsTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.ClasspathUtilsTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
