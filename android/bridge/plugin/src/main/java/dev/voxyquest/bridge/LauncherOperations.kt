@@ -116,11 +116,34 @@ object LauncherOperations {
                 message = "Installed ${result.instanceName}"
                 state = "installed"
             } catch (failure: Exception) {
-                message = "Installation failed during: $message Check your connection and free space, then retry."
+                // Keep the step and the real reason; "check your connection" alone hid every other cause.
+                pojlib.util.Logger.getInstance().appendToLog(
+                    "VoxyQuest install failed during \"$message\": " + android.util.Log.getStackTraceString(failure))
+                message = "Installation failed during: $message ${reason(failure)} " +
+                    "The full error is in the launcher log (Settings, export log)."
                 state = "error"
             }
         }
         return true
+    }
+
+    /** The failure and its causes in one line, e.g. "Download failed: UnknownHostException: maven.neoforged.net". */
+    private fun reason(failure: Throwable): String {
+        val parts = LinkedHashSet<String>()
+        var current: Throwable? = failure
+        while (current != null && parts.size < 4) {
+            val error: Throwable = current
+            val text = error.message?.takeIf { it.isNotBlank() }
+            // Name specific errors such as UnknownHostException; their message alone is just a host.
+            val named = error.javaClass != java.io.IOException::class.java && error.javaClass != Exception::class.java
+            parts.add(when {
+                text == null -> error.javaClass.simpleName
+                named -> "${error.javaClass.simpleName}: $text"
+                else -> text
+            })
+            current = error.cause
+        }
+        return parts.joinToString(": ").let { if (it.endsWith(".")) it else "$it." }
     }
 
     fun isBusy(): Boolean = state == "installing" || state == "importing_mod" || state == "installing_mod"

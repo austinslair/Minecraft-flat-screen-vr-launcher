@@ -132,10 +132,11 @@ The launch log timestamps each stage, so Settings → Export log shows where the
 ## Desktop mirror
 
 VR launches turn Vivecraft's desktop mirror off, since the Quest has no desktop to show it on.
-Vivecraft still posted a "Mirror is OFF" notice every frame, and drawing it cleared the whole
-window-sized target (2960x1440 on Quest 3, colour and depth) and drew text into it, using memory
-bandwidth the eye images need on every frame. VR launches remove that notice; the other mirror
-modes are unchanged.
+Vivecraft still drew to the whole window-sized target (2960x1440 on Quest 3) every frame: older
+builds post a "Mirror is OFF" notice that clears it and draws text into it, and the builds for
+1.21.8 and later post a translated notice or clear it to black. That used memory bandwidth the eye
+images need on every frame. VR launches remove the notice and the clear in the mirror-off branch,
+on Fabric and NeoForge alike; the other mirror modes are unchanged.
 
 ## Lens-hidden area
 
@@ -197,6 +198,10 @@ An instance installed with an older bundled NeoForge is moved to the bundled bui
 time you press Play. That launch downloads the new NeoForge libraries, so it needs network
 access and takes longer. Worlds, mods and configs are kept.
 
+If a NeoForge install fails, the message names the step and the actual error (for example a
+host that could not be reached), and the launcher log (Settings, export log) holds the full error
+plus the end of NeoForge's installer log.
+
 ## Mods with native libraries
 
 Some mods ship native code built only for desktop computers. The Quest cannot load it, so
@@ -228,3 +233,12 @@ The movement uses the same scale as mouse look, so about 40° of tilt pulls the 
 all the way. Letting go of the trigger releases the control, which is when the assembler
 builds the contraption. The original JAR is kept in `voxyquest-backups`. A Simulated release
 whose code looks different is left unpatched, and the launch log says so.
+
+## Updating the launcher
+
+When the launcher starts it checks the latest GitHub release. If that release is newer than the
+installed version (release `v0.1.0-alpha.N` is Android version code N), a dialog offers it. Update
+downloads the APK and checks it against the release's SHA-256 file, the launcher's package name,
+a higher version code and the installed signing key, then hands it to Android's installer, which
+asks you to confirm. The first time, Android asks you to allow VoxyQuest to install apps. Later
+skips that release for a day. Worlds, instances and settings are kept, as with any app update.

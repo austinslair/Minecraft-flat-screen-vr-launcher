@@ -240,10 +240,17 @@ jobs:
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/VivecraftRefreshRateFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftRefreshRateFixTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftStencilFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftStencilFixTest.java
-          VOXYQUEST_VIVECRAFT_STENCIL_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestStencil.bin \
-            java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftStencilFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftMirrorFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftMirrorFixTest.java
-          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftMirrorFixTest
+          # Vivecraft for 1.21.8 and later moved RenderPass and rewrote the mirror code, so the
+          # stencil and mirror patches are tested against both generations.
+          curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/6.0.1-1.21.11/vivecraft.jar -o "$RUNNER_TEMP/vivecraft-1.21.11.jar"
+          for jar in "$VOXYQUEST_VIVECRAFT_TEST_JAR" "$RUNNER_TEMP/vivecraft-1.21.11.jar"; do
+            VOXYQUEST_VIVECRAFT_TEST_JAR="$jar" \
+            VOXYQUEST_VIVECRAFT_STENCIL_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestStencil.bin \
+              java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftStencilFixTest
+            VOXYQUEST_VIVECRAFT_TEST_JAR="$jar" \
+              java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftMirrorFixTest
+          done
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ClasspathUtils.java third_party/Pojlib/src/test/java/pojlib/util/ClasspathUtilsTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.ClasspathUtilsTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
@@ -356,6 +363,12 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          # NeoForge's installer runs in its own process on the headset.
+          grep -q 'dev.voxyquest.bridge.NeoForgeSetupService' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q ':neoforge_setup' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          # In-launcher updates install through Android's package installer.
+          grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'dev.voxyquest.bridge.UpdateInstallReceiver' "$RUNNER_TEMP/voxyquest-manifest.xml"
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/version.json'
           for helper in VoxyQuestXr VoxyQuestStencil VoxyQuestSodium VoxyQuestVrHold; do
             unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/compat/$helper.bin"
@@ -377,7 +390,7 @@ jobs:
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='24'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='25'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -400,44 +413,32 @@ jobs:
 
       - name: Publish VoxyQuest GitHub release
         # A pull request merged with this commit title publishes the release.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish VoxyQuest APK release v0.1.0-alpha.24')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish VoxyQuest APK release v0.1.0-alpha.25')
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.24
+          TAG: v0.1.0-alpha.25
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.24 test build for Meta Quest.
+          VoxyQuest alpha.25 test build for Meta Quest.
 
-          **Minecraft versions**
-          - Fabric: 1.21.11, 1.21.10, 1.21.8, 1.21.5, 1.21.4 and 1.21.1, plus 1.20.6 to 1.19.2.
-          - NeoForge: 1.21.8, 1.21.5, 1.21.4 and 1.21.1 (21.1.228 for Create 6). NeoForge is now set up on the headset with its official installer instead of shipping in the APK.
+          **In-launcher updates**
+          - The launcher now checks GitHub for new releases when it starts and offers to update. The download is checked against the release checksum and signing key, then Android asks you to confirm. The first time, allow VoxyQuest to install apps.
 
-          **Mods and modpacks**
-          - Modrinth modpacks: search for a pack by name on the Mods page, or pick a .mrpack with Add mod. Each pack becomes its own instance with the Quest Vivecraft build.
-          - Missing required mods are downloaded before launch, duplicate copies are disabled, and installing a mod you already have updates it.
-          - Mods with Linux-only native libraries work on the headset: Distance Horizons (zstd) and Create Aeronautics / Sable physics.
-          - Create Aeronautics levers, throttles and wheels follow the VR controller.
-          - Vivecraft's VR arms use the right skin with Sodium 0.8.
+          **NeoForge**
+          - NeoForge installs work again: the setup now installs Java first, starts its installer with the right options, and follows the setup process reliably.
+          - When an install fails, the message names the step and the real error, and the launcher log includes NeoForge's own installer log.
 
-          **Performance (no mods, no settings changed)**
-          - Asks Horizon OS for sustained high CPU and GPU levels in VR.
-          - Skips shading the area of each eye the lenses hide.
-          - Stops redrawing the hidden desktop mirror every frame.
-          - Release-optimized MobileGlues renderer; Sodium gets two chunk builder threads when you add it.
-          - APK reduced from about 245 MB to about 80 MB.
+          **VR**
+          - Fabric 1.21.8, 1.21.10 and 1.21.11 now get every VR fix that older versions and NeoForge already had: the hidden desktop mirror is no longer redrawn every frame, the lens-hidden area of each eye is skipped where the headset provides it, Vivecraft's arms work with Sodium 0.8, and sustained high CPU/GPU levels are requested.
 
-          **Fixes**
-          - Keyboard and mouse now work in flatscreen.
-          - Mods that failed to install from Modrinth now install, with unavailable dependencies listed.
-
-          The launch log (Settings, export log) now includes the Quest's per-second VrApi performance line.
+          **Also included from alpha.24**: newer Minecraft versions, Modrinth modpacks, automatic missing-mod downloads, flatscreen keyboard and mouse, and the smaller APK.
 
           Built from commit: $GITHUB_SHA
 
-          This is an alpha test build signed with the alpha test key (Android version code 24).
+          This is an alpha test build signed with the alpha test key (Android version code 25).
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
@@ -445,7 +446,7 @@ jobs:
             gh release edit "$TAG" --notes-file release-notes.md --prerelease=false --latest
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.24" \
+              --title "VoxyQuest v0.1.0-alpha.25" \
               --notes-file release-notes.md \
               --latest \
               --target "$GITHUB_SHA"

@@ -28,6 +28,7 @@ import pojlib.account.LoginHelper
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     private var accountRestoreRequested = false
     private var previousLaunchReportShown = false
+    private var updateCheckRequested = false
 
     companion object {
         private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
@@ -57,6 +58,10 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             // when Android/native code killed the process without a Java exception.
             Logger.getInstance()
             maybeShowPreviousLaunchReport(hostActivity)
+            if (!updateCheckRequested) {
+                updateCheckRequested = true
+                LauncherUpdater.checkOnStart(hostActivity)
+            }
             if (!accountRestoreRequested && BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()) {
                 accountRestoreRequested = LoginHelper.restoreSession(
                     hostActivity,
@@ -109,6 +114,14 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
                 }
                 .show()
         }
+    }
+
+    /** Checks GitHub for a newer launcher release and offers it in a dialog. */
+    @UsedByGodot
+    fun checkForLauncherUpdate(): Boolean {
+        val host = activity ?: return false
+        LauncherUpdater.checkOnStart(host)
+        return true
     }
 
     @UsedByGodot
