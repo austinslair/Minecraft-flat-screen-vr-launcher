@@ -89,6 +89,7 @@ final class ModJarPatcher {
         try {
             try (ZipFile source = new ZipFile(jar);
                  ZipOutputStream output = new ZipOutputStream(new FileOutputStream(temporary))) {
+                Set<String> names = new HashSet<>();
                 Enumeration<? extends ZipEntry> entries = source.entries();
                 while (entries.hasMoreElements()) {
                     ZipEntry entry = entries.nextElement();
@@ -111,6 +112,14 @@ final class ModJarPatcher {
                             try (InputStream input = source.getInputStream(entry)) { copy(input, output); }
                         }
                     }
+                    output.closeEntry();
+                    names.add(entry.getName());
+                }
+                // Entries the JAR does not have yet, such as a helper class a fix adds.
+                for (Map.Entry<String, byte[]> extra : replaced.entrySet()) {
+                    if (names.contains(extra.getKey())) continue;
+                    output.putNextEntry(new ZipEntry(extra.getKey()));
+                    output.write(extra.getValue());
                     output.closeEntry();
                 }
             }

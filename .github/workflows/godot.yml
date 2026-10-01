@@ -352,6 +352,11 @@ jobs:
           grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/version.json'
+          for helper in VoxyQuestXr VoxyQuestSodium VoxyQuestVrHold; do
+            unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/compat/$helper.bin"
+          done
+          # The flatscreen input queue needs the pump calls in the packaged GLFW class.
+          unzip -p third_party/Pojlib/src/main/assets/lwjgl/lwjgl-glfw-classes.jar 'org/lwjgl/glfw/GLFW$Functions.class' | grep -a pojavStartPumping > /dev/null
           for version in 1.21.8 1.21.4 1.21.1; do
             for asset in version.json vivecraft.jar; do
               unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/neoforge/$version/$asset"

@@ -185,6 +185,16 @@ open class MinecraftGameActivity : Activity() {
                     if (patched) Logger.getInstance().appendToLog(
                         "VoxyQuest launch: applied Vivecraft OpenXR compatibility fixes",
                     )
+                    // Vivecraft's VR arms with Sodium 0.8 (compat/vivecraft VoxyQuestSodium).
+                    val sodiumHelper = runCatching {
+                        assets.open("voxyquest/compat/VoxyQuestSodium.bin").use { it.readBytes() }
+                    }.getOrNull()
+                    try {
+                        if (pojlib.util.VivecraftSodiumFix.apply(gameDir, sodiumHelper)) Logger.getInstance()
+                            .appendToLog("VoxyQuest launch: taught Vivecraft Sodium 0.8's model layout for VR arms")
+                    } catch (e: java.io.IOException) {
+                        Logger.getInstance().appendToLog("VoxyQuest launch: Vivecraft Sodium fix skipped: ${e.message}")
+                    }
                 }
                 if (instance.loaderId() != "neoforge" ||
                     VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {

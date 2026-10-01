@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Compiles VoxyQuestXr, the class VivecraftRefreshRateFix adds to Vivecraft's OpenXR provider
 # to request performance levels, into the APK assets. It compiles against the LWJGL OpenXR
-# bindings nested in a Quest Vivecraft JAR and the launcher's LWJGL core classes.
+# bindings nested in a Quest Vivecraft JAR and the launcher's LWJGL core classes. Also compiles
+# VoxyQuestSodium, which VivecraftSodiumFix adds for Sodium 0.8 and which needs only the JDK.
 #
 # Usage: build_vivecraft_compat.sh <Quest Vivecraft jar>
 set -eu
@@ -21,3 +22,8 @@ test "$CLASSES" -eq 1 || { echo "VoxyQuestXr must compile to a single class" >&2
 mkdir -p "$ROOT/third_party/Pojlib/src/main/assets/voxyquest/compat"
 cp "$WORK/classes/org/vivecraft/client_vr/provider/openxr/VoxyQuestXr.class" \
   "$ROOT/third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestXr.bin"
+javac --release 17 -d "$WORK/sodium" \
+  "$ROOT/third_party/Pojlib/compat/vivecraft/src/org/vivecraft/mod_compat_vr/sodium/VoxyQuestSodium.java"
+test "$(find "$WORK/sodium" -name '*.class' | wc -l)" -eq 1 || { echo "VoxyQuestSodium must compile to a single class" >&2; exit 1; }
+cp "$WORK/sodium/org/vivecraft/mod_compat_vr/sodium/VoxyQuestSodium.class" \
+  "$ROOT/third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestSodium.bin"
