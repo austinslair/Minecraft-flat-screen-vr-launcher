@@ -97,8 +97,18 @@ public class Logger {
         }
     }
 
+    private static volatile String processLogName = "latestlog.txt";
+
+    /**
+     * Gives a helper process its own log file. Call before the first {@link #getInstance()}:
+     * opening latestlog.txt from a second process would rotate away the game's log.
+     */
+    public static void useLogFile(String fileName) {
+        processLogName = fileName;
+    }
+
     private static final class SLoggerSingletonHolder {
-        static final Logger sLoggerSingleton = new Logger();
+        static final Logger sLoggerSingleton = new Logger(processLogName);
     }
 
     public static Logger getInstance(){

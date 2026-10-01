@@ -321,6 +321,47 @@ public class JREUtils {
         return exitCode;
     }
 
+    /**
+     * Runs a plain Java program (no Minecraft, renderer or OpenXR setup) in the embedded JVM.
+     * The JVM can start only once per process and many tools end with System.exit, so call
+     * this from a dedicated process such as the launcher's NeoForge setup service.
+     */
+    public static int launchTool(Context ctx, File workDir, long heapMb, List<String> toolArgs) throws Throwable {
+        relocateLibPath(ctx);
+        File jre = new File(ctx.getFilesDir(), "runtimes/JRE");
+        Map<String, String> envMap = new ArrayMap<>();
+        envMap.put("POJLIB_NATIVEDIR", ctx.getApplicationInfo().nativeLibraryDir);
+        envMap.put("JAVA_HOME", jre.getAbsolutePath());
+        envMap.put("HOME", workDir.getAbsolutePath());
+        envMap.put("TMPDIR", ctx.getCacheDir().getAbsolutePath());
+        envMap.put("LD_LIBRARY_PATH", LD_LIBRARY_PATH);
+        envMap.put("PATH", jre + "/bin:" + Os.getenv("PATH"));
+        for (Map.Entry<String, String> env : envMap.entrySet()) Os.setenv(env.getKey(), env.getValue(), true);
+
+        jvmLibraryPath = jre + "/lib/" + (new File(jre, "lib/server/libjvm.so").exists() ? "server" : "client");
+        setLdLibraryPath(jvmLibraryPath + ":" + LD_LIBRARY_PATH);
+        runtimeDir = jre.getAbsolutePath();
+        initJavaRuntime();
+
+        File resolv = new File(ctx.getCacheDir(), "tool-resolv.conf");
+        writeDNS(ctx, resolv);
+        List<String> args = new ArrayList<>(Arrays.asList(
+                "java",
+                "-Djava.home=" + jre,
+                "-Djava.io.tmpdir=" + ctx.getCacheDir().getAbsolutePath(),
+                "-Duser.home=" + workDir.getAbsolutePath(),
+                "-Dos.name=Linux",
+                "-Djava.awt.headless=true",
+                "-Dext.net.resolvPath=" + resolv,
+                "-Xmx" + heapMb + "M",
+                "-XX:+UseSerialGC",
+                "-XX:-ImplicitNullChecks",
+                "-XX:+UseSignalChaining"));
+        args.addAll(toolArgs);
+        if (chdir(workDir.getAbsolutePath()) != 0) throw new IOException("Could not enter " + workDir);
+        return VMLauncher.launchJVM(args.toArray(new String[0]));
+    }
+
     private static void writeDNS(Context ctx, File out) throws IOException {
         FileWriter writer = new FileWriter(out);
 

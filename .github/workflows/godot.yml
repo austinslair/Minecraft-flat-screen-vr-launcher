@@ -120,12 +120,12 @@ jobs:
           for version in 1.21.8 1.21.5 1.21.4 1.21.1; do
             DIR="$ASSETS/$version"
             if [ "$version" = 1.21.5 ]; then DIR="$ASSETS"; fi
-            for file in version.json client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
-              test -s "$DIR/$file"
-            done
-            unzip -Z1 "$DIR/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
-            unzip -Z1 "$DIR/universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+            # The processed Minecraft client is built on the headset by NeoForge's installer.
+            test -s "$DIR/version.json"
             test -s "$DIR/vivecraft.jar"
+            for file in client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
+              test ! -e "$DIR/$file"
+            done
           done
           python3 - <<'PY'
           from pathlib import Path
@@ -226,6 +226,9 @@ jobs:
           export VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS="third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.4/vivecraft.jar:third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.1/vivecraft.jar"
           curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
           bash scripts/build_simulated_vr_compat.sh "$RUNNER_TEMP/simulated-fakes"
+          # QuestCraft's prebuilt OpenAL, LTW and JNA still carry debug symbols (OpenAL: 16 MB).
+          /usr/local/lib/android/sdk/ndk/28.1.13356709/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \
+            --strip-unneeded third_party/Pojlib/src/main/jniLibs/arm64-v8a/{libopenal,libltw,libjnidispatch}.so
           gradle -p android/bridge :plugin:syncToGodot --no-daemon
           ccache --show-stats | grep -E 'Hits|Misses' || true
           mkdir -p "$RUNNER_TEMP/refresh-tests"
@@ -346,13 +349,16 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
-          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-srg.jar'
-          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/minecraft-extra.jar'
-          for version in 1.21.4 1.21.1; do
-            for asset in version.json client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
+          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/version.json'
+          for version in 1.21.8 1.21.4 1.21.1; do
+            for asset in version.json vivecraft.jar; do
               unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/neoforge/$version/$asset"
             done
           done
+          ! unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -E 'assets/voxyquest/neoforge/(.*/)?(minecraft-srg|minecraft-extra|client|universal)\.jar$'
+          # Report what the APK spends its size on.
+          unzip -lv launcher/build/VoxyQuest-ci.apk | sort -k3 -n -r | head -25
+          ls -la launcher/build/VoxyQuest-ci.apk
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/lwjgl/lwjgl-neoforge-classes.jar'
 
       - name: Verify complete update APK

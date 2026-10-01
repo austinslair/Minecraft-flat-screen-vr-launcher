@@ -30,6 +30,19 @@ neoforge_only() {
   grep -qx 'include("neoforge")' settings.gradle || echo 'include("neoforge")' >> settings.gradle
 }
 
+# The APK carries only each version's profile and Vivecraft; the headset runs the same
+# installer to produce the processed Minecraft client (NeoForgeSetup). Check that it writes
+# every file the launcher looks for, at the paths the launcher looks in.
+check_installer_output() {
+  dir=$1 mc=$2 neo=$3
+  MC_LIB=$(find "$dir/libraries/net/minecraft/client" -mindepth 1 -maxdepth 1 -type d -name "$mc-*" -print -quit)
+  test -n "$MC_LIB"
+  unzip -Z1 "$MC_LIB/client-$(basename "$MC_LIB")-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
+  unzip -Z1 "$MC_LIB/client-$(basename "$MC_LIB")-extra.jar" | grep -Fx 'assets/.mcassetsroot'
+  unzip -Z1 "$dir/libraries/net/neoforged/neoforge/$neo/neoforge-$neo-client.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
+  unzip -Z1 "$dir/libraries/net/neoforged/neoforge/$neo/neoforge-$neo-universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+}
+
 # Gradle's own retry gives up after a few short attempts; allow more, with longer backoff.
 GRADLE_RETRY_ARGS="-Dorg.gradle.internal.repository.max.retries=6 -Dorg.gradle.internal.repository.initial.backoff=2000"
 
@@ -53,13 +66,7 @@ curl -fsSL --retry 5 --retry-delay 10 https://maven.neoforged.net/releases/net/n
 printf '{"profiles":{}}' > "$RUNNER_TEMP/neoforge-client/launcher_profiles.json"
 retry java -jar "$RUNNER_TEMP/neoforge-installer.jar" --installClient "$RUNNER_TEMP/neoforge-client"
 cp "$RUNNER_TEMP/neoforge-client/versions/neoforge-21.5.2-beta/neoforge-21.5.2-beta.json" "$ASSETS/version.json"
-cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-client.jar" "$ASSETS/client.jar"
-cp "$RUNNER_TEMP/neoforge-client/libraries/net/neoforged/neoforge/21.5.2-beta/neoforge-21.5.2-beta-universal.jar" "$ASSETS/universal.jar"
-MC_LIB="$RUNNER_TEMP/neoforge-client/libraries/net/minecraft/client/1.21.5-20250325.162830"
-cp "$MC_LIB/client-1.21.5-20250325.162830-srg.jar" "$ASSETS/minecraft-srg.jar"
-cp "$MC_LIB/client-1.21.5-20250325.162830-extra.jar" "$ASSETS/minecraft-extra.jar"
-unzip -Z1 "$ASSETS/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
-unzip -Z1 "$ASSETS/minecraft-extra.jar" | grep -Fx 'assets/.mcassetsroot'
+check_installer_output "$RUNNER_TEMP/neoforge-client" 1.21.5 21.5.2-beta
 unzip -p "$ASSETS/vivecraft.jar" META-INF/neoforge.mods.toml | grep -q 'modId = "vivecraft"'
 
 # Each additional Minecraft version needs its own processed client and
@@ -88,15 +95,7 @@ for spec in "1.21.8:21.8.*" "1.21.4:21.4.150" "1.21.1:21.1.228"; do
   curl -fsSL --retry 5 --retry-delay 10 "https://maven.neoforged.net/releases/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-installer.jar" -o "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar"
   retry java -jar "$RUNNER_TEMP/neoforge-installer-$MC_VERSION.jar" --installClient "$CLIENT_DIR"
   cp "$CLIENT_DIR/versions/neoforge-$NEO_VERSION/neoforge-$NEO_VERSION.json" "$VERSION_ASSETS/version.json"
-  cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-client.jar" "$VERSION_ASSETS/client.jar"
-  cp "$CLIENT_DIR/libraries/net/neoforged/neoforge/$NEO_VERSION/neoforge-$NEO_VERSION-universal.jar" "$VERSION_ASSETS/universal.jar"
-  MC_LIB=$(find "$CLIENT_DIR/libraries/net/minecraft/client" -mindepth 1 -maxdepth 1 -type d -name "$MC_VERSION-*" -print -quit)
-  test -n "$MC_LIB"
-  cp "$MC_LIB"/client-*-srg.jar "$VERSION_ASSETS/minecraft-srg.jar"
-  cp "$MC_LIB"/client-*-extra.jar "$VERSION_ASSETS/minecraft-extra.jar"
-  unzip -Z1 "$VERSION_ASSETS/minecraft-srg.jar" | grep -Fx 'net/minecraft/client/Minecraft.class'
-  unzip -Z1 "$VERSION_ASSETS/minecraft-extra.jar" | grep -Fx 'assets/.mcassetsroot'
-  unzip -Z1 "$VERSION_ASSETS/universal.jar" | grep -Fx 'META-INF/neoforge.mods.toml'
+  check_installer_output "$CLIENT_DIR" "$MC_VERSION" "$NEO_VERSION"
 done
 python3 - <<'PY'
 import json

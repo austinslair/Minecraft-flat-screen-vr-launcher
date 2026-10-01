@@ -13,6 +13,16 @@ otherwise released, and bundles the newest NeoForge 21.8 release. NeoForge 21.9 
 longer start through ModLauncher, which the launcher's NeoForge support relies on. Minecraft
 26.x has no Quest Vivecraft build yet. None of the new versions have been tested on a headset.
 
+Like QuestCraft, the APK no longer carries game files it can fetch. Each NeoForge version
+used to ship a processed Minecraft client and NeoForge's patched client, about 50 MB per
+version. Now the APK keeps only each version's NeoForge profile and Vivecraft build. Installing
+or repairing a NeoForge instance runs NeoForge's official installer on the headset, in a
+separate background process. It downloads Minecraft and NeoForge and prepares them, which
+takes a few minutes and needs internet. This happens once per NeoForge version, and existing
+installs keep the files they already have. The installer's log is in the `neoforge-installers`
+folder next to the instances. CI also strips leftover debug symbols from the bundled native
+libraries.
+
 Instances can be selected, renamed, removed with confirmation, or repaired. The play mode
 selector chooses Virtual reality or Flatscreen for the next launch. Home's Quick Info and
 Play tooltip reflect that choice. Sign in and finish installing before pressing Play.

@@ -19,7 +19,13 @@ import pojlib.util.download.DownloadUtils;
 import pojlib.util.json.MinecraftInstances;
 import pojlib.util.json.ProjectInfo;
 
-/** Installs packaged NeoForge clients and their matching Quest OpenXR builds. */
+/**
+ * Installs NeoForge clients and their matching Quest OpenXR builds.
+ *
+ * The APK carries each version's NeoForge profile and Vivecraft build. The processed Minecraft
+ * client and NeoForge's patched client are produced on the headset by NeoForge's own
+ * installer (see NeoForgeSetupService), as on a desktop, instead of shipping in the APK.
+ */
 final class NeoForgeInstaller {
     private static final String ASSET_ROOT = "voxyquest/neoforge/";
     private static final Bundle[] BUNDLES = {
@@ -134,6 +140,7 @@ final class NeoForgeInstaller {
         instance.mainClass = neoforge.mainClass;
         instance.gameDir = game.getPath();
 
+        NeoForgeSetup.run(activity, bundle.version, bundle.loader(activity), systemJars(activity, bundle, neoForm), progress);
         progress.accept("Downloading Minecraft and NeoForge libraries…");
         String client = Installer.installClient(minecraft, Constants.USER_HOME).get();
         String libraries = Installer.installLibraries(minecraft, Constants.USER_HOME).get();
@@ -152,10 +159,8 @@ final class NeoForgeInstaller {
         String loader = bundle.loader(activity);
         File neoRoot = new File(Constants.USER_HOME,
                 "libraries/net/neoforged/neoforge/" + loader);
-        File universal = copyJar(activity, bundle, "universal.jar", new File(neoRoot,
-                "neoforge-" + loader + "-universal.jar"));
-        File patched = copyJar(activity, bundle, "client.jar", new File(neoRoot,
-                "neoforge-" + loader + "-client.jar"));
+        File universal = new File(neoRoot, "neoforge-" + loader + "-universal.jar");
+        File patched = new File(neoRoot, "neoforge-" + loader + "-client.jar");
         ensureSystemJars(activity, bundle, neoForm);
         // NeoForge's production locators discover both the processed Minecraft
         // client and NeoForge universal by Maven path. Boot classpath entries for
@@ -215,19 +220,28 @@ final class NeoForgeInstaller {
     }
 
     private static void ensureSystemJars(Activity activity, Bundle bundle, String neoForm) throws IOException {
+        for (NeoForgeSetup.Output output : systemJars(activity, bundle, neoForm)) {
+            if (!output.isPresent()) throw new IOException("NeoForge " + bundle.version +
+                    " files are missing (" + output.file.getName() + "). Repair the instance to set NeoForge up again.");
+        }
+    }
+
+    /** The files NeoForge's installer produces, each with an entry that proves it is complete. */
+    private static NeoForgeSetup.Output[] systemJars(Activity activity, Bundle bundle, String neoForm) throws IOException {
         String version = bundle.version + "-" + neoForm;
         File root = new File(Constants.USER_HOME, "libraries/net/minecraft/client/" + version);
-        ensureJar(activity, bundle, "minecraft-srg.jar", new File(root, "client-" + version + "-srg.jar"),
-                "net/minecraft/client/Minecraft.class");
-        ensureJar(activity, bundle, "minecraft-extra.jar", new File(root, "client-" + version + "-extra.jar"),
-                "assets/.mcassetsroot");
         String loader = bundle.loader(activity);
-        File neoRoot = new File(Constants.USER_HOME,
-                "libraries/net/neoforged/neoforge/" + loader);
-        ensureJar(activity, bundle, "client.jar", new File(neoRoot,
-                "neoforge-" + loader + "-client.jar"), "net/minecraft/client/Minecraft.class");
-        ensureJar(activity, bundle, "universal.jar", new File(neoRoot,
-                "neoforge-" + loader + "-universal.jar"), "META-INF/neoforge.mods.toml");
+        File neoRoot = new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + loader);
+        return new NeoForgeSetup.Output[] {
+                new NeoForgeSetup.Output(new File(root, "client-" + version + "-srg.jar"),
+                        "net/minecraft/client/Minecraft.class"),
+                new NeoForgeSetup.Output(new File(root, "client-" + version + "-extra.jar"),
+                        "assets/.mcassetsroot"),
+                new NeoForgeSetup.Output(new File(neoRoot, "neoforge-" + loader + "-client.jar"),
+                        "net/minecraft/client/Minecraft.class"),
+                new NeoForgeSetup.Output(new File(neoRoot, "neoforge-" + loader + "-universal.jar"),
+                        "META-INF/neoforge.mods.toml"),
+        };
     }
 
     static void useNeoForgeGlfw(Activity activity, MinecraftInstances.Instance instance) throws IOException {
@@ -241,20 +255,6 @@ final class NeoForgeInstaller {
                 new File(Constants.USER_HOME, "libraries/net/neoforged/neoforge/" + loader
                         + "/neoforge-" + loader + "-universal.jar").getPath(),
                 new File(Constants.USER_HOME, "versions/" + bundle.version + "/client.jar").getPath());
-    }
-
-    private static void ensureJar(Activity activity, Bundle bundle, String assetName, File target, String marker) throws IOException {
-        if (target.isFile()) {
-            try (JarFile jar = new JarFile(target)) {
-                if (jar.getJarEntry(marker) != null) return;
-            } catch (IOException ignored) {
-                // Replace an interrupted or corrupt install from the APK.
-            }
-        }
-        copyJar(activity, bundle, assetName, target);
-        try (JarFile jar = new JarFile(target)) {
-            if (jar.getJarEntry(marker) == null) throw new IOException("Bundled NeoForge game JAR is incomplete: " + assetName);
-        }
     }
 
     private static File copyJar(Activity activity, Bundle bundle, String assetName, File destination) throws IOException {
