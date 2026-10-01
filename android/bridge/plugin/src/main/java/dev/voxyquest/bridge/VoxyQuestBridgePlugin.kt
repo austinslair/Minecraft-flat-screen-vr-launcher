@@ -372,8 +372,9 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun installModrinthMod(instanceName: String, projectId: String): Boolean {
+        val host = activity ?: return false
         if (!PojlibRuntime.isInitialized()) return false
-        return LauncherOperations.installModrinth(instanceName, projectId)
+        return LauncherOperations.installModrinth(host, instanceName, projectId)
     }
 
     @UsedByGodot

@@ -69,14 +69,23 @@ object LauncherOperations {
     }
 
     @Synchronized
-    fun installModrinth(name: String, projectId: String): Boolean {
+    fun installModrinth(activity: Activity, name: String, projectId: String): Boolean {
         if (isBusy() || MinecraftGameActivity.isRunning || !projectId.matches(Regex("[A-Za-z0-9]{8,16}"))) return false
         modrinthInstallState = "installing"
         modrinthInstallMessage = "Resolving compatible mod version…"
         state = "installing_mod"
         worker.execute {
             try {
-                modrinthInstallMessage = ModrinthClient.install(name, projectId) { modrinthInstallMessage = it }
+                val modpack = ModrinthClient.modpack(projectId)
+                modrinthInstallMessage = if (modpack == null) {
+                    ModrinthClient.install(name, projectId) { modrinthInstallMessage = it }
+                } else {
+                    // A pack becomes its own instance, built for the selected instance's version and loader.
+                    val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
+                        ?: error("Instance no longer exists.")
+                    ModpackInstaller.installFromModrinth(activity, instance.versionName ?: error("Instance has no Minecraft version."),
+                        instance.loaderId(), modpack) { modrinthInstallMessage = it }.message
+                }
                 modrinthInstallState = "installed"
             } catch (failure: Exception) {
                 modrinthInstallMessage = failure.message ?: "Could not install this mod."
@@ -375,6 +384,27 @@ object LauncherOperations {
         } finally {
             temp.delete()
             state = "idle"
+        }
+    }
+
+    /** Installs a picked .mrpack as a new instance. Runs on the caller's worker thread. */
+    fun importModpack(activity: Activity, input: java.io.InputStream, progress: (String) -> Unit): String {
+        synchronized(this) {
+            if (isBusy() || MinecraftGameActivity.isRunning) return "Wait for Minecraft and installation to stop."
+            state = "installing"
+            message = "Installing modpack…"
+            installedName = ""
+        }
+        return try {
+            val result = ModpackInstaller.installFromStream(activity, input) { message = it; progress(it) }
+            installedName = result.name
+            message = result.message
+            state = "installed"
+            result.message
+        } catch (failure: Exception) {
+            message = failure.message ?: "Could not install the modpack."
+            state = "error"
+            "Could not install the modpack: $message"
         }
     }
 

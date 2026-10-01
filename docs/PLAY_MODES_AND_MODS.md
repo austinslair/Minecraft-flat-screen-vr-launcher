@@ -129,6 +129,22 @@ Any of these flags that an older Java runtime does not recognise is ignored. Cla
 Sharing would help too, but the bundled Java 22 runtime ships without the base archive it needs.
 The launch log timestamps each stage, so Settings → Export log shows where the time goes.
 
+## Modpacks
+
+Modrinth modpacks install as a new instance that uses the pack's Minecraft version and loader
+(Fabric or NeoForge on a version the launcher supports). There are two ways in, both on the Mods
+page:
+
+- Search for the pack by name in the Modrinth search; packs show "(Modpack)" after their title.
+  Search lists packs made for the selected instance's version and loader.
+- Use "Add mod" and pick a downloaded `.mrpack` file.
+
+Every pack gets the launcher's Quest Vivecraft. A pack without Vivecraft has it added; a pack
+that ships Vivecraft has that copy (a desktop build, which cannot start on the Quest) replaced.
+Mods the launcher already installs keep the launcher's copy. Files the pack marks as not for
+clients are skipped, and every download is checked against the pack's hashes. CurseForge packs
+are not supported; download their Modrinth version instead.
+
 ## NeoForge versions
 
 NeoForge 1.21.1 instances run NeoForge 21.1.228, which Create 6's Sable dependency requires.

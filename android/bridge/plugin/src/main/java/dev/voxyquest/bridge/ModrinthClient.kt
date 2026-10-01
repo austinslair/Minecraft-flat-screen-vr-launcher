@@ -22,13 +22,17 @@ internal object ModrinthClient {
     private val projectId = Regex("[A-Za-z0-9]{8,16}")
     private val safeFilename = Regex("[A-Za-z0-9][A-Za-z0-9._+()\\[\\], -]{0,180}\\.jar", RegexOption.IGNORE_CASE)
     private const val SEARCH_CHECKS = 6
+    internal const val USER_AGENT = "VoxyQuest/0.6 (github.com/austinslair/Minecraft-flat-screen-vr-launcher)"
 
     fun search(query: String, gameVersion: String, sort: String, category: String, loader: String): JSONArray {
         require(query.length <= 80 && gameVersion.matches(Regex("[0-9.]+")))
         require(loader in setOf("fabric", "neoforge"))
         require(sort in setOf("relevance", "downloads", "follows", "newest", "updated"))
         require(category in setOf("all", "optimization", "utility", "adventure", "library", "decoration"))
-        val facets = JSONArray().put(JSONArray().put("project_type:mod"))
+        // Modpacks are found by name; browsing without a query stays a list of mods.
+        val types = JSONArray().put("project_type:mod")
+        if (query.isNotBlank()) types.put("project_type:modpack")
+        val facets = JSONArray().put(types)
             .put(JSONArray().put("categories:$loader"))
             .put(JSONArray().put("versions:$gameVersion"))
         if (category != "all") facets.put(JSONArray().put("categories:$category"))
@@ -48,7 +52,10 @@ internal object ModrinthClient {
         for ((index, hit) in candidates.withIndex()) {
             if (!installable[index]) continue
             val id = hit.getString("project_id")
-            results.put(JSONObject().put("id", id).put("title", hit.optString("title"))
+            val modpack = hit.optString("project_type") == "modpack"
+            results.put(JSONObject().put("id", id)
+                .put("title", hit.optString("title") + if (modpack) " (Modpack)" else "")
+                .put("type", if (modpack) "modpack" else "mod")
                 .put("description", hit.optString("description"))
                 .put("author", hit.optString("author"))
                 .put("icon_url", hit.optString("icon_url"))
@@ -204,7 +211,14 @@ internal object ModrinthClient {
         }
     }
 
-    private fun versionsUrl(id: String, loader: String, gameVersion: String) =
+    /** The project, when it is a modpack; null for a mod. */
+    fun modpack(project: String): JSONObject? {
+        require(projectId.matches(project)) { "Invalid Modrinth project." }
+        val info = JSONObject(read("$API/project/$project"))
+        return if (info.optString("project_type") == "modpack") info else null
+    }
+
+    internal fun versionsUrl(id: String, loader: String, gameVersion: String) =
         "$API/project/$id/version?loaders=%5B%22$loader%22%5D&game_versions=%5B%22$gameVersion%22%5D&include_changelog=false"
 
     private fun hasBuild(id: String, loader: String, gameVersion: String): Boolean =
@@ -219,12 +233,12 @@ internal object ModrinthClient {
         return name
     }
 
-    private fun read(url: String): String {
+    internal fun read(url: String): String {
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 12000
         connection.readTimeout = 15000
         connection.instanceFollowRedirects = false
-        connection.setRequestProperty("User-Agent", "VoxyQuest/0.6 (github.com/austinslair/Minecraft-flat-screen-vr-launcher)")
+        connection.setRequestProperty("User-Agent", USER_AGENT)
         try {
             check(connection.responseCode == 200) { "Modrinth request failed (${connection.responseCode})." }
             connection.inputStream.use { stream ->

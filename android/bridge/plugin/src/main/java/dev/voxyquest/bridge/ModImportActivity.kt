@@ -9,9 +9,12 @@ import android.widget.TextView
 
 /** User-granted document access; no broad storage permission is required. */
 class ModImportActivity : Activity() {
+    private lateinit var status: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(TextView(this).apply { text = "Choose a Fabric mod JAR…"; textSize = 22f })
+        status = TextView(this).apply { text = "Choose a Fabric mod JAR…"; textSize = 22f }
+        setContentView(status)
         if (savedInstanceState == null) {
             try {
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -36,16 +39,20 @@ class ModImportActivity : Activity() {
                     if (it.moveToFirst()) filename = it.getString(0)
                 }
                 contentResolver.openInputStream(uri)?.use {
-                    LauncherOperations.importMod(instance, filename, it)
+                    if (filename.endsWith(".mrpack", true)) {
+                        LauncherOperations.importModpack(this, it) { step -> runOnUiThread { status.text = step } }
+                    } else {
+                        LauncherOperations.importMod(instance, filename, it)
+                    }
                 } ?: "Could not open that file."
-            }.getOrDefault("Could not import the mod. Check the file and free space.")
+            }.getOrDefault("Could not import the file. Check the file and free space.")
             runOnUiThread { showResult(message) }
         }, "VoxyQuest-ModImport").start()
     }
 
     private fun showResult(message: String) {
         if (isFinishing || isDestroyed) return
-        AlertDialog.Builder(this).setTitle("Add mod").setMessage(message)
+        AlertDialog.Builder(this).setTitle(if (message.contains("modpack")) "Add modpack" else "Add mod").setMessage(message)
             .setCancelable(false).setPositiveButton("Done") { _, _ -> finish() }.show()
     }
 }
