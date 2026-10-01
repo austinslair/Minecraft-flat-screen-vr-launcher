@@ -124,7 +124,9 @@ public class JREUtils {
             public void run() {
                 try {
                     if (logcatPb == null) {
-                        logcatPb = new ProcessBuilder().command("logcat", "-v", "brief", "-s", "jrelog:I", "LIBGL:I").redirectErrorStream(true);
+                        // VrApi is the Quest runtime's once-a-second line: FPS, app GPU time,
+                        // CPU/GPU utilisation and clock levels, so a log shows what limits frames.
+                        logcatPb = new ProcessBuilder().command("logcat", "-v", "brief", "-s", "jrelog:I", "LIBGL:I", "VrApi:I").redirectErrorStream(true);
                     }
                             Log.i("jrelog-logcat","Clearing logcat");
                     new ProcessBuilder().command("logcat", "-c").redirectErrorStream(true).start();
