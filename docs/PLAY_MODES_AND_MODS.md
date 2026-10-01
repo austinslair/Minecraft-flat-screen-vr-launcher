@@ -129,6 +129,14 @@ Any of these flags that an older Java runtime does not recognise is ignored. Cla
 Sharing would help too, but the bundled Java 22 runtime ships without the base archive it needs.
 The launch log timestamps each stage, so Settings → Export log shows where the time goes.
 
+## Desktop mirror
+
+VR launches turn Vivecraft's desktop mirror off, since the Quest has no desktop to show it on.
+Vivecraft still posted a "Mirror is OFF" notice every frame, and drawing it cleared the whole
+window-sized target (2960x1440 on Quest 3, colour and depth) and drew text into it, using memory
+bandwidth the eye images need on every frame. VR launches remove that notice; the other mirror
+modes are unchanged.
+
 ## Lens-hidden area
 
 The Quest's lenses hide the corners of each eye image, but Vivecraft's OpenXR renderer never

@@ -205,6 +205,12 @@ open class MinecraftGameActivity : Activity() {
                     } catch (e: java.io.IOException) {
                         Logger.getInstance().appendToLog("VoxyQuest launch: Vivecraft stencil fix skipped: ${e.message}")
                     }
+                    try {
+                        if (pojlib.util.VivecraftMirrorFix.apply(gameDir)) Logger.getInstance()
+                            .appendToLog("VoxyQuest launch: Vivecraft no longer redraws the hidden desktop mirror")
+                    } catch (e: java.io.IOException) {
+                        Logger.getInstance().appendToLog("VoxyQuest launch: Vivecraft mirror fix skipped: ${e.message}")
+                    }
                 }
                 if (instance.loaderId() != "neoforge" ||
                     VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {
