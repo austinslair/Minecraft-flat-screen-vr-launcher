@@ -359,6 +359,9 @@ public class JREUtils {
                 "-Dext.net.resolvPath=" + resolv,
                 "-Xmx" + heapMb + "M",
                 "-XX:+UseSerialGC",
+                // ImplicitNullChecks is a diagnostic option: without the unlock first the JVM
+                // refuses to start ("VM option 'ImplicitNullChecks' is diagnostic").
+                "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:-ImplicitNullChecks",
                 "-XX:+UseSignalChaining"));
         args.addAll(toolArgs);
