@@ -1,6 +1,7 @@
 extends SceneTree
 
 class FakeRuntime extends RefCounted:
+	var renderer := "mobileglues"
 	var snapshot := {"available": true, "instances": [], "error": ""}
 	var auth := {"configured": true, "state": "idle", "signed_in": false, "device_code": "", "profile_name": ""}
 	var renamed := false
@@ -11,23 +12,45 @@ class FakeRuntime extends RefCounted:
 	var install_state := "idle"
 	var accept_install := true
 	var install_calls := 0
+	var microphone_allowed := false
 	var searched := ""
+	var last_sort := ""
+	var last_category := ""
 	var modrinth_installed := ""
+	var mod_changed := ""
+	var mod_removed := ""
+	var log_exported := false
 	func is_available() -> bool:
 		return true
 	func initialize() -> bool:
 		return true
 	func get_info() -> Dictionary:
 		return {"available": true, "engine": "Godot", "bridge_version": "test", "pojlib": "godot_host_ready"}
+	func get_latest_log_info() -> Dictionary:
+		return {"available": true, "name": "previouslog.txt", "bytes": 4096}
+	func export_latest_log() -> bool:
+		log_exported = true
+		return true
+	func get_microphone_permission_state() -> String:
+		return "granted" if microphone_allowed else "denied"
+	func request_microphone_access() -> bool:
+		microphone_allowed = true
+		return true
+	func open_microphone_app_settings() -> bool:
+		return true
 	func get_instance_snapshot() -> Dictionary:
 		return snapshot
 	func get_install_versions() -> Array:
 		return ["test"]
+	func get_neoforge_versions() -> Array:
+		return ["1.21.5", "1.21.4", "1.21.1"]
+	func get_neoforge_vr_versions() -> Array:
+		return ["1.21.5", "1.21.4", "1.21.1"]
 	func get_install_snapshot() -> Dictionary:
 		return {"state": install_state, "message": "", "installed_name": ""}
-	func install_instance(_name: String, _version: String) -> bool:
+	func install_instance(_name: String, _version: String, _loader: String = "fabric") -> bool:
 		install_calls += 1
-		install_args = [_name, _version]
+		install_args = [_name, _version] if _loader == "fabric" else [_name, _version, _loader]
 		return accept_install
 	func rename_instance(old_name: String, new_name: String) -> bool:
 		for item in snapshot.instances:
@@ -44,11 +67,20 @@ class FakeRuntime extends RefCounted:
 				return true
 		return false
 	func get_instance_mods(_name: String) -> Dictionary:
-		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "error": ""}
+		return {"available": true, "mods": ["Vivecraft.jar", "example.jar"], "profiles": [
+			{"enabled": true, "title": "Vivecraft"}, {"enabled": true, "title": "Example"}], "error": ""}
+	func set_mod_enabled(_name: String, filename: String, enabled: bool) -> String:
+		mod_changed = "%s:%s" % [filename, str(enabled)]
+		return "Changed"
+	func remove_mod(_name: String, filename: String) -> String:
+		mod_removed = filename
+		return "Removed"
 	func get_modrinth_snapshot() -> Dictionary:
-		return {"search_state": "ready", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
-	func search_modrinth_mods(_name: String, query: String) -> bool:
+		return {"search_state": "ready", "search_instance": "My saved world", "search_message": "", "results": [{"id": "AANobbMI", "title": "Sodium", "description": "Rendering optimization"}], "install_state": "idle", "install_message": ""}
+	func search_modrinth_mods(_name: String, query: String, sort := "relevance", category := "all") -> bool:
 		searched = query
+		last_sort = sort
+		last_category = category
 		return true
 	func install_modrinth_mod(_name: String, project: String) -> bool:
 		modrinth_installed = project
@@ -71,11 +103,22 @@ class FakeRuntime extends RefCounted:
 	func add_instance_mod(name: String) -> bool:
 		imported = name
 		return true
+	func get_renderer() -> String:
+		return renderer
+	func set_renderer(renderer_id: String) -> bool:
+		renderer = renderer_id
+		return true
 
 class CatalogPlugin extends RefCounted:
 	var response := "[]"
+	var neoforge_response := "[]"
+	var neoforge_vr_response := "[]"
 	func getInstallVersionsJson() -> String:
 		return response
+	func getNeoForgeVersionsJson() -> String:
+		return neoforge_response
+	func getNeoForgeVrVersionsJson() -> String:
+		return neoforge_vr_response
 
 func _initialize() -> void:
 	call_deferred("run_checks")
@@ -94,6 +137,10 @@ func run_checks() -> void:
 	assert(not bridge.get_install_versions().is_empty())
 	catalog.response = '["1.20.1"]'
 	assert(bridge.get_install_versions() == ["1.20.1"])
+	catalog.neoforge_response = '["1.21.5", "1.21.4", "1.21.1"]'
+	catalog.neoforge_vr_response = '["1.21.5", "1.21.4", "1.21.1"]'
+	assert(bridge.get_neoforge_versions().size() == 3)
+	assert(bridge.get_neoforge_vr_versions().has("1.21.4"))
 	var ui = load("res://scenes/main.tscn").instantiate()
 	root.add_child(ui)
 	await process_frame
@@ -103,18 +150,17 @@ func run_checks() -> void:
 	assert(ui.get_node_or_null("NewsCard0") == null)
 	assert(ui.get_node_or_null("Version") == null)
 	assert(ui.get_node("Home").get_theme_stylebox("normal").bg_color.a > 0)
-	assert(ui.get_node("HomeActions").visible)
-	assert(ui.get_node("HomeActions").get_child_count() == 2)
+	assert(ui.get_node("Home").position.y < 170)
+	assert(ui.get_node("Instances").position.x > ui.get_node("Home").position.x)
+	assert(ui.get_node("LibraryHome").visible)
 	assert(ui.get_node("AccountTitle").clip_text)
 	ui._open_section("Instances")
-	assert(not ui.get_node("HomeActions").visible)
-	assert(ui.workspace_title.visible)
 	assert(ui.install_version.item_count > 0)
 	assert(ui.install_submit.disabled)
 	assert(ui.instance_empty_hint.text.contains("Android runtime"))
 	assert(ui.instance_list.visible)
 	ui._open_section("Home")
-	assert(ui.get_node("HomeActions").visible)
+	assert(ui.get_node("LibraryHome").visible)
 
 	var fake := FakeRuntime.new()
 	ui.runtime = fake
@@ -132,6 +178,13 @@ func run_checks() -> void:
 	assert(ui.get_node("InstanceEmpty").text == "No instances installed")
 
 	fake.snapshot.instances = [{"name": "My saved world", "version": "test", "installed": true}]
+	ui._refresh_instances()
+	assert(ui.library_grid.find_children("*", "Button", true, false).size() >= 1)
+	await process_frame
+	assert(ui.library_grid.get_child(0).get_child(0).size.y < 50)
+	ui._select_library_instance("My saved world")
+	assert(ui.library_launch_button.disabled)
+	ui.selected_name = ""
 	ui._refresh_instances()
 	assert(ui.get_node("QuickEmpty").text == "No version selected")
 	assert(ui.get_node("Play").disabled)
@@ -158,6 +211,21 @@ func run_checks() -> void:
 	assert(fake.install_calls == previous_calls + 1)
 	assert(fake.install_args == ["Minecraft test", "test"])
 	assert(ui.install_submit.action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS)
+	ui.install_loader.select(1)
+	ui._on_install_loader_selected(1)
+	assert(ui.install_version.item_count == 3)
+	assert(ui.install_version.get_item_text(0) == "1.21.5")
+	assert(ui.install_version.get_item_text(1) == "1.21.4")
+	assert(ui.install_version.get_item_text(2) == "1.21.1")
+	ui.install_name.text = "NeoForge test"
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["NeoForge test", "1.21.5", "neoforge"])
+	ui.install_version.select(1)
+	ui.install_name.text = "NeoForge 1.21.4 test"
+	ui.install_submit.pressed.emit()
+	assert(fake.install_args == ["NeoForge 1.21.4 test", "1.21.4", "neoforge"])
+	ui.install_loader.select(0)
+	ui._on_install_loader_selected(0)
 
 
 	await process_frame
@@ -205,19 +273,41 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Mods"))
 	assert(ui.current_section == "Mods")
+	await process_frame
+	assert(ui.modrinth_sort.size.y < 65)
+	assert(ui.modrinth_category.size.y < 65)
+	assert(not ui.get_node("HomeTools").visible)
 	assert(ui.mods_list.get_item_count() == 2)
-	assert(ui.modrinth_results.get_item_count() == 1)
-	ui.modrinth_search.text = "sodium"
-	ui._search_modrinth()
-	assert(fake.searched == "sodium")
-	ui._poll_modrinth()
-	ui.modrinth_results.select(0)
-	ui._update_modrinth_install_button()
-	assert(not ui.modrinth_install_button.disabled)
-	ui._install_modrinth()
-	assert(fake.modrinth_installed == "AANobbMI")
+	assert(ui.mods_list.get_item_icon(0) != null)
+	ui.mods_list.select(1)
+	ui._on_installed_mod_selected(1)
+	assert(ui.mod_toggle_button.disabled and ui.mod_remove_button.disabled)
+	ui.mods_list.select(0)
+	ui._on_installed_mod_selected(0)
+	assert(not ui.mod_toggle_button.disabled and not ui.mod_remove_button.disabled)
+	ui._toggle_selected_mod()
+	assert(fake.mod_changed == "example.jar:false")
+	ui.mods_list.select(0)
+	ui._request_remove_mod()
+	ui._confirm_remove_mod()
+	assert(fake.mod_removed == "example.jar")
 	ui._add_mod()
 	assert(fake.imported == ui.selected_name)
+	ui.modrinth_search.text = "Sodium"
+	ui.modrinth_sort.select(1)
+	ui.modrinth_category.select(1)
+	ui._search_modrinth()
+	assert(fake.searched == "Sodium")
+	assert(fake.last_sort == "downloads" and fake.last_category == "optimization")
+	ui._poll_modrinth()
+	assert(ui.modrinth_results.get_child_count() == 1)
+	assert((ui.modrinth_results.get_child(0) as Button).icon != null)
+	ui._select_modrinth_result(0)
+	assert(not ui.modrinth_project_button.disabled)
+	assert(ui.modrinth_details.text.contains("Rendering optimization"))
+	ui._update_modrinth_install_button()
+	ui._install_modrinth()
+	assert(fake.modrinth_installed == "AANobbMI")
 
 	for section in ["Home", "Instances", "Mods", "Accounts", "Settings"]:
 		ui._open_section(section)
@@ -227,7 +317,7 @@ func run_checks() -> void:
 		assert(ui.get_node("PlayMode").is_visible_in_tree())
 		assert(ui.get_node("Play").get_global_rect().position.y >= ui.workspace.get_global_rect().end.y)
 		assert(ui.workspace_body.size.x <= ui.workspace.size.x)
-		assert(ui.get_node("PageTitle").text == section)
+		assert(ui.get_node("PageTitle").text == ("Overview" if section == "Home" else section))
 	ui.get_node("PlayMode").item_selected.emit(1)
 	assert(ui.play_mode == "flat")
 	ui.get_node("PlayMode").item_selected.emit(0)
@@ -238,7 +328,24 @@ func run_checks() -> void:
 
 	ui._navigate(ui.get_node("Settings"))
 	assert(ui.current_section == "Settings")
-	assert(ui.workspace_title.text == "Preferences & status")
+	assert(ui.workspace_title.text == "Settings")
+	var renderer_picker: OptionButton = ui.find_child("RendererPicker", true, false)
+	assert(renderer_picker != null and renderer_picker.selected == 0)
+	renderer_picker.item_selected.emit(1)
+	assert(fake.renderer == "ltw")
+	assert(ui.renderer_status.text.contains("LightThinWrapper"))
+	ui._render_settings_page()
+	assert(ui.find_child("RendererPicker", true, false).selected == 1)
+	fake.renderer = "mobileglues"
+	assert(not ui.settings_log_export_button.disabled)
+	ui.settings_log_export_button.pressed.emit()
+	assert(fake.log_exported)
+	assert(ui.settings_log_status.text.contains("Downloads"))
+	assert(ui.microphone_status.text.contains("off"))
+	ui.microphone_grant_button.pressed.emit()
+	ui._refresh_microphone_status()
+	assert(ui.microphone_status.text.contains("allowed"))
+	assert(ui.microphone_grant_button.disabled)
 
 	ui._navigate(ui.get_node("Home"))
 	assert(ui.current_section == "Home")

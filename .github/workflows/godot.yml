@@ -2,7 +2,7 @@ name: Godot Android smoke test
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/vr-refresh-rate]
   pull_request:
   workflow_dispatch:
 
@@ -16,7 +16,24 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # Quest OpenXR Vivecraft sources for the bundled NeoForge builds. These and
+      # scripts/prepare_neoforge_bundles.sh are the only inputs of the NeoForge bundle
+      # cache, so unrelated workflow edits no longer force a full rebuild.
+      VIVECRAFT_REF_1_21_8: e2721516060a053fd78617f6cc3e1bd68bb16e0c
+      VIVECRAFT_REF_1_21_5: 612a11ca6a30791cae34d410328bc75d08246970
+      VIVECRAFT_REF_1_21_4: 60ffc92889fed3d1a92127b1b66516dd2354bbeb
+      VIVECRAFT_REF_1_21_1: 29599bbd50aa61d9408c5bc80299e1a7a406d7c4
+      # Sources of the Android builds of mod natives that ship only for desktop Linux.
+      ZSTD_JNI_REF: v1.5.7-12
+      # Must match SableNativeFix.SUPPORTED_VERSION.
+      SABLE_REF: mc1.21.1-2.0.5-neoforge
+      VOXYQUEST_NATIVE_CACHE: ${{ github.workspace }}/.voxyquest-native-cache
+      CCACHE_DIR: ${{ github.workspace }}/.voxyquest-native-cache/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 1G
     steps:
       - uses: actions/checkout@v6
 
@@ -39,21 +56,213 @@ jobs:
             "build-tools;35.0.1" \
             "build-tools;36.0.0" \
             "cmake;3.10.2.4988404" \
+            "cmake;3.22.1" \
             "ndk;26.1.10909125" \
             "ndk;28.1.13356709"
 
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.14.3"
+          # The default only saves on main, so every branch build re-downloaded ~1 GB of
+          # dependencies and the NeoForge toolchains. Let branch builds save too.
+          cache-read-only: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Processed Minecraft/NeoForge clients and Vivecraft only change when the
+      # preparation recipe changes. Reusing them avoids three installer runs and
+      # a Vivecraft remap on every launcher or Android source edit.
+      - name: Restore prepared NeoForge bundles
+        id: neoforge-bundles
+        uses: actions/cache/restore@v4
+        with:
+          path: third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          key: neoforge-bundles-${{ runner.os }}-${{ env.VIVECRAFT_REF_1_21_8 }}-${{ env.VIVECRAFT_REF_1_21_5 }}-${{ env.VIVECRAFT_REF_1_21_4 }}-${{ env.VIVECRAFT_REF_1_21_1 }}-${{ hashFiles('scripts/prepare_neoforge_bundles.sh') }}
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: ${{ env.VIVECRAFT_REF_1_21_5 }}
+          path: quest-vivecraft-openxr
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: ${{ env.VIVECRAFT_REF_1_21_8 }}
+          path: quest-vivecraft-openxr-1.21.8
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: ${{ env.VIVECRAFT_REF_1_21_4 }}
+          path: quest-vivecraft-openxr-1.21.4
+
+      - uses: actions/checkout@v6
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        with:
+          repository: QuestCraftPlusPlus/VivecraftMod
+          ref: ${{ env.VIVECRAFT_REF_1_21_1 }}
+          path: quest-vivecraft-openxr-1.21.1
+
+      - name: Prepare NeoForge VR runtime
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        run: bash scripts/prepare_neoforge_bundles.sh
+
+      - name: Verify prepared NeoForge bundles
+        run: |
+          ASSETS=third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          for version in 1.21.8 1.21.5 1.21.4 1.21.1; do
+            DIR="$ASSETS/$version"
+            if [ "$version" = 1.21.5 ]; then DIR="$ASSETS"; fi
+            # The processed Minecraft client is built on the headset by NeoForge's installer.
+            test -s "$DIR/version.json"
+            test -s "$DIR/vivecraft.jar"
+            for file in client.jar universal.jar minecraft-srg.jar minecraft-extra.jar; do
+              test ! -e "$DIR/$file"
+            done
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib, zipfile
+          root = Path('third_party/Pojlib/src/main/assets/voxyquest/neoforge')
+          for version in ('1.21.8', '1.21.5', '1.21.4', '1.21.1'):
+              jar = root / ('' if version == '1.21.5' else version) / 'vivecraft.jar'
+              with zipfile.ZipFile(jar) as archive:
+                  metadata = tomllib.loads(archive.read('META-INF/neoforge.mods.toml').decode())
+                  assert any(mod['modId'] == 'vivecraft' for mod in metadata['mods']), jar
+                  dependencies = metadata['dependencies']['vivecraft']
+                  expected_range = {'1.21.1': '[1.21,1.21.1]', '1.21.8': '[1.21.7,1.21.8]'}.get(version, f'[{version}]')
+                  assert any(dep['modId'] == 'minecraft' and dep['versionRange'] == expected_range
+                             for dep in dependencies), jar
+                  assert 'org/vivecraft/client_vr/provider/openxr/MCOpenXR.class' in archive.namelist(), jar
+          PY
+
+      - name: Cache prepared NeoForge bundles
+        if: steps.neoforge-bundles.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: third_party/Pojlib/src/main/assets/voxyquest/neoforge
+          key: ${{ steps.neoforge-bundles.outputs.cache-primary-key }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install native build cache tool
+        run: |
+          sudo apt-get install -y -qq ccache >/dev/null || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq ccache >/dev/null
+          }
+          mkdir -p "$VOXYQUEST_NATIVE_CACHE/thinlto" "$CCACHE_DIR"
+
+      # Compiled MobileGlues objects and ThinLTO results. A new key is saved every run and
+      # the newest earlier one is restored, so an unchanged renderer rebuilds in seconds.
+      - name: Cache native renderer build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VOXYQUEST_NATIVE_CACHE }}
+          key: native-renderer-${{ runner.os }}-${{ github.sha }}
+          restore-keys: native-renderer-${{ runner.os }}-
+
+      # Distant Horizons' zstd and Create's Sable physics ship natives only for desktop
+      # Linux. Cached on their sources and build scripts; the Rust build is slow cold.
+      - name: Restore Android mod natives
+        id: mod-natives
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libzstd_jni_voxyquest.so
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libsable_rapier.so
+          key: mod-natives-${{ runner.os }}-${{ env.ZSTD_JNI_REF }}-${{ env.SABLE_REF }}-${{ hashFiles('scripts/build_zstd_jni_android.sh', 'scripts/build_sable_rapier_android.sh') }}
+
+      - uses: actions/checkout@v6
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        with:
+          repository: luben/zstd-jni
+          ref: ${{ env.ZSTD_JNI_REF }}
+          path: zstd-jni-src
+
+      - uses: actions/checkout@v6
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        with:
+          repository: ryanhcode/sable
+          ref: ${{ env.SABLE_REF }}
+          path: sable-src
+
+      - name: Build Android mod natives
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        run: |
+          export ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/28.1.13356709
+          LIBS=third_party/Pojlib/src/main/jniLibs/arm64-v8a
+          bash scripts/build_zstd_jni_android.sh zstd-jni-src "$LIBS/libzstd_jni_voxyquest.so"
+          bash scripts/build_sable_rapier_android.sh sable-src "$LIBS/libsable_rapier.so"
+          rm -rf zstd-jni-src sable-src
+
+      - name: Cache Android mod natives
+        if: steps.mod-natives.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libzstd_jni_voxyquest.so
+            third_party/Pojlib/src/main/jniLibs/arm64-v8a/libsable_rapier.so
+          key: ${{ steps.mod-natives.outputs.cache-primary-key }}
 
       - name: Build Godot + Pojlib Android runtime
-        run: gradle -p android/bridge :plugin:syncToGodot --no-daemon
+        run: |
+          bash scripts/rebuild_glfw_bridge.sh
+          python3 scripts/build_neoforge_glfw.py \
+            third_party/Pojlib/src/main/assets/lwjgl/lwjgl-glfw-classes.jar \
+            third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar \
+            third_party/Pojlib/src/main/assets/lwjgl/lwjgl-neoforge-classes.jar
+          export VOXYQUEST_VIVECRAFT_TEST_JAR="$RUNNER_TEMP/vivecraft-original.jar"
+          export VOXYQUEST_NEOFORGE_TEST_JAR="third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar"
+          export VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS="third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.4/vivecraft.jar:third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.1/vivecraft.jar"
+          curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          bash scripts/build_vivecraft_compat.sh "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          export VOXYQUEST_VIVECRAFT_PERF_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestXr.bin
+          bash scripts/build_simulated_vr_compat.sh "$RUNNER_TEMP/simulated-fakes"
+          # QuestCraft's prebuilt OpenAL, LTW and JNA still carry debug symbols (OpenAL: 16 MB).
+          /usr/local/lib/android/sdk/ndk/28.1.13356709/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \
+            --strip-unneeded third_party/Pojlib/src/main/jniLibs/arm64-v8a/{libopenal,libltw,libjnidispatch}.so
+          gradle -p android/bridge :plugin:syncToGodot --no-daemon
+          ccache --show-stats | grep -E 'Hits|Misses' || true
+          mkdir -p "$RUNNER_TEMP/refresh-tests"
+          curl -fsSL https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar -o "$RUNNER_TEMP/refresh-tests/asm.jar"
+          curl -fsSL https://repo.maven.apache.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar -o "$RUNNER_TEMP/refresh-tests/junit.jar"
+          curl -fsSL https://repo.maven.apache.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar -o "$RUNNER_TEMP/refresh-tests/hamcrest.jar"
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/VivecraftRefreshRateFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftRefreshRateFixTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftStencilFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftStencilFixTest.java
+          VOXYQUEST_VIVECRAFT_STENCIL_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestStencil.bin \
+            java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftStencilFixTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/VivecraftMirrorFix.java third_party/Pojlib/src/test/java/pojlib/util/VivecraftMirrorFixTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftMirrorFixTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ClasspathUtils.java third_party/Pojlib/src/test/java/pojlib/util/ClasspathUtilsTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.ClasspathUtilsTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
+          java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.SableNativeFixTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SimulatedVrFix.java third_party/Pojlib/src/test/java/pojlib/util/SimulatedVrFixTest.java
+          VOXYQUEST_SIMULATED_FAKES="$RUNNER_TEMP/simulated-fakes" VOXYQUEST_SIMULATED_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestVrHold.bin \
+            java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.SimulatedVrFixTest
 
       - name: Verify launcher and account runtime
         run: |
           test -f launcher/addons/VoxyQuestBridge/bin/debug/VoxyQuestBridge-debug.aar
           test -f launcher/addons/VoxyQuestBridge/bin/release/VoxyQuestBridge-release.aar
           test -f launcher/addons/VoxyQuestBridge/bin/debug/PojlibRuntime-debug.aar
+          for lib in libzstd_jni_voxyquest.so libsable_rapier.so; do
+            unzip -Z1 launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar | grep -Fx "jni/arm64-v8a/$lib"
+          done
+          test -f launcher/addons/VoxyQuestBridge/bin/debug/MobileGlues-debug.aar
+          test -f launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar
+          unzip -l launcher/addons/VoxyQuestBridge/bin/release/MobileGlues-release.aar | grep -q 'jni/arm64-v8a/libmobileglues.so'
           test -f launcher/addons/VoxyQuestBridge/bin/release/PojlibRuntime-release.aar
           test -f third_party/Pojlib/src/main/java/pojlib/PojlibRuntime.java
           test -f third_party/Pojlib/src/main/java/pojlib/account/LoginHelper.java
@@ -143,12 +352,32 @@ jobs:
           GODOT="$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64"
           "$GODOT" --headless --path launcher --install-android-build-template --export-debug "Meta Quest" build/VoxyQuest-ci.apk
           test -s launcher/build/VoxyQuest-ci.apk
+          python3 scripts/verify_native_apk.py launcher/build/VoxyQuest-ci.apk
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print launcher/build/VoxyQuest-ci.apk > "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'android:extractNativeLibs="true"' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'android.permission.RECORD_AUDIO' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/version.json'
+          for helper in VoxyQuestXr VoxyQuestStencil VoxyQuestSodium VoxyQuestVrHold; do
+            unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/compat/$helper.bin"
+          done
+          # The flatscreen input queue needs the pump calls in the packaged GLFW class.
+          unzip -p third_party/Pojlib/src/main/assets/lwjgl/lwjgl-glfw-classes.jar 'org/lwjgl/glfw/GLFW$Functions.class' | grep -a pojavStartPumping > /dev/null
+          for version in 1.21.8 1.21.4 1.21.1; do
+            for asset in version.json vivecraft.jar; do
+              unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/neoforge/$version/$asset"
+            done
+          done
+          ! unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -E 'assets/voxyquest/neoforge/(.*/)?(minecraft-srg|minecraft-extra|client|universal)\.jar$'
+          # Report what the APK spends its size on.
+          unzip -lv launcher/build/VoxyQuest-ci.apk | sort -k3 -n -r | head -25
+          ls -la launcher/build/VoxyQuest-ci.apk
+          unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/lwjgl/lwjgl-neoforge-classes.jar'
 
       - name: Verify complete update APK
         run: |
           APK=launcher/build/VoxyQuest-ci.apk
           BUILD_TOOLS=/usr/local/lib/android/sdk/build-tools/35.0.1
-          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='7'"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='dev.voxyquest.launcher' versionCode='24'"
           "$BUILD_TOOLS/apksigner" verify --verbose "$APK"
           SIGNER_SHA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           KEYSTORE_SHA=$(keytool -list -v -keystore "$RUNNER_TEMP/voxyquest-alpha.keystore" -storepass android -alias voxyquestalpha | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
@@ -159,6 +388,8 @@ jobs:
           grep -Fq 'Ldev/voxyquest/bridge/LauncherOperations;' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
           grep -Fq 'Ldev/voxyquest/bridge/ModrinthClient;' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
           grep -Fq 'installInstance' "$RUNNER_TEMP/voxyquest-dex-strings.txt"
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libmobileglues.so'
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libltw.so'
 
       - name: Upload Quest debug APK
         uses: actions/upload-artifact@v4
@@ -168,29 +399,52 @@ jobs:
           if-no-files-found: error
 
       - name: Publish VoxyQuest GitHub release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish VoxyQuest APK release v0.1.0-alpha.7'
+        # A pull request merged with this commit title publishes the release.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'Publish VoxyQuest APK release v0.1.0-alpha.24')
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v0.1.0-alpha.7
+          TAG: v0.1.0-alpha.24
         run: |
           cp launcher/build/VoxyQuest-ci.apk launcher/build/VoxyQuest-Quest.apk
           cd launcher/build
           sha256sum VoxyQuest-Quest.apk > VoxyQuest-Quest.apk.sha256
           cat > release-notes.md <<EOF
-          VoxyQuest alpha.7 update for Meta Quest.
+          VoxyQuest alpha.24 test build for Meta Quest.
 
-          This APK contains the instance installer, Fabric/Vivecraft runtime, Modrinth mod browser, and flat screen controls. It is signed with the same alpha key and has Android version code 7, so it can update alpha.5 or the earlier CI build without removing the installed app.
+          **Minecraft versions**
+          - Fabric: 1.21.11, 1.21.10, 1.21.8, 1.21.5, 1.21.4 and 1.21.1, plus 1.20.6 to 1.19.2.
+          - NeoForge: 1.21.8, 1.21.5, 1.21.4 and 1.21.1 (21.1.228 for Create 6). NeoForge is now set up on the headset with its official installer instead of shipping in the APK.
+
+          **Mods and modpacks**
+          - Modrinth modpacks: search for a pack by name on the Mods page, or pick a .mrpack with Add mod. Each pack becomes its own instance with the Quest Vivecraft build.
+          - Missing required mods are downloaded before launch, duplicate copies are disabled, and installing a mod you already have updates it.
+          - Mods with Linux-only native libraries work on the headset: Distance Horizons (zstd) and Create Aeronautics / Sable physics.
+          - Create Aeronautics levers, throttles and wheels follow the VR controller.
+          - Vivecraft's VR arms use the right skin with Sodium 0.8.
+
+          **Performance (no mods, no settings changed)**
+          - Asks Horizon OS for sustained high CPU and GPU levels in VR.
+          - Skips shading the area of each eye the lenses hide.
+          - Stops redrawing the hidden desktop mirror every frame.
+          - Release-optimized MobileGlues renderer; Sodium gets two chunk builder threads when you add it.
+          - APK reduced from about 245 MB to about 80 MB.
+
+          **Fixes**
+          - Keyboard and mouse now work in flatscreen.
+          - Mods that failed to install from Modrinth now install, with unavailable dependencies listed.
+
+          The launch log (Settings, export log) now includes the Quest's per-second VrApi performance line.
 
           Built from commit: $GITHUB_SHA
 
-          This is a prerelease test build. The committed alpha signing key is for test builds only and must not be used for a production release.
+          This is a prerelease test build signed with the alpha test key (Android version code 24).
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 --clobber
             gh release edit "$TAG" --notes-file release-notes.md
           else
             gh release create "$TAG" VoxyQuest-Quest.apk VoxyQuest-Quest.apk.sha256 \
-              --title "VoxyQuest v0.1.0-alpha.7" \
+              --title "VoxyQuest v0.1.0-alpha.24" \
               --notes-file release-notes.md \
               --prerelease \
               --target "$GITHUB_SHA"

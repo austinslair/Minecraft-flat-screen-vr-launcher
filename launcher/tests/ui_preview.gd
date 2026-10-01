@@ -21,13 +21,18 @@ func capture() -> void:
 		await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(output.path_join(section.to_lower() + ".png"))
-	fake.snapshot.instances = [{"name": "Minecraft 1.20.1", "version": "1.20.1", "installed": true}]
+	fake.snapshot.instances = [{"name": "My saved world", "version": "1.20.1", "installed": true}]
 	ui._open_section("Instances")
 	ui._on_instance_selected(0)
 	await process_frame
 	await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(output.path_join("library.png"))
+	ui._open_section("Home")
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("dashboard.png"))
 	ui._open_section("Mods")
 	await process_frame
 	await process_frame

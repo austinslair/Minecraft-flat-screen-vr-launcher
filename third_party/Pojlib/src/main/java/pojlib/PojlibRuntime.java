@@ -76,6 +76,17 @@ public final class PojlibRuntime {
         return lwjgl.getAbsolutePath();
     }
 
+    public static String installNeoForgeLWJGL(Activity activity) throws IOException {
+        ensureInitialized(activity);
+        File lwjgl = new File(Constants.USER_HOME + "/lwjgl3/neoforge/lwjgl-glfw-classes.jar");
+        byte[] asset = FileUtil.loadFromAssetToByte(activity, "lwjgl/lwjgl-neoforge-classes.jar");
+        if (!lwjgl.exists() || !FileUtil.matchingAssetFile(lwjgl, asset)) {
+            Objects.requireNonNull(lwjgl.getParentFile()).mkdirs();
+            FileUtil.write(lwjgl.getAbsolutePath(), asset);
+        }
+        return lwjgl.getAbsolutePath();
+    }
+
     public static void restartSession(Activity activity) {
         activity.runOnUiThread(() -> {
             Intent start = activity.getPackageManager().getLaunchIntentForPackage(activity.getApplicationInfo().packageName);

@@ -45,7 +45,7 @@ public class API {
     public static MinecraftInstances.Instance currentInstance;
     private static boolean hasWifi;
     public static boolean advancedDebugger;
-    public static boolean gameReady = false;
+    public static volatile boolean gameReady = false;
 
 
     /**

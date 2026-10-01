@@ -19,3 +19,5 @@ dependencyResolutionManagement {
 rootProject.name = "VoxyQuestBridge"
 include(":plugin", ":pojlib")
 project(":pojlib").projectDir = file("../../third_party/Pojlib")
+include(":mobileglues")
+project(":mobileglues").projectDir = file("../../flat_screen/renderer/TGS-Renderer-Quest-0.11-source")

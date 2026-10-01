@@ -31,6 +31,50 @@ import pojlib.util.json.ProjectInfo;
 public final class VoxyQuestInstaller {
     private VoxyQuestInstaller() {}
 
+    public static void ensureLaunchRuntime(Activity activity, MinecraftInstances.Instance instance) throws IOException {
+        if ("neoforge".equals(instance.loaderId())) {
+            if (NeoForgeInstaller.needsLoaderUpgrade(activity, instance)) upgradeNeoForge(activity, instance);
+            NeoForgeInstaller.ensureSystemJars(activity, instance.versionName);
+            NeoForgeInstaller.useNeoForgeGlfw(activity, instance);
+        }
+    }
+
+    /** Repairs an instance onto the bundled NeoForge build, keeping worlds, mods and configs. */
+    private static void upgradeNeoForge(Activity activity, MinecraftInstances.Instance instance) throws IOException {
+        pojlib.util.Logger.getInstance().appendToLog(
+                "VoxyQuest launch: upgrading " + instance.instanceName + " to the bundled NeoForge");
+        try {
+            NeoForgeInstaller.prepareAndDownload(activity, instance, instance.instanceName, instance.versionName,
+                    new File(instance.gameDir).getName(),
+                    message -> pojlib.util.Logger.getInstance().appendToLog("VoxyQuest launch: " + message));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("NeoForge upgrade failed", e);
+        }
+        MinecraftInstances registry = readRegistry();
+        MinecraftInstances.Instance[] saved = registry.instances;
+        for (int i = 0; i < saved.length; i++)
+            if (instance.instanceName.equals(saved[i].instanceName)) saved[i] = instance;
+        saveRegistry(registry);
+    }
+
+    public static String[] neoForgeVersions() {
+        return NeoForgeInstaller.versions();
+    }
+
+    public static boolean supportsNeoForgeVr(String version) {
+        return NeoForgeInstaller.supportsVr(version);
+    }
+
+    public static String[] neoForgeVrVersions() {
+        return NeoForgeInstaller.vrVersions();
+    }
+
+    public static String neoForgeVivecraftAsset(String version) {
+        return NeoForgeInstaller.vivecraftAsset(version);
+    }
+
     public static ModsJson catalog(Activity activity) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(
                 activity.getAssets().open("voxyquest/runtime_mods.json"), StandardCharsets.UTF_8)) {
@@ -61,6 +105,13 @@ public final class VoxyQuestInstaller {
 
     public static synchronized MinecraftInstances.Instance install(Activity activity, String name,
             String version, Consumer<String> progress) throws Exception {
+        return install(activity, name, version, "fabric", progress);
+    }
+
+    public static synchronized MinecraftInstances.Instance install(Activity activity, String name,
+            String version, String loader, Consumer<String> progress) throws Exception {
+        if (!"fabric".equals(loader) && !"neoforge".equals(loader))
+            throw new IOException("Unsupported mod loader");
         PojlibRuntime.ensureInitialized(activity);
         String cleanName = name == null ? "" : name.trim();
         String directory = directoryName(cleanName);
@@ -76,22 +127,27 @@ public final class VoxyQuestInstaller {
             }
         }
 
-        ModsJson.Version selected = findCatalogVersion(activity, version);
+        ModsJson.Version selected = "fabric".equals(loader) ? findCatalogVersion(activity, version) : null;
+        if ("neoforge".equals(loader) && !Arrays.asList(NeoForgeInstaller.versions()).contains(version))
+            throw new IOException("Unsupported NeoForge Minecraft version: " + version);
 
         if (existing != null) {
+            if (!loader.equals(existing.loaderId())) throw new IOException("Instance uses a different mod loader");
             if (existing.versionName != null && !existing.versionName.isEmpty()
                     && !version.equals(existing.versionName)) {
                 throw new IOException("Incomplete instance uses a different Minecraft version");
             }
             progress.accept("Repairing incomplete instance…");
-            prepareAndDownload(activity, existing, cleanName, version, directory, selected, progress);
+            if ("neoforge".equals(loader)) NeoForgeInstaller.prepareAndDownload(activity, existing, cleanName, version, directory, progress);
+            else prepareAndDownload(activity, existing, cleanName, version, directory, selected, progress);
             progress.accept("Saving repaired instance…");
             saveRegistry(registry);
             return existing;
         }
 
         MinecraftInstances.Instance instance = new MinecraftInstances.Instance();
-        prepareAndDownload(activity, instance, cleanName, version, directory, selected, progress);
+        if ("neoforge".equals(loader)) NeoForgeInstaller.prepareAndDownload(activity, instance, cleanName, version, directory, progress);
+        else prepareAndDownload(activity, instance, cleanName, version, directory, selected, progress);
 
         progress.accept("Saving installed instance…");
         ArrayList<MinecraftInstances.Instance> all = new ArrayList<>(Arrays.asList(registry.toArray()));
@@ -146,8 +202,11 @@ public final class VoxyQuestInstaller {
 
         instance.instanceName = name;
         instance.versionName = version;
+        instance.modLoader = "fabric";
         instance.versionType = minecraft.type;
         instance.mainClass = fabric.mainClass;
+        instance.jvmLaunchArgs = null;
+        instance.gameLaunchArgs = null;
         instance.gameDir = gameDirectory.getPath();
 
         progress.accept("Downloading Minecraft…");
@@ -194,10 +253,9 @@ public final class VoxyQuestInstaller {
         }
         if (!hasVivecraft) throw new IOException("VR runtime catalog has no Vivecraft entry");
         instance.extProjects = projects.toArray(new ProjectInfo[0]);
-        instance.defaultMods = true;
+        instance.defaultMods = false;
 
-        progress.accept("Installing Java runtime…");
-        Installer.installJVM(activity);
+        VoxyQuestJavaRuntime.install(activity, progress);
         File server = new File(activity.getFilesDir(), "runtimes/JRE/lib/server/libjvm.so");
         File clientJvm = new File(activity.getFilesDir(), "runtimes/JRE/lib/client/libjvm.so");
         if (!server.isFile() && !clientJvm.isFile()) throw new IOException("Java runtime installation failed");
@@ -227,10 +285,15 @@ public final class VoxyQuestInstaller {
 
     public static boolean isInstalled(MinecraftInstances.Instance instance) {
         if (instance == null || instance.classpath == null || instance.mainClass == null || instance.gameDir == null) return false;
+        if ("neoforge".equals(instance.loaderId()) &&
+                (instance.jvmLaunchArgs == null || instance.gameLaunchArgs == null ||
+                 !"cpw.mods.bootstraplauncher.BootstrapLauncher".equals(instance.mainClass))) return false;
         for (String path : instance.classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
             if (path.isEmpty() || !new File(path).isFile()) return false;
         }
-        if (!new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
+        if (("fabric".equals(instance.loaderId()) ||
+                ("neoforge".equals(instance.loaderId()) && NeoForgeInstaller.supportsVr(instance.versionName))) &&
+                !new File(instance.gameDir, "mods/Vivecraft.jar").isFile()) return false;
         if (instance.assetsDir == null || !new File(instance.assetsDir).isDirectory()) return false;
         for (ProjectInfo project : instance.toArray()) {
             if (project.slug == null || !project.slug.matches("[A-Za-z0-9_-]+")) return false;

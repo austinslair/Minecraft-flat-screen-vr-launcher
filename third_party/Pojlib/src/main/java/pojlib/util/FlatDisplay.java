@@ -13,5 +13,6 @@ public final class FlatDisplay {
         height = surfaceHeight;
         attachNative(surface, surfaceWidth, surfaceHeight);
     }
+    public static native void detachNative();
     private static native void attachNative(Surface surface, int width, int height);
 }

@@ -50,11 +50,19 @@ dependencies {
 }
 
 val syncToGodot by tasks.registering(Copy::class) {
-    dependsOn("assembleDebug", "assembleRelease", ":pojlib:assembleDebug", ":pojlib:assembleRelease")
+    dependsOn("assembleDebug", "assembleRelease", ":pojlib:assembleDebug", ":pojlib:assembleRelease",
+        ":mobileglues:assembleRelease")
     into(addonDir)
     from("export_scripts_template")
     from("build/outputs/aar/$pluginName-debug.aar") { into("bin/debug") }
     from("build/outputs/aar/$pluginName-release.aar") { into("bin/release") }
     from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-debug.aar")) { into("bin/debug") }
     from(project(":pojlib").layout.buildDirectory.file("outputs/aar/PojlibRuntime-release.aar")) { into("bin/release") }
+    // The renderer is always the optimized build, so debug APKs (which CI publishes) get the
+    // same performance as release ones, and it is compiled once instead of twice.
+    from(project(":mobileglues").layout.buildDirectory.file("outputs/aar/MobileGlues-release.aar")) {
+        into("bin/debug")
+        rename { "MobileGlues-debug.aar" }
+    }
+    from(project(":mobileglues").layout.buildDirectory.file("outputs/aar/MobileGlues-release.aar")) { into("bin/release") }
 }

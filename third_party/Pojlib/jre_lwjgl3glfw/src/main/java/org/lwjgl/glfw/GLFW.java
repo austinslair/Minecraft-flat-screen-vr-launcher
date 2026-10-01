@@ -21,11 +21,50 @@ import static org.lwjgl.system.JNI.*;
 import static org.lwjgl.system.MemoryStack.*;
 import static org.lwjgl.system.MemoryUtil.*;
 import java.util.*;
+import java.io.*;
+import java.util.concurrent.locks.LockSupport;
 
 public class GLFW
 {
-    static FloatBuffer joystickData = (FloatBuffer)FloatBuffer.allocate(8).flip();
-    static ByteBuffer buttonData = (ByteBuffer)ByteBuffer.allocate(8).flip();
+    private static volatile Thread eventWaiter;
+    private static final float[] gamepadAxes = new float[6];
+    private static int gamepadButtons;
+    private static boolean gamepadPresent;
+    private static boolean gamepadWasPresent;
+    private static long gamepadReadAt;
+    private static long gamepadFileModifiedAt = -1;
+    private static String gamepadPath;
+    private static File gamepadFile;
+    private static final boolean flatGamepadEnabled = System.getProperty("glfwstub.gamepadStateFile") != null;
+    private static synchronized void readGamepad() {
+        if (!flatGamepadEnabled) return;
+        long now = System.currentTimeMillis();
+        // Flat mode writes this file on input changes. VR has no flat gamepad
+        // file, so avoid opening a missing path on every rendered frame.
+        if (now - gamepadReadAt < (gamepadFileModifiedAt < 0 ? 250 : 8)) return;
+        gamepadReadAt = now;
+        String path = System.getProperty("glfwstub.gamepadStateFile");
+        if (path == null) { gamepadPresent = false; return; }
+        if (!path.equals(gamepadPath)) {
+            gamepadPath = path;
+            gamepadFile = new File(path);
+            gamepadFileModifiedAt = -1;
+        }
+        long modifiedAt = gamepadFile.lastModified();
+        if (modifiedAt <= 0) {
+            gamepadPresent = false;
+            gamepadFileModifiedAt = -1;
+            return;
+        }
+        if (modifiedAt > 0 && modifiedAt == gamepadFileModifiedAt) return;
+        gamepadFileModifiedAt = modifiedAt;
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(new FileInputStream(gamepadFile)))) {
+            if (input.readInt() != 0x56475143) { gamepadPresent = false; return; }
+            gamepadPresent = input.readBoolean();
+            gamepadButtons = input.readInt();
+            for (int i = 0; i < gamepadAxes.length; i++) gamepadAxes[i] = input.readFloat();
+        } catch (IOException ignored) { gamepadPresent = false; }
+    }
     /** The major version number of the GLFW library. This is incremented when the API is changed in non-compatible ways. */
     public static final int GLFW_VERSION_MAJOR = 3;
 
@@ -624,7 +663,9 @@ public class GLFW
         SetWindowHint = apiGetFunctionAddress(GLFW, "pojavSetWindowHint"),
         SwapBuffers = apiGetFunctionAddress(GLFW, "pojavSwapBuffers"),
         SwapInterval = apiGetFunctionAddress(GLFW, "pojavSwapInterval"),
-        PumpEvents = apiGetFunctionAddress(GLFW, "pojavPumpEvents");
+        PumpEvents = apiGetFunctionAddress(GLFW, "pojavPumpEvents"),
+        StartPumping = apiGetFunctionAddress(GLFW, "pojavStartPumping"),
+        StopPumping = apiGetFunctionAddress(GLFW, "pojavStopPumping");
     }
 
     public static SharedLibrary getLibrary() {
@@ -953,8 +994,55 @@ public class GLFW
     }
 
     public static void glfwSwapBuffers(@NativeType("GLFWwindow *") long window) {
+        // Report the game's render-loop cadence at a low rate during VR play.
+        // This is not the headset compositor's frame rate, but it identifies
+        // long launcher/GLFW stalls without allocating or writing each frame.
+        long swapStarted = vrRenderMetrics ? System.nanoTime() : 0L;
         long __functionAddress = Functions.SwapBuffers;
         invokePV(window, __functionAddress);
+        if (vrRenderMetrics) recordVrSwap(swapStarted, System.nanoTime());
+        // Let the Android host reveal the surface after Minecraft presents its first frame.
+        // A marker is used because this class runs inside the embedded JVM.
+        if (!firstFrameReported) {
+            firstFrameReported = true;
+            String path = System.getProperty("voxyquest.readyFile");
+            if (path != null) {
+                try (FileOutputStream marker = new FileOutputStream(path)) {
+                    marker.write(1);
+                } catch (IOException ignored) { }
+            }
+        }
+    }
+
+    private static boolean firstFrameReported;
+    private static final boolean vrRenderMetrics = Boolean.getBoolean("voxyquest.vrRenderMetrics");
+    private static long vrMetricsStarted;
+    private static long vrMetricsLastFrame;
+    private static long vrMetricsFrames;
+    private static long vrMetricsLongestGap;
+    private static long vrMetricsLongestSwap;
+
+    private static void recordVrSwap(long started, long finished) {
+        if (vrMetricsStarted == 0L) {
+            vrMetricsStarted = finished;
+            vrMetricsLastFrame = finished;
+            return;
+        }
+        vrMetricsFrames++;
+        vrMetricsLongestGap = Math.max(vrMetricsLongestGap, finished - vrMetricsLastFrame);
+        vrMetricsLongestSwap = Math.max(vrMetricsLongestSwap, finished - started);
+        vrMetricsLastFrame = finished;
+        long elapsed = finished - vrMetricsStarted;
+        if (elapsed >= 10_000_000_000L) {
+            System.out.println("VoxyQuest VR render loop: " +
+                Math.round(vrMetricsFrames * 1_000_000_000.0 / elapsed) +
+                " swaps/s, longest gap " + (vrMetricsLongestGap / 1_000_000L) +
+                "ms, longest swap " + (vrMetricsLongestSwap / 1_000_000L) + "ms");
+            vrMetricsStarted = finished;
+            vrMetricsFrames = 0L;
+            vrMetricsLongestGap = 0L;
+            vrMetricsLongestSwap = 0L;
+        }
     }
 
     public static void glfwSwapInterval(int interval) {
@@ -974,12 +1062,11 @@ public class GLFW
     }
 
     public static long glfwGetTimerValue() {
-        return System.currentTimeMillis();
+        return System.nanoTime();
     }
 
     public static long glfwGetTimerFrequency() {
-        // FIXME set correct value!!
-        return 60;
+        return 1_000_000_000L;
     }
 
     // GLFW Window functions
@@ -1072,6 +1159,12 @@ public class GLFW
     public static void glfwSetWindowIcon(@NativeType("GLFWwindow *") long window, @Nullable @NativeType("GLFWimage const *") GLFWImage.Buffer images) {}
 
     public static void glfwPollEvents() {
+        if (flatGamepadEnabled) readGamepad();
+        if (gamepadPresent != gamepadWasPresent) {
+            gamepadWasPresent = gamepadPresent;
+            if (mGLFWJoystickCallback != null)
+                mGLFWJoystickCallback.invoke(0, gamepadPresent ? GLFW_CONNECTED : GLFW_DISCONNECTED);
+        }
         if (!mGLFWIsInputReady) {
             mGLFWIsInputReady = true;
             CallbackBridge.nativeSetInputReady(true);
@@ -1081,7 +1174,12 @@ public class GLFW
         // Prevent these with this code.
         if(mGLFWInputPumping) return;
         mGLFWInputPumping = true;
+        // The native queue only hands out the events counted by StartPumping and forgets them
+        // in StopPumping. Without these calls no key, button, scroll or cursor event queued by
+        // the flatscreen activity ever reached Minecraft.
+        callV(Functions.StartPumping);
         for (Long ptr : mGLFWWindowMap.keySet()) callJV(ptr, Functions.PumpEvents);
+        callV(Functions.StopPumping);
         mGLFWInputPumping = false;
     }
 
@@ -1094,22 +1192,30 @@ public class GLFW
         }
     }
 
-    public static void glfwWaitEvents() {}
-
-    public static void glfwWaitEventsTimeout(double timeout) {
-        // Boardwalk: this isn't how you do a frame limiter, but oh well
-        // System.out.println("Frame limiter");
-    /*
-        try {
-            Thread.sleep((long)(timeout * 1000));
-        } catch (InterruptedException ie) {
-        }
-    */
-        // System.out.println("Out of the frame limiter");
-
+    public static void glfwWaitEvents() {
+        glfwWaitEventsTimeout(0.016);
     }
 
-    public static void glfwPostEmptyEvent() {}
+    public static void glfwWaitEventsTimeout(double timeout) {
+        // Bound the wait so Android input is still picked up promptly even when
+        // an event arrives without going through glfwPostEmptyEvent().
+        long nanos = timeout > 0 ? (long) Math.min(timeout * 1_000_000_000d, 16_000_000d) : 0;
+        if (nanos > 0) {
+            Thread waiter = Thread.currentThread();
+            eventWaiter = waiter;
+            try {
+                LockSupport.parkNanos(nanos);
+            } finally {
+                eventWaiter = null;
+            }
+        }
+        glfwPollEvents();
+    }
+
+    public static void glfwPostEmptyEvent() {
+        Thread waiter = eventWaiter;
+        if (waiter != null) LockSupport.unpark(waiter);
+    }
 
     public static int glfwGetInputMode(@NativeType("GLFWwindow *") long window, int mode) {
         return internalGetWindow(window).inputModes.get(mode);
@@ -1194,35 +1300,31 @@ public class GLFW
     }
 
     public static boolean glfwJoystickPresent(int jid) {
-        if(jid == 0) {
-            return true;
-        }else return false;
+        if (flatGamepadEnabled) readGamepad();
+        return jid == 0 && gamepadPresent;
     }
     public static String glfwGetJoystickName(int jid) {
-        if(jid == 0) {
-            return "AIC event bus controller";
-        }else return null;
+        return glfwJoystickPresent(jid) ? "Android gamepad" : null;
     }
     public static FloatBuffer glfwGetJoystickAxes(int jid) {
-        if(jid == 0) {
-            return joystickData;
-        }else return null;
+        if (!glfwJoystickPresent(jid)) return null;
+        return FloatBuffer.wrap(gamepadAxes.clone());
     }
     public static ByteBuffer glfwGetJoystickButtons(int jid) {
-        if(jid == 0) {
-            return buttonData;
-        }else return null;
+        if (!glfwJoystickPresent(jid)) return null;
+        ByteBuffer buttons = ByteBuffer.allocate(15);
+        for (int i = 0; i < 15; i++) buttons.put((byte)((gamepadButtons >> i) & 1));
+        buttons.flip();
+        return buttons;
     }
     public static ByteBuffer glfwGetjoystickHats(int jid) {
         return null;
     }
     public static boolean glfwJoystickIsGamepad(int jid) {
-        if(jid == 0) return true;
-        else return false;
+        return glfwJoystickPresent(jid);
     }
     public static String glfwGetJoystickGUID(int jid) {
-        if(jid == 0) return "aio0";
-        else return null;
+        return glfwJoystickPresent(jid) ? "03000000000000000000000000000000" : null;
     }
     public static long glfwGetJoystickUserPointer(int jid) {
         return 0;
@@ -1234,10 +1336,13 @@ public class GLFW
         return false;
     }
     public static String glfwGetGamepadName(int jid) {
-        return null;
+        return glfwGetJoystickName(jid);
     }
     public static boolean glfwGetGamepadState(int jid, GLFWGamepadState state) {
-        return false;
+        if (!glfwJoystickPresent(jid) || state == null) return false;
+        for (int i = 0; i < 15; i++) state.buttons(i, (byte)((gamepadButtons >> i) & 1));
+        for (int i = 0; i < 6; i++) state.axes(i, gamepadAxes[i]);
+        return true;
     }
 
     /** Array version of: {@link #glfwGetVersion GetVersion} */

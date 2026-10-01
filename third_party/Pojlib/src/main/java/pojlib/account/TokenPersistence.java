@@ -29,8 +29,14 @@ public class TokenPersistence implements ITokenCacheAccessAspect {
 
     @Override
     public synchronized void afterCacheAccess(ITokenCacheAccessContext context) {
-        data = context.tokenCache().serialize();
-        writeAtomically(data == null ? "" : data);
+        String serialized = context.tokenCache().serialize();
+        // A transient empty cache must not erase the saved refresh tokens.
+        // Account removal is handled separately from this cache callback.
+        if (serialized == null || serialized.isEmpty()) {
+            return;
+        }
+        data = serialized;
+        writeAtomically(data);
     }
 
     private void writeAtomically(String value) {

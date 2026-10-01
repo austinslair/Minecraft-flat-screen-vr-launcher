@@ -31,22 +31,21 @@ Java_org_vivecraft_util_VLoader_getEGLContext(JNIEnv* env, jclass clazz) {
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_org_vivecraft_util_VLoader_getEGLConfig(JNIEnv* env, jclass clazz) {
-    EGLConfig cfg;
-    EGLint num_configs;
-
-    static const EGLint attribs[] = {
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
-            // Minecraft required on initial 24
-            EGL_DEPTH_SIZE, 24,
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-            EGL_NONE
-    };
-
-    eglChooseConfig(eglGetCurrentDisplay(), attribs, &cfg, 1, &num_configs);
+    // OpenXR requires the configuration belonging to the current context.
+    // A new eglChooseConfig call can select an incompatible config.
+    EGLDisplay display = eglGetCurrentDisplay();
+    EGLContext context = eglGetCurrentContext();
+    EGLint configId = 0;
+    EGLConfig cfg = nullptr;
+    EGLint count = 0;
+    if (display == EGL_NO_DISPLAY || context == EGL_NO_CONTEXT ||
+        !eglQueryContext(display, context, EGL_CONFIG_ID, &configId)) {
+        return 0;
+    }
+    const EGLint attributes[] = {EGL_CONFIG_ID, configId, EGL_NONE};
+    if (!eglChooseConfig(display, attributes, &cfg, 1, &count) || count != 1) {
+        return 0;
+    }
     return reinterpret_cast<jlong>(cfg);
 }
 

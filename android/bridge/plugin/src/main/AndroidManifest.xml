@@ -2,9 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="false" />
     <application>
+        <activity android:name="dev.voxyquest.bridge.LogExportActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name="dev.voxyquest.bridge.ModImportActivity" android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name="dev.voxyquest.bridge.MinecraftFlatActivity" android:exported="false"
@@ -21,6 +25,10 @@
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
         </activity>
+        <!-- Runs NeoForge's installer; its embedded JVM needs a process of its own. -->
+        <service android:name="dev.voxyquest.bridge.NeoForgeSetupService"
+            android:process=":neoforge_setup"
+            android:exported="false" />
         <meta-data
             android:name="org.godotengine.plugin.v2.${godotPluginName}"
             android:value="${godotPluginPackageName}.VoxyQuestBridgePlugin" />

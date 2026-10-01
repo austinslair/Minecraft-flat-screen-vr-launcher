@@ -1,12 +1,21 @@
 package dev.voxyquest.bridge
 
+import android.app.AlertDialog
+import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.content.pm.PackageManager
+import android.provider.Settings
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import pojlib.util.Constants
 import pojlib.util.GsonUtils
+import pojlib.util.Logger
+import pojlib.util.Renderer
 import pojlib.util.json.MinecraftInstances
 import org.godotengine.godot.Godot
 import org.godotengine.godot.plugin.GodotPlugin
@@ -18,9 +27,13 @@ import pojlib.account.LoginHelper
 
 class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     private var accountRestoreRequested = false
+    private var previousLaunchReportShown = false
 
     companion object {
         private const val MICROSOFT_DEVICE_LOGIN_FALLBACK = "https://microsoft.com/devicelogin"
+        private const val MICROPHONE_PERMISSION_REQUEST = 2471
+        private const val PREFERENCES = "voxyquest_launcher"
+        private const val KEY_RENDERER = "renderer"
     }
 
     override fun getPluginName(): String = BuildConfig.GODOT_PLUGIN_NAME
@@ -39,6 +52,11 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         val hostActivity = activity ?: return false
         return runCatching {
             PojlibRuntime.initialize(hostActivity)
+            // Creating the logger rotates the previous process's latestlog.txt into
+            // previouslog.txt. This lets us recover the final launch breadcrumbs even
+            // when Android/native code killed the process without a Java exception.
+            Logger.getInstance()
+            maybeShowPreviousLaunchReport(hostActivity)
             if (!accountRestoreRequested && BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()) {
                 accountRestoreRequested = LoginHelper.restoreSession(
                     hostActivity,
@@ -49,9 +67,140 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
         }.getOrDefault(false)
     }
 
+    private fun maybeShowPreviousLaunchReport(hostActivity: android.app.Activity) {
+        if (previousLaunchReportShown) return
+        previousLaunchReportShown = true
+
+        val previous = File(Constants.USER_HOME, "previouslog.txt")
+        if (!previous.isFile || previous.length() <= 0L) return
+        val text = runCatching { previous.readText() }.getOrDefault("")
+        if (!text.contains("VoxyQuest launch: game activity created")) return
+        if (text.contains("VoxyQuest launch: Java VM returned") ||
+            text.contains("VoxyQuest launch failure:")) return
+
+        val usefulLines = text.lineSequence()
+            .map { it.trim() }
+            .filter { line ->
+                line.isNotEmpty() && (
+                    line.contains("VoxyQuest launch:") ||
+                    line.contains("QuestCraft: Setting JVM memory") ||
+                    line.contains("Java Exit code")
+                )
+            }
+            .toList()
+            .takeLast(24)
+
+        val details = if (usefulLines.isEmpty()) {
+            "The previous Minecraft process ended before it could write a normal exit or Java exception."
+        } else {
+            usefulLines.joinToString("\n")
+        }
+        val report = "The previous Minecraft launch ended unexpectedly. Copy this report and send it back so the exact crash stage can be fixed.\n\n$details"
+
+        hostActivity.runOnUiThread {
+            if (hostActivity.isFinishing || hostActivity.isDestroyed) return@runOnUiThread
+            AlertDialog.Builder(hostActivity)
+                .setTitle("Previous Minecraft crash")
+                .setMessage(report)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Copy report") { _, _ ->
+                    val clipboard = hostActivity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("VoxyQuest crash report", report))
+                }
+                .show()
+        }
+    }
+
     @UsedByGodot
     fun getPojlibCompatibilityState(): String =
         if (PojlibRuntime.isInitialized()) "godot_host_ready" else "not_initialized"
+
+    @UsedByGodot
+    fun getMicrophonePermissionState(): String {
+        val host = activity ?: return "unavailable"
+        return if (host.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            "granted" else "denied"
+    }
+
+    @UsedByGodot
+    fun requestMicrophoneAccess(): Boolean {
+        val host = activity ?: return false
+        if (getMicrophonePermissionState() == "granted") return true
+        host.runOnUiThread {
+            host.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MICROPHONE_PERMISSION_REQUEST)
+        }
+        return true
+    }
+
+    @UsedByGodot
+    fun openMicrophoneAppSettings(): Boolean {
+        val host = activity ?: return false
+        return runCatching {
+            host.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", host.packageName, null)))
+            true
+        }.getOrDefault(false)
+    }
+
+    @UsedByGodot
+    fun copyInputReport(): Boolean {
+        val host = activity ?: return false
+        val candidates = listOf("previouslog.txt", "latestlog.txt")
+            .map { File(Constants.USER_HOME, it) }
+            .filter { it.isFile && it.length() > 0 }
+            .sortedByDescending { it.lastModified() }
+        val log = candidates.firstOrNull { file ->
+            runCatching { file.useLines { lines -> lines.any { it.contains("flatscreen input ready") } } }
+                .getOrDefault(false)
+        } ?: candidates.firstOrNull() ?: return false
+        val details = runCatching {
+            log.useLines { lines ->
+                lines.filter { line ->
+                    line.startsWith("VoxyQuest launch:") &&
+                        (line.contains("input", ignoreCase = true) ||
+                         line.contains("controller", ignoreCase = true) ||
+                         line.contains("mouse", ignoreCase = true))
+                }.toList().takeLast(30).joinToString("\n")
+            }
+        }.getOrDefault("")
+        val report = "VoxyQuest flatscreen input report\n" +
+            (details.ifBlank { "No Android input events were recorded in the latest launch." })
+        val clipboard = host.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("VoxyQuest input report", report))
+        return true
+    }
+
+    private fun latestCapturedLog(): File? {
+        val latest = File(Constants.USER_HOME, "latestlog.txt")
+        val previous = File(Constants.USER_HOME, "previouslog.txt")
+        // Logger rotates the last game session when the launcher starts. An
+        // empty/new launcher log should not hide the captured game log.
+        val candidates = listOf(latest, previous).filter { it.isFile && it.length() > 0L }
+        return candidates.firstOrNull { it.name == "latestlog.txt" &&
+            runCatching { it.useLines { lines -> lines.any { line -> line.contains("VoxyQuest launch: game activity created") } } }
+                .getOrDefault(false) }
+            ?: candidates.firstOrNull { it.name == "previouslog.txt" }
+            ?: candidates.firstOrNull()
+    }
+
+    @UsedByGodot
+    fun getLatestLogInfoJson(): String {
+        val log = latestCapturedLog()
+        return JSONObject().put("available", log != null)
+            .put("name", log?.name ?: "")
+            .put("bytes", log?.length() ?: 0L).toString()
+    }
+
+    @UsedByGodot
+    fun exportLatestLog(): Boolean {
+        val host = activity ?: return false
+        val log = latestCapturedLog() ?: return false
+        return runCatching {
+            host.startActivity(Intent(host, LogExportActivity::class.java)
+                .putExtra("log_name", log.name))
+            true
+        }.getOrDefault(false)
+    }
 
     @UsedByGodot
     fun isMicrosoftLoginConfigured(): Boolean = BuildConfig.MICROSOFT_CLIENT_ID.isNotBlank()
@@ -138,6 +287,7 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
                     items.put(JSONObject()
                         .put("name", instance.instanceName ?: "Unnamed instance")
                         .put("version", instance.versionName ?: "")
+                        .put("loader", instance.loaderId())
                         .put("installed", VoxyQuestInstaller.isInstalled(instance)))
                 }
                 result.put("instances", items)
@@ -152,12 +302,24 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     fun getInstallVersionsJson(): String = activity?.let { LauncherOperations.versions(it) } ?: "[]"
 
     @UsedByGodot
+    fun getNeoForgeVersionsJson(): String = JSONArray(VoxyQuestInstaller.neoForgeVersions()).toString()
+
+    @UsedByGodot
+    fun getNeoForgeVrVersionsJson(): String = JSONArray(VoxyQuestInstaller.neoForgeVrVersions()).toString()
+
+    @UsedByGodot
     fun installInstance(name: String, version: String): Boolean {
         val host = activity ?: return false
         // VoxyQuestInstaller.install() calls PojlibRuntime.ensureInitialized(activity)
         // on the install worker. Do not reject the click merely because launcher
         // initialization has not completed yet.
         return LauncherOperations.install(host, name, version)
+    }
+
+    @UsedByGodot
+    fun installInstanceWithLoader(name: String, version: String, loader: String): Boolean {
+        val host = activity ?: return false
+        return LauncherOperations.install(host, name, version, loader)
     }
 
     @UsedByGodot
@@ -185,18 +347,34 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
     }
 
     @UsedByGodot
+    fun setNeoForgeModEnabled(name: String, filename: String, enabled: Boolean): String =
+        runCatching { LauncherOperations.setModEnabled(name, filename, enabled) }
+            .getOrElse { it.message ?: "Could not change the mod." }
+
+    @UsedByGodot
+    fun setModEnabled(name: String, filename: String, enabled: Boolean): String =
+        runCatching { LauncherOperations.setModEnabled(name, filename, enabled) }
+            .getOrElse { it.message ?: "Could not change the mod." }
+
+    @UsedByGodot
+    fun removeMod(name: String, filename: String): String =
+        runCatching { LauncherOperations.removeMod(name, filename) }
+            .getOrElse { it.message ?: "Could not remove the mod." }
+
+    @UsedByGodot
     fun getModrinthSnapshotJson(): String = LauncherOperations.modrinthSnapshot()
 
     @UsedByGodot
-    fun searchModrinthMods(instanceName: String, query: String): Boolean {
+    fun searchModrinthMods(instanceName: String, query: String, sort: String, category: String): Boolean {
         if (!PojlibRuntime.isInitialized()) return false
-        return LauncherOperations.searchModrinth(instanceName, query)
+        return LauncherOperations.searchModrinth(instanceName, query, sort, category)
     }
 
     @UsedByGodot
     fun installModrinthMod(instanceName: String, projectId: String): Boolean {
+        val host = activity ?: return false
         if (!PojlibRuntime.isInitialized()) return false
-        return LauncherOperations.installModrinth(instanceName, projectId)
+        return LauncherOperations.installModrinth(host, instanceName, projectId)
     }
 
     @UsedByGodot
@@ -204,6 +382,24 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
 
     @UsedByGodot
     fun launchMinecraftFlat(name: String): Boolean = launchMinecraft(name, false)
+
+    /** Renderer id for VR and Flatscreen launches: "mobileglues" (default) or "ltw". */
+    @UsedByGodot
+    fun getRenderer(): String = selectedRenderer().id
+
+    @UsedByGodot
+    fun setRenderer(id: String): Boolean {
+        val host = activity ?: return false
+        val renderer = Renderer.fromId(id)
+        if (renderer.id != id) return false
+        host.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+            .putString(KEY_RENDERER, renderer.id).apply()
+        return true
+    }
+
+    private fun selectedRenderer(): Renderer = Renderer.fromId(activity
+        ?.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        ?.getString(KEY_RENDERER, null))
 
     @UsedByGodot
     fun addInstanceMod(name: String): Boolean {
@@ -223,7 +419,16 @@ class VoxyQuestBridgePlugin(godot: Godot) : GodotPlugin(godot) {
             val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name }
                 ?: return false
             if (!VoxyQuestInstaller.isInstalled(instance)) return false
-            host.startActivity(Intent(host, if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java).putExtra("instance_name", name))
+            if (vr && instance.loaderId() == "neoforge" &&
+                !VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) return false
+            val intent = Intent(
+                host,
+                if (vr) MinecraftGameActivity::class.java else MinecraftFlatActivity::class.java,
+            ).putExtra("instance_name", name)
+                .putExtra(MinecraftGameActivity.EXTRA_RENDERER, selectedRenderer().id)
+            host.startActivity(intent)
+            // Keep the Godot host Activity alive behind Minecraft. Finishing the Godot Activity
+            // tears down the process on Android, which also terminates the Minecraft Activity.
             true
         }.getOrDefault(false)
     }

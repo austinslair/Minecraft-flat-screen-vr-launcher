@@ -48,3 +48,11 @@ android/bridge/plugin/build/
 *.user
 *.suo
 *.userprefs
+
+# CI compiler/ThinLTO cache for the native renderer
+.voxyquest-native-cache/
+# Android builds of mod natives, built by CI (scripts/build_*_android.sh)
+third_party/Pojlib/src/main/jniLibs/arm64-v8a/libzstd_jni_voxyquest.so
+third_party/Pojlib/src/main/jniLibs/arm64-v8a/libsable_rapier.so
+# Compiled by scripts/build_simulated_vr_compat.sh
+third_party/Pojlib/src/main/assets/voxyquest/compat/
