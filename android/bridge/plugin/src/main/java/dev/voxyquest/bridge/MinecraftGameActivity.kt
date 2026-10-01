@@ -195,6 +195,16 @@ open class MinecraftGameActivity : Activity() {
                     } catch (e: java.io.IOException) {
                         Logger.getInstance().appendToLog("VoxyQuest launch: Vivecraft Sodium fix skipped: ${e.message}")
                     }
+                    // Skip shading the lens-hidden area of each eye (compat/vivecraft VoxyQuestStencil).
+                    val stencilHelper = runCatching {
+                        assets.open("voxyquest/compat/VoxyQuestStencil.bin").use { it.readBytes() }
+                    }.getOrNull()
+                    try {
+                        if (pojlib.util.VivecraftStencilFix.apply(gameDir, performance, stencilHelper)) Logger.getInstance()
+                            .appendToLog("VoxyQuest launch: Vivecraft now skips the lens-hidden area of each eye")
+                    } catch (e: java.io.IOException) {
+                        Logger.getInstance().appendToLog("VoxyQuest launch: Vivecraft stencil fix skipped: ${e.message}")
+                    }
                 }
                 if (instance.loaderId() != "neoforge" ||
                     VoxyQuestInstaller.supportsNeoForgeVr(instance.versionName)) {

@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.openxr.EXTPerformanceSettings;
+import org.lwjgl.openxr.KHRVisibilityMask;
 import org.lwjgl.openxr.XR10;
 import org.lwjgl.openxr.XrExtensionProperties;
 import org.lwjgl.openxr.XrSession;
@@ -19,20 +20,23 @@ import org.lwjgl.system.MemoryUtil;
  * OS picks for an app that states no needs. This enables XR_EXT_performance_settings when the
  * runtime offers it and requests sustained high CPU and GPU levels once the session exists.
  * Both steps are best effort: any failure leaves Vivecraft's own behaviour unchanged.
+ * It also enables XR_KHR_visibility_mask, which VoxyQuestStencil reads the lens-hidden area from.
  */
 public final class VoxyQuestXr {
     private VoxyQuestXr() {}
 
     /** Replaces the flip() that finishes Vivecraft's list of enabled instance extensions. */
     public static CustomBuffer flipExtensions(PointerBuffer names) {
-        try {
-            String name = EXTPerformanceSettings.XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
-            if (names.remaining() > 0 && runtimeOffers(name)) {
-                // Lives as long as the instance; one small allocation per launch.
-                names.put(MemoryUtil.memAddress(MemoryUtil.memUTF8(name)));
+        for (String name : new String[]{EXTPerformanceSettings.XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
+                KHRVisibilityMask.XR_KHR_VISIBILITY_MASK_EXTENSION_NAME}) {
+            try {
+                if (names.remaining() > 0 && runtimeOffers(name)) {
+                    // Lives as long as the instance; one small allocation per launch.
+                    names.put(MemoryUtil.memAddress(MemoryUtil.memUTF8(name)));
+                }
+            } catch (Throwable ignored) {
+                // Keep Vivecraft's list as it was.
             }
-        } catch (Throwable ignored) {
-            // Keep Vivecraft's list as it was.
         }
         return names.flip();
     }

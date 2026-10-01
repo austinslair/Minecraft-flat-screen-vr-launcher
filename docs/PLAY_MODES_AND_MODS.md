@@ -129,6 +129,16 @@ Any of these flags that an older Java runtime does not recognise is ignored. Cla
 Sharing would help too, but the bundled Java 22 runtime ships without the base archive it needs.
 The launch log timestamps each stage, so Settings → Export log shows where the time goes.
 
+## Lens-hidden area
+
+The Quest's lenses hide the corners of each eye image, but Vivecraft's OpenXR renderer never
+asked the headset for that area, so Minecraft shaded every pixel of both eyes. VR launches now
+enable `XR_KHR_visibility_mask`, read the hidden-area mesh for each eye and give it to
+Vivecraft, which masks it before the world is drawn so those pixels are never shaded. Nothing
+visible changes. The launch log reports the share of each eye that is skipped
+(`VoxyQuest: skipping the lens-hidden area, …`). A mesh that is missing, covers the centre of
+the view or more than 35% of it is ignored, and the full image is drawn as before.
+
 ## Vivecraft with Sodium
 
 Vivecraft draws the VR arms by copying parts of the player skin between model faces. It only
