@@ -12,7 +12,7 @@
 
 [Latest release](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases/latest) · [All releases](https://github.com/austinslair/Minecraft-flat-screen-vr-launcher/releases)
 
-**Current test release:** `v0.1.0-alpha.24` · Meta Quest APK
+**Current test release:** `v0.1.0-alpha.25` · Meta Quest APK
 
 </div>
 
