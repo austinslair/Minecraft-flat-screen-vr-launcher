@@ -242,9 +242,30 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE) && !event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE))
             return false
         reportMouse(event)
-        if (!grabbing) moveAbsolute(event)
+        if (!grabbing) moveAbsolute(event) else if (!gameView.hasPointerCapture()) moveUncaptured(event)
         handleMouse(event)
         return true
+    }
+
+    private var lastPointerX = Float.NaN
+    private var lastPointerY = Float.NaN
+
+    /**
+     * Mouse look while the system has not granted pointer capture (it can refuse, for example
+     * right after a focus change): use the event's relative motion, or the change in the
+     * pointer position, and ask for capture again.
+     */
+    private fun moveUncaptured(event: MotionEvent) {
+        var dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+        var dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+        if (dx == 0f && dy == 0f && !lastPointerX.isNaN()) {
+            dx = event.x - lastPointerX
+            dy = event.y - lastPointerY
+        }
+        lastPointerX = event.x
+        lastPointerY = event.y
+        if (dx != 0f || dy != 0f) CallbackBridge.sendCursorPos(CallbackBridge.mouseX + dx, CallbackBridge.mouseY + dy)
+        if (hasWindowFocus()) gameView.requestPointerCapture()
     }
 
     /** Controller controls remain usable in vanilla flatscreen even without a controller mod. */
@@ -277,7 +298,7 @@ class MinecraftFlatActivity : MinecraftGameActivity() {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             reportMouse(event)
-            if (!grabbing) moveAbsolute(event)
+            if (!grabbing) moveAbsolute(event) else if (!gameView.hasPointerCapture()) moveUncaptured(event)
             handleMouse(event)
             return true
         }

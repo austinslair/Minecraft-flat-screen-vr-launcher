@@ -11,4 +11,5 @@ trap 'rm -rf "$output"' EXIT
 # Rebuild the JVM GLFW class before the Android plugin packages its runtime assets.
 javac --release 8 -cp "$jar_file:$lib_dir/*:$android_jar" -d "$output" \
     "$root/third_party/Pojlib/jre_lwjgl3glfw/src/main/java/org/lwjgl/glfw/GLFW.java"
-(cd "$output" && jar uf "$jar_file" org/lwjgl/glfw/GLFW.class)
+# Nested classes (GLFW$Functions holds the native function addresses) must match GLFW.class.
+(cd "$output" && jar uf "$jar_file" org/lwjgl/glfw/GLFW*.class)

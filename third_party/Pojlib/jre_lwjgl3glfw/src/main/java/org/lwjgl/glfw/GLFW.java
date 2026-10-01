@@ -663,7 +663,9 @@ public class GLFW
         SetWindowHint = apiGetFunctionAddress(GLFW, "pojavSetWindowHint"),
         SwapBuffers = apiGetFunctionAddress(GLFW, "pojavSwapBuffers"),
         SwapInterval = apiGetFunctionAddress(GLFW, "pojavSwapInterval"),
-        PumpEvents = apiGetFunctionAddress(GLFW, "pojavPumpEvents");
+        PumpEvents = apiGetFunctionAddress(GLFW, "pojavPumpEvents"),
+        StartPumping = apiGetFunctionAddress(GLFW, "pojavStartPumping"),
+        StopPumping = apiGetFunctionAddress(GLFW, "pojavStopPumping");
     }
 
     public static SharedLibrary getLibrary() {
@@ -1172,7 +1174,12 @@ public class GLFW
         // Prevent these with this code.
         if(mGLFWInputPumping) return;
         mGLFWInputPumping = true;
+        // The native queue only hands out the events counted by StartPumping and forgets them
+        // in StopPumping. Without these calls no key, button, scroll or cursor event queued by
+        // the flatscreen activity ever reached Minecraft.
+        callV(Functions.StartPumping);
         for (Long ptr : mGLFWWindowMap.keySet()) callJV(ptr, Functions.PumpEvents);
+        callV(Functions.StopPumping);
         mGLFWInputPumping = false;
     }
 
