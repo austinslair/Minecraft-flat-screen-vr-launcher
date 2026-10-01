@@ -197,6 +197,10 @@ An instance installed with an older bundled NeoForge is moved to the bundled bui
 time you press Play. That launch downloads the new NeoForge libraries, so it needs network
 access and takes longer. Worlds, mods and configs are kept.
 
+If a NeoForge install fails, the message names the step and the actual error (for example a
+host that could not be reached), and the launcher log (Settings, export log) holds the full error
+plus the end of NeoForge's installer log.
+
 ## Mods with native libraries
 
 Some mods ship native code built only for desktop computers. The Quest cannot load it, so

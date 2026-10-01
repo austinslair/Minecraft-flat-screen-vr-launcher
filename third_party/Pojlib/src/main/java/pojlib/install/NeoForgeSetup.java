@@ -84,8 +84,14 @@ final class NeoForgeSetup {
         if (!allPresent(outputs)) {
             String result = status.isFile()
                     ? new String(Files.readAllBytes(status.toPath()), StandardCharsets.UTF_8).trim() : "no result";
-            throw new IOException("NeoForge setup did not finish (" + result + "). Its log is " + log.getName()
-                    + " in the launcher's neoforge-installers folder.");
+            File console = new File(home, "neoforge-setup-log.txt");
+            // Copy both logs' ends into latestlog.txt, which Settings can export.
+            pojlib.util.Logger.getInstance().appendToLog("VoxyQuest NeoForge setup failed (" + result + ")\n"
+                    + "--- " + log.getName() + " ---\n" + tail(log, 60) + "\n"
+                    + "--- " + console.getName() + " ---\n" + tail(console, 60));
+            String reason = lastLine(log);
+            throw new IOException("NeoForge setup did not finish (" + result + ")"
+                    + (reason.isEmpty() ? "" : ": " + reason) + ". Details are in the launcher log (Settings, export log).");
         }
         progress.accept("NeoForge " + loader + " is set up");
     }
@@ -126,6 +132,20 @@ final class NeoForgeSetup {
             if (process.equals(info.processName)) return true;
         }
         return false;
+    }
+
+    private static String tail(File file, int lines) {
+        if (!file.isFile()) return "(missing)";
+        try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+            long start = Math.max(0L, input.length() - 16384L);
+            byte[] bytes = new byte[(int) (input.length() - start)];
+            input.seek(start);
+            input.readFully(bytes);
+            String[] all = new String(bytes, StandardCharsets.UTF_8).split("\n");
+            return String.join("\n", java.util.Arrays.copyOfRange(all, Math.max(0, all.length - lines), all.length));
+        } catch (IOException e) {
+            return "(unreadable: " + e.getMessage() + ")";
+        }
     }
 
     private static String lastLine(File log) {

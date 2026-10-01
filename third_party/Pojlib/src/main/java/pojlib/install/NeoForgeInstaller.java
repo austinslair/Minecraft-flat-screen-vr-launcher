@@ -140,6 +140,8 @@ final class NeoForgeInstaller {
         instance.mainClass = neoforge.mainClass;
         instance.gameDir = game.getPath();
 
+        // NeoForge's installer runs on the embedded Java runtime, so a first install needs it now.
+        VoxyQuestJavaRuntime.install(activity, progress);
         NeoForgeSetup.run(activity, bundle.version, bundle.loader(activity), systemJars(activity, bundle, neoForm), progress);
         progress.accept("Downloading Minecraft and NeoForge libraries…");
         String client = Installer.installClient(minecraft, Constants.USER_HOME).get();

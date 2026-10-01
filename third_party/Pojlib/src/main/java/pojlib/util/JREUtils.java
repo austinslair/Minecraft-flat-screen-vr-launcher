@@ -361,32 +361,27 @@ public class JREUtils {
                 "-XX:+UseSignalChaining"));
         args.addAll(toolArgs);
         if (chdir(workDir.getAbsolutePath()) != 0) throw new IOException("Could not enter " + workDir);
+        // The tool's console output goes to this process's log, so a failure can be read back.
+        logToLogger(Logger.getInstance());
         return VMLauncher.launchJVM(args.toArray(new String[0]));
     }
 
     private static void writeDNS(Context ctx, File out) throws IOException {
-        FileWriter writer = new FileWriter(out);
-
-        if(!API.hasConnection(ctx)) {
-            writer.write("nameserver 8.8.8.8\n");
-            writer.write("nameserver 8.8.4.4");
-            writer.flush();
-            writer.close();
-            return;
+        StringBuilder servers = new StringBuilder();
+        if (API.hasConnection(ctx)) {
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            LinkProperties lp = cm.getLinkProperties(cm.getActiveNetwork());
+            if (lp != null) {
+                for (InetAddress dns : lp.getDnsServers()) {
+                    servers.append("nameserver ").append(dns.getHostAddress()).append('\n');
+                }
+            }
         }
-
-        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
-        Network activeNetwork = cm.getActiveNetwork();
-        LinkProperties lp = cm.getLinkProperties(activeNetwork);
-        if(lp == null)
-            return;
-
-        List<InetAddress> dnsServers = lp.getDnsServers();
-        for (InetAddress dns : dnsServers) {
-            writer.write(String.format("nameserver %s\n", dns.getHostAddress()));
-            writer.flush();
+        // An empty file leaves Java unable to resolve any host name.
+        if (servers.length() == 0) servers.append("nameserver 8.8.8.8\nnameserver 8.8.4.4\n");
+        try (FileWriter writer = new FileWriter(out)) {
+            writer.write(servers.toString());
         }
-        writer.close();
     }
 
     /**
