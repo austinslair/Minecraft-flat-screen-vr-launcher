@@ -58,7 +58,7 @@ public class PerformanceTuningTest {
         JsonObject vivecraft = vivecraft(dir);
         assertEquals("BOTH", vivecraft.get("menuWorldSelection").getAsString());
         assertEquals("OFF", vivecraft.get("displayMirrorMode").getAsString());
-        assertEquals(3, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+        assertEquals(PerformanceTuning.DEFAULTS_VERSION, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
     }
 
     @Test public void newInstancesGetDefaultsOnceMinecraftHasWrittenOptions() throws Exception {
@@ -74,7 +74,7 @@ public class PerformanceTuningTest {
         PerformanceTuning.apply(dir.toFile(), true);
         assertEquals(Arrays.asList("version:3955", "simulationDistance:8", "maxFps:260",
                 "glDebugVerbosity:0", "prioritizeChunkUpdates:0", "enableVsync:false"), options(dir));
-        assertEquals(3, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
+        assertEquals(PerformanceTuning.DEFAULTS_VERSION, PerformanceTuning.readVersion(dir.resolve(PerformanceTuning.MARKER).toFile()));
     }
 
     @Test public void legacyVivecraftProfilesAreLeftForVivecraftToImport() throws Exception {
@@ -82,6 +82,35 @@ public class PerformanceTuningTest {
         Files.write(dir.resolve("optionsviveprofiles.txt"), "{}".getBytes(StandardCharsets.UTF_8));
         PerformanceTuning.apply(dir.toFile(), true);
         assertFalse(dir.resolve("config/vivecraft-client-config.json").toFile().exists());
+    }
+
+    @Test public void chunkLoadingDefaultsApplyOnceAndKeepChoices() throws Exception {
+        Path dir = instance("biomeBlendRadius:2", "renderDistance:16");
+        Files.write(dir.resolve(PerformanceTuning.MARKER), "3".getBytes(StandardCharsets.UTF_8));
+        Path sodium = dir.resolve("config/sodium-options.json");
+        Files.write(sodium, "{\"quality\":{\"enable_vignette\":false},\"performance\":{\"chunk_builder_threads\":0}}"
+                .getBytes(StandardCharsets.UTF_8));
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertEquals(Arrays.asList("biomeBlendRadius:1", "renderDistance:16", "enableVsync:false"), options(dir));
+        JsonObject options = JsonParser.parseString(new String(Files.readAllBytes(sodium), StandardCharsets.UTF_8))
+                .getAsJsonObject();
+        assertEquals(2, options.getAsJsonObject("performance").get("chunk_builder_threads").getAsInt());
+        assertFalse(options.getAsJsonObject("quality").get("enable_vignette").getAsBoolean());
+
+        // Choices made afterwards survive later launches.
+        Files.write(dir.resolve("options.txt"), Arrays.asList("biomeBlendRadius:3"), StandardCharsets.UTF_8);
+        Files.write(sodium, "{\"performance\":{\"chunk_builder_threads\":0}}".getBytes(StandardCharsets.UTF_8));
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertEquals(Arrays.asList("biomeBlendRadius:3", "enableVsync:false"), options(dir));
+        assertTrue(new String(Files.readAllBytes(sodium), StandardCharsets.UTF_8).contains("\"chunk_builder_threads\":0"));
+    }
+
+    @Test public void chosenSodiumThreadCountIsKept() throws Exception {
+        Path dir = instance("renderDistance:16");
+        Path sodium = dir.resolve("config/sodium-options.json");
+        Files.write(sodium, "{\"performance\":{\"chunk_builder_threads\":1}}".getBytes(StandardCharsets.UTF_8));
+        PerformanceTuning.apply(dir.toFile(), true);
+        assertTrue(new String(Files.readAllBytes(sodium), StandardCharsets.UTF_8).contains("\"chunk_builder_threads\":1"));
     }
 
     private static JsonObject vivecraft(Path dir) throws Exception {

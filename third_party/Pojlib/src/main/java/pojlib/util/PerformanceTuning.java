@@ -23,7 +23,7 @@ import java.util.Map;
  * before they existed get them, and later changes made in-game are kept.
  */
 public final class PerformanceTuning {
-    static final int DEFAULTS_VERSION = 3;
+    static final int DEFAULTS_VERSION = 4;
     static final String MARKER = "config/voxyquest-performance-defaults";
     /** Minecraft rejects lower values and silently falls back to its default of 12. */
     static final int MIN_SIMULATION_DISTANCE = 5;
@@ -33,6 +33,17 @@ public final class PerformanceTuning {
      * Render distance is separate and unaffected.
      */
     static final int DEFAULT_MAX_SIMULATION_DISTANCE = 8;
+    /**
+     * Biome colour blending runs per vertex while chunks are meshed; the default 5x5 (radius 2)
+     * costs far more than 3x3 for a barely visible difference.
+     */
+    static final int DEFAULT_MAX_BIOME_BLEND = 1;
+    /**
+     * Sodium meshes chunks on max(cores / 3, cores - 6) threads, one on the Quest's three. A
+     * second builder roughly doubles how fast terrain fills in; builders run below the render
+     * thread's priority, so frames still come first.
+     */
+    static final int SODIUM_CHUNK_BUILDERS = 2;
 
     private PerformanceTuning() {}
 
@@ -59,8 +70,10 @@ public final class PerformanceTuning {
         // With a swap interval of 0 Android discards frames that never reach the display, so
         // flat mode renders (and heats the device) for nothing. OpenXR paces VR frames itself.
         options.put("enableVsync", Boolean.toString(!vr));
-        int maxSimulationDistance = version < 3 ? DEFAULT_MAX_SIMULATION_DISTANCE : Integer.MAX_VALUE;
-        updateOptions(optionsFile, options, maxSimulationDistance);
+        Map<String, Integer> maxima = new LinkedHashMap<>();
+        if (version < 3) maxima.put("simulationDistance", DEFAULT_MAX_SIMULATION_DISTANCE);
+        if (version < 4) maxima.put("biomeBlendRadius", DEFAULT_MAX_BIOME_BLEND);
+        updateOptions(optionsFile, options, maxima);
 
         if (version < DEFAULTS_VERSION) {
             File vivecraft = new File(gameDir, "config/vivecraft-client-config.json");
@@ -72,6 +85,10 @@ public final class PerformanceTuning {
                 // The desktop mirror is invisible on a headset, but Vivecraft still copies an
                 // eye to it every frame, and its first/third person modes render the world again.
                 updateJson(gameDir, vivecraft, "displayMirrorMode", "OFF");
+            }
+            if (version < 4) {
+                // Only "auto" (0) is replaced; a thread count chosen in Sodium's settings stays.
+                updateSodiumBuilders(new File(gameDir, "config/sodium-options.json"));
             }
             if (haveOptions) {
                 Files.createDirectories(marker.getParentFile().toPath());
@@ -90,8 +107,12 @@ public final class PerformanceTuning {
         }
     }
 
-    /** Replaces or appends {@code key:value} lines, keeping every other line as it was. Also clamps simulationDistance into [{@link #MIN_SIMULATION_DISTANCE}, maxSimulationDistance]. */
-    static void updateOptions(File file, Map<String, String> overrides, int maxSimulationDistance)
+    /**
+     * Replaces or appends {@code key:value} lines, keeping every other line as it was. Numeric
+     * options named in {@code maxima} are lowered to that value, and simulationDistance is kept
+     * at or above {@link #MIN_SIMULATION_DISTANCE}.
+     */
+    static void updateOptions(File file, Map<String, String> overrides, Map<String, Integer> maxima)
             throws IOException {
         // Minecraft creates a missing options.txt itself; a partial one would lose its defaults.
         if (!file.isFile()) return;
@@ -103,10 +124,14 @@ public final class PerformanceTuning {
             int colon = line.indexOf(':');
             String key = colon < 0 ? null : line.substring(0, colon);
             String value = key == null ? null : pending.remove(key);
-            if (value == null && "simulationDistance".equals(key)) {
-                int current = parseInt(line.substring(colon + 1), MIN_SIMULATION_DISTANCE);
-                int clamped = Math.max(MIN_SIMULATION_DISTANCE, Math.min(current, maxSimulationDistance));
-                if (clamped != current) value = Integer.toString(clamped);
+            if (value == null && key != null) {
+                int floor = "simulationDistance".equals(key) ? MIN_SIMULATION_DISTANCE : Integer.MIN_VALUE;
+                Integer ceiling = maxima.get(key);
+                if (ceiling != null || floor != Integer.MIN_VALUE) {
+                    int current = parseInt(line.substring(colon + 1), Math.max(floor, 0));
+                    int clamped = Math.max(floor, Math.min(current, ceiling == null ? Integer.MAX_VALUE : ceiling));
+                    if (clamped != current) value = Integer.toString(clamped);
+                }
             }
             String updated = value == null ? line : key + ":" + value;
             changed |= !updated.equals(line);
@@ -139,6 +164,26 @@ public final class PerformanceTuning {
         JsonObject object = parsed.getAsJsonObject();
         object.addProperty(key, value);
         writeAtomically(file, GsonUtils.GLOBAL_GSON.toJson(object));
+    }
+
+    static void updateSodiumBuilders(File file) throws IOException {
+        if (!file.isFile()) return;
+        JsonElement parsed;
+        try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
+            parsed = JsonParser.parseReader(reader);
+        } catch (RuntimeException e) {
+            return; // Sodium rewrites a config it cannot parse.
+        }
+        if (!parsed.isJsonObject()) return;
+        JsonObject root = parsed.getAsJsonObject();
+        JsonObject performance = root.has("performance") && root.get("performance").isJsonObject()
+                ? root.getAsJsonObject("performance") : new JsonObject();
+        JsonElement current = performance.get("chunk_builder_threads");
+        if (current != null && !(current.isJsonPrimitive() && current.getAsJsonPrimitive().isNumber()
+                && current.getAsInt() == 0)) return;
+        performance.addProperty("chunk_builder_threads", SODIUM_CHUNK_BUILDERS);
+        root.add("performance", performance);
+        writeAtomically(file, GsonUtils.GLOBAL_GSON.toJson(root));
     }
 
     private static int parseInt(String text, int fallback) {

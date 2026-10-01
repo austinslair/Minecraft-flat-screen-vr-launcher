@@ -61,7 +61,13 @@ headset. The mirror still cost a full-window copy every frame, and a whole extra
 in its first- and third-person modes. The same update lowers the simulation distance to 8
 if it was higher. Java gets only 3 CPU threads on the Quest, and they are shared by rendering,
 the built-in server and chunk building. Render distance is not changed. New instances get
-these defaults on their second launch, once Minecraft has written its settings. Later
+these defaults on their second launch, once Minecraft has written its settings.
+
+For chunk loading, a later update gives Sodium two chunk-building threads instead of the one
+it picks for three CPU threads. They run below the render thread's priority, so frames still
+come first. The same update lowers biome blending to 3x3 if it was higher, because blending
+runs for every vertex while chunks are built. A thread count you set in Sodium's own settings
+is kept. Later
 changes you make in-game are kept. Repair no longer overwrites
 `options.txt`, mod configs or the server list. The JVM now honors thread priorities, and
 Minecraft's render thread starts with display priority.
