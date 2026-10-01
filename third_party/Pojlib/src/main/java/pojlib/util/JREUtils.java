@@ -338,6 +338,8 @@ public class JREUtils {
         envMap.put("TMPDIR", ctx.getCacheDir().getAbsolutePath());
         envMap.put("LD_LIBRARY_PATH", LD_LIBRARY_PATH);
         envMap.put("PATH", jre + "/bin:" + Os.getenv("PATH"));
+        // The native launcher writes each start-up stage here, so a crash shows where it stopped.
+        envMap.put("VOXYQUEST_LAUNCH_LOG", Logger.getInstance().getLogFile().getAbsolutePath());
         for (Map.Entry<String, String> env : envMap.entrySet()) Os.setenv(env.getKey(), env.getValue(), true);
 
         jvmLibraryPath = jre + "/lib/" + (new File(jre, "lib/server/libjvm.so").exists() ? "server" : "client");

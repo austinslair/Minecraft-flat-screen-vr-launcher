@@ -103,6 +103,11 @@ public class Logger {
      * Gives a helper process its own log file. Call before the first {@link #getInstance()}:
      * opening latestlog.txt from a second process would rotate away the game's log.
      */
+    /** The file this process logs to. */
+    public File getLogFile() {
+        return mLogFile;
+    }
+
     public static void useLogFile(String fileName) {
         processLogName = fileName;
     }

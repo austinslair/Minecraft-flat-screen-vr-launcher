@@ -28,6 +28,9 @@ final class NeoForgeSetup {
     private static final String PROCESS_SUFFIX = ":neoforge_setup";
     private static final long START_TIMEOUT_MS = 60_000L;
     private static final long RUN_TIMEOUT_MS = 30 * 60_000L;
+    // Must match NeoForgeSetupService.
+    private static final String STARTED = "started";
+    private static final String CONSOLE_NAME = "neoforge-setup-log.txt";
 
     /** A file the installer writes, with an entry that only a complete copy contains. */
     static final class Output {
@@ -71,6 +74,8 @@ final class NeoForgeSetup {
         if (!profiles.isFile()) Files.write(profiles.toPath(), "{\"profiles\":{}}".getBytes(StandardCharsets.UTF_8));
         File status = new File(home, "neoforge-setup-status.txt");
         Files.deleteIfExists(status.toPath());
+        // A log left by an earlier attempt would be mistaken for this one's.
+        Files.deleteIfExists(new File(home, CONSOLE_NAME).toPath());
 
         progress.accept("Setting up NeoForge " + loader + " for Minecraft " + minecraft +
                 ". This downloads and prepares Minecraft and takes a few minutes…");
@@ -79,19 +84,23 @@ final class NeoForgeSetup {
                 .putExtra("target", home.getAbsolutePath());
         if (activity.startService(start) == null) throw new IOException("Could not start NeoForge setup");
         File log = new File(installer.getPath() + ".log");
-        waitForSetup(activity, status, log, progress);
+        File console = new File(home, CONSOLE_NAME);
+        boolean ended;
+        try {
+            ended = waitForSetup(activity, status, log, progress);
+        } catch (IOException failure) {
+            report(failure.getMessage(), status, log, console);
+            throw new IOException(failure.getMessage() + ". Details are in the launcher log (Settings, export log).");
+        }
 
         if (!allPresent(outputs)) {
-            String result = status.isFile()
-                    ? new String(Files.readAllBytes(status.toPath()), StandardCharsets.UTF_8).trim() : "no result";
-            File console = new File(home, "neoforge-setup-log.txt");
-            // Copy both logs' ends into latestlog.txt, which Settings can export.
-            pojlib.util.Logger.getInstance().appendToLog("VoxyQuest NeoForge setup failed (" + result + ")\n"
-                    + "--- " + log.getName() + " ---\n" + tail(log, 60) + "\n"
-                    + "--- " + console.getName() + " ---\n" + tail(console, 60));
+            String result = read(status);
             String reason = lastLine(log);
-            throw new IOException("NeoForge setup did not finish (" + result + ")"
-                    + (reason.isEmpty() ? "" : ": " + reason) + ". Details are in the launcher log (Settings, export log).");
+            String what = ended ? "The NeoForge setup process stopped unexpectedly"
+                    : "NeoForge setup did not finish (" + result + ")";
+            report(what, status, log, console);
+            throw new IOException(what + (reason.isEmpty() ? "" : ": " + reason)
+                    + ". Details are in the launcher log (Settings, export log).");
         }
         progress.accept("NeoForge " + loader + " is set up");
     }
@@ -101,8 +110,15 @@ final class NeoForgeSetup {
         return true;
     }
 
-    /** Waits for the setup process to start and then to exit, relaying the installer's progress. */
-    private static void waitForSetup(Activity activity, File status, File log, Consumer<String> progress)
+    /**
+     * Waits for the setup process to start and then to finish, relaying the installer's progress.
+     * The process writes "started &lt;pid&gt;" to the status file first and its result last, so a
+     * process that is gone while the file still says started ended without reporting: a crash,
+     * or a tool that called System.exit. The caller tells those apart by its output files.
+     *
+     * @return true when the process ended without writing its result
+     */
+    private static boolean waitForSetup(Activity activity, File status, File log, Consumer<String> progress)
             throws IOException {
         ActivityManager manager = (ActivityManager) activity.getSystemService(Activity.ACTIVITY_SERVICE);
         String process = activity.getPackageName() + PROCESS_SUFFIX;
@@ -110,11 +126,19 @@ final class NeoForgeSetup {
         boolean seen = false;
         String lastLine = "";
         while (true) {
-            boolean running = isRunning(manager, process);
-            seen |= running;
-            if (!running && (seen || status.isFile())) return;
+            String state = read(status);
+            boolean finished = !state.isEmpty() && !state.startsWith(STARTED);
+            if (finished) return false;
+            int pid = state.startsWith(STARTED + " ") ? parsePid(state.substring(STARTED.length() + 1)) : -1;
+            // The app may always see its own processes in /proc; the process list is a fallback.
+            boolean running = (pid > 0 && new File("/proc/" + pid).exists()) || isRunning(manager, process);
+            seen |= running || pid > 0;
             long elapsed = SystemClock.elapsedRealtime() - started;
-            if (!seen && elapsed > START_TIMEOUT_MS) throw new IOException("NeoForge setup did not start");
+            if (seen && !running) {
+                // It may have written its result just before exiting.
+                return read(status).startsWith(STARTED);
+            }
+            if (!seen && elapsed > START_TIMEOUT_MS) throw new IOException("Android did not start the NeoForge setup process");
             if (elapsed > RUN_TIMEOUT_MS) throw new IOException("NeoForge setup took longer than 30 minutes");
             String line = lastLine(log);
             if (!line.isEmpty() && !line.equals(lastLine)) {
@@ -123,6 +147,31 @@ final class NeoForgeSetup {
             }
             SystemClock.sleep(1000L);
         }
+    }
+
+    private static int parsePid(String text) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static String read(File file) {
+        try {
+            return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).trim() : "";
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /** Copies the end of the installer's and the setup process's logs into latestlog.txt, which Settings can export. */
+    private static void report(String why, File status, File log, File console) {
+        String state = read(status);
+        pojlib.util.Logger.getInstance().appendToLog("VoxyQuest NeoForge setup failed: " + why
+                + " (status: " + (state.isEmpty() ? "none" : state) + ")\n"
+                + "--- " + console.getName() + " ---\n" + tail(console, 80) + "\n"
+                + "--- " + log.getName() + " ---\n" + tail(log, 60));
     }
 
     private static boolean isRunning(ActivityManager manager, String process) {
