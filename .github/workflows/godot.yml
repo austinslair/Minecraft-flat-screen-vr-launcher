@@ -366,6 +366,9 @@ jobs:
           # NeoForge's installer runs in its own process on the headset.
           grep -q 'dev.voxyquest.bridge.NeoForgeSetupService' "$RUNNER_TEMP/voxyquest-manifest.xml"
           grep -q ':neoforge_setup' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          # In-launcher updates install through Android's package installer.
+          grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/voxyquest-manifest.xml"
+          grep -q 'dev.voxyquest.bridge.UpdateInstallReceiver' "$RUNNER_TEMP/voxyquest-manifest.xml"
           unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx 'assets/voxyquest/neoforge/version.json'
           for helper in VoxyQuestXr VoxyQuestStencil VoxyQuestSodium VoxyQuestVrHold; do
             unzip -Z1 launcher/build/VoxyQuest-ci.apk | grep -Fx "assets/voxyquest/compat/$helper.bin"

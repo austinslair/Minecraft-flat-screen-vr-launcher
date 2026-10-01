@@ -233,3 +233,12 @@ The movement uses the same scale as mouse look, so about 40° of tilt pulls the 
 all the way. Letting go of the trigger releases the control, which is when the assembler
 builds the contraption. The original JAR is kept in `voxyquest-backups`. A Simulated release
 whose code looks different is left unpatched, and the launch log says so.
+
+## Updating the launcher
+
+When the launcher starts it checks the latest GitHub release. If that release is newer than the
+installed version (release `v0.1.0-alpha.N` is Android version code N), a dialog offers it. Update
+downloads the APK and checks it against the release's SHA-256 file, the launcher's package name,
+a higher version code and the installed signing key, then hands it to Android's installer, which
+asks you to confirm. The first time, Android asks you to allow VoxyQuest to install apps. Later
+skips that release for a day. Worlds, instances and settings are kept, as with any app update.
