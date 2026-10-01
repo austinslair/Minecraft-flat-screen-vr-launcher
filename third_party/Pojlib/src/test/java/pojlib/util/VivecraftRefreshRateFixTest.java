@@ -286,4 +286,69 @@ public class VivecraftRefreshRateFixTest {
             }
         }
     }
+
+    /** The helper class file CI compiles from compat/vivecraft (scripts/build_vivecraft_compat.sh). */
+    static byte[] performanceHelper() throws IOException {
+        String path = System.getenv("VOXYQUEST_VIVECRAFT_PERF_HELPER");
+        org.junit.Assume.assumeTrue(path != null && !path.isEmpty());
+        return Files.readAllBytes(Paths.get(path));
+    }
+
+    /** Counts calls in one method of the patched MCOpenXR. */
+    static int calls(byte[] bytes, String inMethod, String owner, String name) {
+        int[] count = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String method, String descriptor,
+                    String signature, String[] exceptions) {
+                if (!method.equals(inMethod)) return null;
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMethodInsn(int opcode, String o, String n, String d, boolean i) {
+                        if (o.equals(owner) && n.equals(name)) count[0]++;
+                    }
+                };
+            }
+        }, 0);
+        return count[0];
+    }
+
+    static void assertPerformancePatched(Path jar, byte[] helper) throws IOException {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(jar.toFile())) {
+            byte[] openxr = zip.getInputStream(zip.getEntry(VivecraftRefreshRateFix.CLASS)).readAllBytes();
+            assertEquals(1, calls(openxr, "initializeOpenXRInstance", VivecraftRefreshRateFix.PERFORMANCE_HELPER, "flipExtensions"));
+            assertEquals(0, calls(openxr, "initializeOpenXRInstance", "org/lwjgl/PointerBuffer", "flip"));
+            assertEquals(1, calls(openxr, "initDisplayRefreshRate", VivecraftRefreshRateFix.PERFORMANCE_HELPER, "raisePerformance"));
+            assertEquals(1, calls(openxr, "initDisplayRefreshRate", "org/vivecraft/client_vr/provider/openxr/MCOpenXR",
+                    VivecraftRefreshRateFix.ORIGINAL_REFRESH_METHOD));
+            assertArrayEquals(helper, zip.getInputStream(zip.getEntry(VivecraftRefreshRateFix.PERFORMANCE_HELPER + ".class")).readAllBytes());
+        }
+    }
+
+    @Test public void realVivecraftAsksForPerformanceLevels() throws Exception {
+        byte[] helper = performanceHelper();
+        String source = System.getenv("VOXYQUEST_VIVECRAFT_TEST_JAR");
+        org.junit.Assume.assumeTrue(source != null && !source.isEmpty());
+        Path game = Files.createTempDirectory("vivecraft-performance-test");
+        Path jar = game.resolve("mods/Vivecraft.jar");
+        Files.createDirectories(jar.getParent());
+        Files.copy(Paths.get(source), jar);
+        assertTrue(VivecraftRefreshRateFix.apply(game.toFile(), null, helper));
+        assertPerformancePatched(jar, helper);
+        assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), null, helper));
+    }
+
+    @Test public void refreshPatchedVivecraftGetsThePerformanceRequestAdded() throws Exception {
+        byte[] helper = performanceHelper();
+        String source = System.getenv("VOXYQUEST_VIVECRAFT_TEST_JAR");
+        org.junit.Assume.assumeTrue(source != null && !source.isEmpty());
+        Path game = Files.createTempDirectory("vivecraft-performance-upgrade");
+        Path jar = game.resolve("mods/Vivecraft.jar");
+        Files.createDirectories(jar.getParent());
+        Files.copy(Paths.get(source), jar);
+        assertTrue(VivecraftRefreshRateFix.apply(game.toFile()));  // what earlier launchers did
+        Files.delete(game.resolve(VivecraftRefreshRateFix.STAMP));  // as a new stamp version does
+        assertTrue(VivecraftRefreshRateFix.apply(game.toFile(), null, helper));
+        assertPerformancePatched(jar, helper);
+        Files.delete(game.resolve(VivecraftRefreshRateFix.STAMP));
+        assertFalse(VivecraftRefreshRateFix.apply(game.toFile(), null, helper));
+    }
 }

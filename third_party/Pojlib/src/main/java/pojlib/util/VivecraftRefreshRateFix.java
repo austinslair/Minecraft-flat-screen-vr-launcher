@@ -32,16 +32,26 @@ public final class VivecraftRefreshRateFix {
     static final String TEXTURE_CLASS = "org/vivecraft/client_vr/VRTextureTarget.class";
     static final String REFRESH_METHOD = "initDisplayRefreshRate";
     static final String ORIGINAL_REFRESH_METHOD = "voxyquest$initDisplayRefreshRate";
+    /** Added next to MCOpenXR; see compat/vivecraft and {@link #patchPerformance}. */
+    static final String PERFORMANCE_HELPER = "org/vivecraft/client_vr/provider/openxr/VoxyQuestXr";
     /** Bumped whenever the patch changes, so installs verified by an older build are checked again. */
-    static final String STAMP = "voxyquest-backups/vivecraft-openxr-v3.stamp";
+    static final String STAMP = "voxyquest-backups/vivecraft-openxr-v4.stamp";
     private VivecraftRefreshRateFix() {}
 
     public static boolean apply(File gameDir) throws IOException {
-        return apply(gameDir, null);
+        return apply(gameDir, null, null);
     }
 
-    /** Accept the bundled NeoForge class even when an earlier APK packed the JAR differently. */
     public static boolean apply(File gameDir, InputStream bundledNeoForge) throws IOException {
+        return apply(gameDir, bundledNeoForge, null);
+    }
+
+    /**
+     * Accept the bundled NeoForge class even when an earlier APK packed the JAR differently.
+     * With {@code performanceHelper} (VoxyQuestXr's class file) the patch also asks Horizon OS
+     * for sustained high CPU and GPU levels.
+     */
+    public static boolean apply(File gameDir, InputStream bundledNeoForge, byte[] performanceHelper) throws IOException {
         File jar = new File(gameDir, "mods/Vivecraft.jar");
         if (!jar.isFile()) return false;
         // A verified patch stays valid until the JAR changes. Avoid hashing the
@@ -59,13 +69,21 @@ public final class VivecraftRefreshRateFix {
         restoreUnstubbedBackup(gameDir, jar);
         String originalSha = sha256(jar);
         int neoForgeState = bundledNeoForge == null ? 0 : bundledNeoForgeState(jar, bundledNeoForge);
-        if (!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) return false;
+        if ((!SUPPORTED_SHA256.contains(originalSha) && neoForgeState == 0) ||
+                neoForgeState == 3 || neoForgeState == 5) {
+            // Nothing left for the refresh or swapchain fixes. A JAR they already patched
+            // (only this class adds the wrapper) can still take the performance request.
+            byte[] current = readEntry(jar, CLASS);
+            boolean upgraded = current != null && performanceHelper != null &&
+                    isRefreshWrapped(current) && !hasPerformancePatch(current);
+            if (upgraded) rewrite(jar, Collections.singletonMap(CLASS, patchPerformance(current)), performanceHelper);
+            if (upgraded || neoForgeState != 0 || (current != null && isRefreshWrapped(current)))
+                rememberVerified(stamp, jar);
+            return upgraded;
+        }
         boolean patchRefresh = neoForgeState != 2 && neoForgeState != 5;
         boolean patchTexture = neoForgeState == 1 || neoForgeState == 2;
-        if (neoForgeState == 3 || neoForgeState == 5) {
-            rememberVerified(stamp, jar);
-            return false;
-        }
+        boolean addHelper = false;
         File temporary = File.createTempFile("vivecraft-refresh-", ".tmp", jar.getParentFile());
         boolean patched = false;
         try {
@@ -77,11 +95,14 @@ public final class VivecraftRefreshRateFix {
                     output.putNextEntry(new ZipEntry(entry.getName()));
                     if (!entry.isDirectory()) {
                         try (InputStream input = source.getInputStream(entry)) {
-                            if (CLASS.equals(entry.getName()) && patchRefresh) {
+                            if (CLASS.equals(entry.getName())) {
                                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                                 copy(input, bytes);
-                                output.write(patchClass(bytes.toByteArray()));
-                                patched = true;
+                                byte[] refreshed = patchRefresh ? patchClass(bytes.toByteArray()) : bytes.toByteArray();
+                                addHelper = performanceHelper != null && isRefreshWrapped(refreshed) &&
+                                        !hasPerformancePatch(refreshed);
+                                output.write(addHelper ? patchPerformance(refreshed) : refreshed);
+                                patched |= patchRefresh || addHelper;
                             } else if (TEXTURE_CLASS.equals(entry.getName()) && patchTexture) {
                                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                                 copy(input, bytes);
@@ -90,6 +111,11 @@ public final class VivecraftRefreshRateFix {
                             } else copy(input, output);
                         }
                     }
+                    output.closeEntry();
+                }
+                if (addHelper && source.getEntry(PERFORMANCE_HELPER + ".class") == null) {
+                    output.putNextEntry(new ZipEntry(PERFORMANCE_HELPER + ".class"));
+                    output.write(performanceHelper);
                     output.closeEntry();
                 }
             }
@@ -104,6 +130,143 @@ public final class VivecraftRefreshRateFix {
             rememberVerified(stamp, jar);
             return true;
         } finally { Files.deleteIfExists(temporary.toPath()); }
+    }
+
+    /** Replaces entries of the JAR, adds the performance helper, and swaps it in atomically. */
+    private static void rewrite(File jar, Map<String, byte[]> replaced, byte[] helper) throws IOException {
+        File temporary = File.createTempFile("vivecraft-perf-", ".tmp", jar.getParentFile());
+        try {
+            try (ZipFile source = new ZipFile(jar);
+                 ZipOutputStream output = new ZipOutputStream(new FileOutputStream(temporary))) {
+                Enumeration<? extends ZipEntry> entries = source.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.getName().equals(PERFORMANCE_HELPER + ".class")) continue;
+                    output.putNextEntry(new ZipEntry(entry.getName()));
+                    byte[] replacement = replaced.get(entry.getName());
+                    if (replacement != null) output.write(replacement);
+                    else if (!entry.isDirectory()) {
+                        try (InputStream input = source.getInputStream(entry)) { copy(input, output); }
+                    }
+                    output.closeEntry();
+                }
+                output.putNextEntry(new ZipEntry(PERFORMANCE_HELPER + ".class"));
+                output.write(helper);
+                output.closeEntry();
+            }
+            try {
+                Files.move(temporary.toPath(), jar.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary.toPath(), jar.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally { Files.deleteIfExists(temporary.toPath()); }
+    }
+
+    static boolean isRefreshWrapped(byte[] bytes) {
+        boolean[] found = {false};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if (name.equals(ORIGINAL_REFRESH_METHOD)) found[0] = true;
+                return null;
+            }
+        }, 0);
+        return found[0];
+    }
+
+    static boolean hasPerformancePatch(byte[] bytes) {
+        boolean[] found = {false};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMethodInsn(int opcode, String owner, String method,
+                            String methodDescriptor, boolean isInterface) {
+                        if (owner.equals(PERFORMANCE_HELPER)) found[0] = true;
+                    }
+                };
+            }
+        }, 0);
+        return found[0];
+    }
+
+    /**
+     * Enables XR_EXT_performance_settings and requests performance levels (see VoxyQuestXr).
+     * Expects a class already wrapped by {@link #patchClass}. The extension list is finished by
+     * one PointerBuffer.flip() in initializeOpenXRInstance, which becomes a call with the same
+     * stack shape; the request goes inside the refresh-rate wrapper's catch-all, before the
+     * original method runs. A build that differs from that shape keeps its own behaviour.
+     */
+    static byte[] patchPerformance(byte[] original) throws IOException {
+        ClassReader reader = new ClassReader(original);
+        if (!(reader.getClassName() + ".class").equals(CLASS) || !isRefreshWrapped(original))
+            throw new IOException("Unexpected performance patch target");
+        String owner = reader.getClassName();
+        boolean[] hasSession = {false};
+        reader.accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public FieldVisitor visitField(int access, String name, String descriptor,
+                    String signature, Object value) {
+                if (name.equals("session") && descriptor.equals("Lorg/lwjgl/openxr/XrSession;")) hasSession[0] = true;
+                return null;
+            }
+        }, 0);
+        int flips = countFlips(original);
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        reader.accept(new ClassVisitor(Opcodes.ASM9, writer) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                MethodVisitor method = super.visitMethod(access, name, descriptor, signature, exceptions);
+                if (name.equals("initializeOpenXRInstance") && descriptor.equals("()V") && flips == 1) {
+                    return new MethodVisitor(Opcodes.ASM9, method) {
+                        @Override public void visitMethodInsn(int opcode, String insnOwner, String insnName,
+                                String insnDescriptor, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKEVIRTUAL && insnOwner.equals("org/lwjgl/PointerBuffer") &&
+                                    insnName.equals("flip") && insnDescriptor.equals("()Lorg/lwjgl/system/CustomBuffer;")) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, PERFORMANCE_HELPER, "flipExtensions",
+                                        "(Lorg/lwjgl/PointerBuffer;)Lorg/lwjgl/system/CustomBuffer;", false);
+                                return;
+                            }
+                            super.visitMethodInsn(opcode, insnOwner, insnName, insnDescriptor, isInterface);
+                        }
+                    };
+                }
+                if (name.equals(REFRESH_METHOD) && descriptor.equals("()V") && hasSession[0]) {
+                    return new MethodVisitor(Opcodes.ASM9, method) {
+                        @Override public void visitMethodInsn(int opcode, String insnOwner, String insnName,
+                                String insnDescriptor, boolean isInterface) {
+                            if (opcode == Opcodes.INVOKESPECIAL && insnName.equals(ORIGINAL_REFRESH_METHOD)) {
+                                // Inside the wrapper's try block, so a failure here cannot stop VR.
+                                super.visitVarInsn(Opcodes.ALOAD, 0);
+                                super.visitFieldInsn(Opcodes.GETFIELD, owner, "session", "Lorg/lwjgl/openxr/XrSession;");
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, PERFORMANCE_HELPER, "raisePerformance",
+                                        "(Lorg/lwjgl/openxr/XrSession;)V", false);
+                            }
+                            super.visitMethodInsn(opcode, insnOwner, insnName, insnDescriptor, isInterface);
+                        }
+                    };
+                }
+                return method;
+            }
+        }, 0);
+        return writer.toByteArray();
+    }
+
+    private static int countFlips(byte[] bytes) {
+        int[] count = {0};
+        new ClassReader(bytes).accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public MethodVisitor visitMethod(int access, String name, String descriptor,
+                    String signature, String[] exceptions) {
+                if (!name.equals("initializeOpenXRInstance")) return null;
+                return new MethodVisitor(Opcodes.ASM9) {
+                    @Override public void visitMethodInsn(int opcode, String owner, String method,
+                            String methodDescriptor, boolean isInterface) {
+                        if (owner.equals("org/lwjgl/PointerBuffer") && method.equals("flip")) count[0]++;
+                    }
+                };
+            }
+        }, 0);
+        return count[0];
     }
 
     private static void rememberVerified(File stamp, File jar) {

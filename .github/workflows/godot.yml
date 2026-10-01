@@ -225,6 +225,8 @@ jobs:
           export VOXYQUEST_NEOFORGE_TEST_JAR="third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar"
           export VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS="third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.4/vivecraft.jar:third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.1/vivecraft.jar"
           curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          bash scripts/build_vivecraft_compat.sh "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          export VOXYQUEST_VIVECRAFT_PERF_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestXr.bin
           bash scripts/build_simulated_vr_compat.sh "$RUNNER_TEMP/simulated-fakes"
           # QuestCraft's prebuilt OpenAL, LTW and JNA still carry debug symbols (OpenAL: 16 MB).
           /usr/local/lib/android/sdk/ndk/28.1.13356709/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip \

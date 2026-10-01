@@ -172,11 +172,15 @@ open class MinecraftGameActivity : Activity() {
                 check(account.isDemoMode || account.expiresOn >= System.currentTimeMillis()) { "Sign in again" }
                 if (vr) {
                     val gameDir = java.io.File(instance.gameDir)
+                    // Asks Horizon OS for sustained high CPU/GPU levels (compat/vivecraft).
+                    val performance = runCatching {
+                        assets.open("voxyquest/compat/VoxyQuestXr.bin").use { it.readBytes() }
+                    }.getOrNull()
                     val patched = if (instance.loaderId() == "neoforge") {
                         assets.open(VoxyQuestInstaller.neoForgeVivecraftAsset(instance.versionName)).use { bundled ->
-                            pojlib.util.VivecraftRefreshRateFix.apply(gameDir, bundled)
+                            pojlib.util.VivecraftRefreshRateFix.apply(gameDir, bundled, performance)
                         }
-                    } else pojlib.util.VivecraftRefreshRateFix.apply(gameDir)
+                    } else pojlib.util.VivecraftRefreshRateFix.apply(gameDir, null, performance)
                     if (patched) Logger.getInstance().appendToLog(
                         "VoxyQuest launch: applied Vivecraft OpenXR compatibility fixes",
                     )

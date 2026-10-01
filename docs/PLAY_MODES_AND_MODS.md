@@ -105,6 +105,14 @@ you set yourself afterwards is kept. Frames are still paced to the display:
 - **Flatscreen:** the game window asks Android for the display's fastest mode, and vsync
   follows it. The launch log records the rate you got.
 
+In VR, Vivecraft never told Horizon OS how much performance it needs, so the headset ran
+Minecraft at the clocks it picks for an app that states nothing. The launcher now adds a small
+class to Vivecraft. It enables the OpenXR `XR_EXT_performance_settings` extension and asks
+for sustained high CPU and GPU levels once the VR session starts. The headset may run warmer
+and use more battery. The launch log line `VoxyQuest: requested sustained high CPU ... and
+GPU ... levels` shows the result codes, where 0 means accepted. If the runtime refuses, or a
+Vivecraft build looks different, VR starts exactly as before.
+
 The JVM heap can now grow to 3 GiB, but never past half of the memory free at launch.
 Higher render distances need that headroom, and a full heap costs frames in collector work.
 Whether a given mod pack and render distance reach 100 fps still depends on the headset,
