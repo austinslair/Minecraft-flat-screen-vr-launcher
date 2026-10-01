@@ -199,6 +199,20 @@ open class MinecraftGameActivity : Activity() {
                         Logger.getInstance().appendToLog("VoxyQuest launch: Sable natives not patched: ${e.message}")
                     }
                 }
+                if (vr) {
+                    val helper = runCatching {
+                        assets.open("voxyquest/compat/VoxyQuestVrHold.bin").use { it.readBytes() }
+                    }.getOrNull()
+                    if (helper != null) {
+                        val simulated = pojlib.util.SimulatedVrFix.apply(File(instance.gameDir), helper)
+                        if (simulated.patched.isNotEmpty()) Logger.getInstance().appendToLog(
+                            "VoxyQuest launch: patched ${simulated.patched} so Create Aeronautics controls follow the VR controller",
+                        )
+                        if (simulated.unsupported.isNotEmpty()) Logger.getInstance().appendToLog(
+                            "VoxyQuest launch: left ${simulated.unsupported} unpatched; its Simulated version is unfamiliar",
+                        )
+                    }
+                }
                 PerformanceTuning.apply(java.io.File(instance.gameDir), vr)
                 API.currentInstance = instance
                 API.gameReady = false

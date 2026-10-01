@@ -128,3 +128,18 @@ the launcher carries Android builds for these mods:
 
 Distance Horizons in VR has not been tested on a headset. It renders its LODs once per eye,
 so expect a larger frame-rate cost than on a flat screen.
+
+## Create Aeronautics in VR
+
+Create Aeronautics' physics assembler lever, throttle lever and steering wheel move while
+you hold use and move the mouse, and let go when you release the button. Vivecraft provides
+neither, so in VR the assembler lever could not be pulled. On VR launches, VoxyQuest adds a
+small class to Simulated, the library Aeronautics is built on, and calls it every tick.
+Hold the trigger on the control and tilt the main-hand controller instead:
+- **Levers:** tilt the controller up to pull the lever up.
+- **Steering wheel:** turn the controller left or right.
+
+The movement uses the same scale as mouse look, so about 40° of tilt pulls the assembler lever
+all the way. Letting go of the trigger releases the control, which is when the assembler
+builds the contraption. The original JAR is kept in `voxyquest-backups`. A Simulated release
+whose code looks different is left unpatched, and the launch log says so.

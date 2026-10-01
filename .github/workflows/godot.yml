@@ -225,6 +225,7 @@ jobs:
           export VOXYQUEST_NEOFORGE_TEST_JAR="third_party/Pojlib/src/main/assets/voxyquest/neoforge/vivecraft.jar"
           export VOXYQUEST_NEOFORGE_LEGACY_TEST_JARS="third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.4/vivecraft.jar:third_party/Pojlib/src/main/assets/voxyquest/neoforge/1.21.1/vivecraft.jar"
           curl --fail --location --retry 3 https://github.com/QuestCraftPlusPlus/VivecraftMod/releases/download/1.21.5-1.2.5-OpenXR/vivecraft-1.21.5-1.2.5-fabric.jar -o "$VOXYQUEST_VIVECRAFT_TEST_JAR"
+          bash scripts/build_simulated_vr_compat.sh "$RUNNER_TEMP/simulated-fakes"
           gradle -p android/bridge :plugin:syncToGodot --no-daemon
           ccache --show-stats | grep -E 'Hits|Misses' || true
           mkdir -p "$RUNNER_TEMP/refresh-tests"
@@ -235,8 +236,11 @@ jobs:
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.VivecraftRefreshRateFixTest
           javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ClasspathUtils.java third_party/Pojlib/src/test/java/pojlib/util/ClasspathUtilsTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.ClasspathUtilsTest
-          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SableNativeFix.java third_party/Pojlib/src/test/java/pojlib/util/SableNativeFixTest.java
           java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.SableNativeFixTest
+          javac -cp "$RUNNER_TEMP/refresh-tests/*" -d "$RUNNER_TEMP/refresh-tests" third_party/Pojlib/src/main/java/pojlib/util/ModJarPatcher.java third_party/Pojlib/src/main/java/pojlib/util/SimulatedVrFix.java third_party/Pojlib/src/test/java/pojlib/util/SimulatedVrFixTest.java
+          VOXYQUEST_SIMULATED_FAKES="$RUNNER_TEMP/simulated-fakes" VOXYQUEST_SIMULATED_HELPER=third_party/Pojlib/src/main/assets/voxyquest/compat/VoxyQuestVrHold.bin \
+            java -cp "$RUNNER_TEMP/refresh-tests:$RUNNER_TEMP/refresh-tests/*" org.junit.runner.JUnitCore pojlib.util.SimulatedVrFixTest
 
       - name: Verify launcher and account runtime
         run: |
