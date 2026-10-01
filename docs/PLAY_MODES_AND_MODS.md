@@ -129,6 +129,25 @@ Any of these flags that an older Java runtime does not recognise is ignored. Cla
 Sharing would help too, but the bundled Java 22 runtime ships without the base archive it needs.
 The launch log timestamps each stage, so Settings → Export log shows where the time goes.
 
+## Mod checks
+
+Before each launch the launcher reads the enabled mods the way the loader will, including mods
+bundled inside other mods. On the Quest a loader that finds a problem cannot show its error
+window, so these are fixed first:
+
+- Two copies of the same mod: the older file is renamed to `.jar.disabled` (the launcher's
+  Vivecraft is always the copy kept). It shows as disabled on the Mods page.
+- Required mods that are missing are downloaded from Modrinth: the dependencies Modrinth lists
+  for the installed files first, then a project whose slug matches the missing mod ID. A
+  download that turns out not to provide a missing mod is removed again.
+- Anything that cannot be fixed is written to the launch log as
+  `missing required mods: <id> (needed by <file>)`.
+
+The check is skipped while the mods folder is unchanged since the last clean check. Mods added
+with "Add mod" get the same dependency download right away. Installing a mod from Modrinth search
+that is already installed updates it, keeping the old file in
+`voxyquest-backups/replaced-mods`. Server-only mods are refused, since they do nothing in the game.
+
 ## Modpacks
 
 Modrinth modpacks install as a new instance that uses the pack's Minecraft version and loader

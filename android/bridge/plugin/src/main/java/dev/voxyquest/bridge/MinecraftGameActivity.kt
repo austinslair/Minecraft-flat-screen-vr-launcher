@@ -162,6 +162,7 @@ open class MinecraftGameActivity : Activity() {
                 }
                 check(VoxyQuestInstaller.isInstalled(instance)) { "Instance files are incomplete" }
                 VoxyQuestInstaller.ensureLaunchRuntime(this, instance)
+                ModDoctor.prepareForLaunch(instance)
                 Logger.getInstance().appendToLog(
                     "VoxyQuest launch: runtime checked after ${android.os.SystemClock.elapsedRealtime() - launchStartedAt}ms",
                 )

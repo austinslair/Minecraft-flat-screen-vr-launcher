@@ -66,7 +66,11 @@ internal object ModrinthClient {
         return results
     }
 
-    fun install(instanceName: String, project: String, progress: (String) -> Unit): String {
+    /**
+     * Installs a mod and its required dependencies. When the mod is already installed, [update]
+     * replaces it with the newest compatible build, keeping the old file as a backup.
+     */
+    fun install(instanceName: String, project: String, update: Boolean = true, progress: (String) -> Unit): String {
         require(projectId.matches(project)) { "Invalid Modrinth project." }
         val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == instanceName }
             ?: error("Instance no longer exists.")
@@ -78,10 +82,11 @@ internal object ModrinthClient {
         val mods = File(game, "mods").canonicalFile
         check(mods.parentFile == game && mods.isDirectory) { "Instance mods folder is unavailable." }
 
-        val installedIds = HashSet<String>()
+        val installedFiles = HashMap<String, File>()
         mods.listFiles().orEmpty().filter { it.isFile && it.extension.equals("jar", true) }.forEach { file ->
-            runCatching { JarFile(file).use { jar -> modId(jar, loader)?.let(installedIds::add) } }
+            runCatching { JarFile(file).use { jar -> modId(jar, loader)?.let { installedFiles[it] = file } } }
         }
+        val installedIds = HashSet(installedFiles.keys)
 
         val versions = ArrayList<JSONObject>()
         val seen = HashSet<String>()
@@ -147,6 +152,7 @@ internal object ModrinthClient {
         val requestedVersionId = versions.last().getString("id")
 
         val staged = ArrayList<Pair<File, File>>()
+        var replaced: File? = null
         try {
             for (version in versions) {
                 val files = version.getJSONArray("files")
@@ -157,8 +163,9 @@ internal object ModrinthClient {
                     ?: error("A mod version has no JAR.")
                 val filename = safeName(chosen.getString("filename"))
                 val destination = File(mods, filename)
-                if (destination.exists() && version.getString("id") != requestedVersionId) continue
-                check(!destination.exists()) { "$filename already exists. Existing mods were not replaced." }
+                val requested = version.getString("id") == requestedVersionId
+                if (destination.exists() && !requested) continue
+                if (destination.exists()) return "$filename is already installed and up to date."
                 val sha512 = chosen.getJSONObject("hashes").getString("sha512")
                 check(sha512.matches(Regex("[a-fA-F0-9]{128}"))) { "Mod checksum missing." }
                 val url = URL(chosen.getString("url"))
@@ -170,16 +177,28 @@ internal object ModrinthClient {
                 JarFile(temp).use { jar ->
                     val id = modId(jar, loader) ?: error("$filename is not a $loader mod.")
                     if (!installedIds.add(id)) {
-                        if (version.getString("id") == requestedVersionId)
-                            error("$id is already installed. Existing mods were not replaced.")
-                        staged.removeAt(staged.lastIndex)
-                        temp.delete()
+                        val old = installedFiles[id]
+                        if (requested && update && old != null && old.name != "Vivecraft.jar") {
+                            replaced = old
+                        } else {
+                            if (requested) error("$id is already installed. Existing mods were not replaced.")
+                            staged.removeAt(staged.lastIndex)
+                            temp.delete()
+                        }
                     }
                 }
             }
             val count = staged.size
+            replaced?.let { old ->
+                val backups = File(game, "voxyquest-backups/replaced-mods").apply { mkdirs() }
+                Files.move(old.toPath(), File(backups, "${old.name}.${System.currentTimeMillis()}.bak").toPath())
+            }
             staged.forEach { (temp, destination) -> Files.move(temp.toPath(), destination.toPath()) }
-            val installed = "Installed $count mod file(s) for Minecraft $gameVersion."
+            val installed = if (replaced != null)
+                "Updated ${replaced!!.name} to ${staged.last().second.name}" +
+                    (if (count > 1) " with ${count - 1} dependency file(s)" else "") +
+                    ". The old file is in voxyquest-backups/replaced-mods."
+                else "Installed $count mod file(s) for Minecraft $gameVersion."
             return if (skipped.isEmpty()) installed
             else "$installed Not available for this version, install separately if the game asks: " +
                 skipped.joinToString(", ") + "."
@@ -211,11 +230,66 @@ internal object ModrinthClient {
         }
     }
 
-    /** The project, when it is a modpack; null for a mod. */
+    /** The project, when it is a modpack; null for a mod. Refuses mods that do nothing in the client. */
     fun modpack(project: String): JSONObject? {
         require(projectId.matches(project)) { "Invalid Modrinth project." }
         val info = JSONObject(read("$API/project/$project"))
-        return if (info.optString("project_type") == "modpack") info else null
+        if (info.optString("project_type") == "modpack") return info
+        check(info.optString("client_side") != "unsupported") {
+            "${info.optString("title", "This mod")} only runs on servers, so it does nothing in your game."
+        }
+        return null
+    }
+
+    /** The ID of a client mod project named by ID or slug, or null when there is none. */
+    fun projectId(idOrSlug: String): String? {
+        if (!idOrSlug.matches(Regex("[A-Za-z0-9_.-]{2,64}"))) return null
+        // Not found and unreachable both mean there is nothing to install from here.
+        val info = runCatching { JSONObject(read("$API/project/${Uri.encode(idOrSlug)}")) }.getOrNull() ?: return null
+        if (info.optString("project_type") != "mod" || info.optString("client_side") == "unsupported") return null
+        return info.optString("id").takeIf { projectId.matches(it) }
+    }
+
+    /** Projects that Modrinth's copies of these files list as required for [loader]. */
+    fun requiredProjects(files: List<File>, loader: String): List<String> {
+        if (files.isEmpty()) return emptyList()
+        val hashes = JSONArray()
+        files.forEach { hashes.put(ModDoctor.sha512(it)) }
+        val body = JSONObject().put("hashes", hashes).put("algorithm", "sha512").toString()
+        val versions = JSONObject(post("$API/version_files", body))
+        val result = LinkedHashSet<String>()
+        for (key in versions.keys()) {
+            val version = versions.getJSONObject(key)
+            val loaders = version.optJSONArray("loaders") ?: JSONArray()
+            if ((0 until loaders.length()).none { loaders.getString(it) == loader }) continue
+            val dependencies = version.optJSONArray("dependencies") ?: continue
+            for (i in 0 until dependencies.length()) {
+                val dep = dependencies.getJSONObject(i)
+                if (dep.optString("dependency_type") != "required") continue
+                dep.optString("project_id").takeIf { projectId.matches(it) }?.let(result::add)
+            }
+        }
+        return result.toList()
+    }
+
+    private fun post(url: String, body: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 12000
+        connection.readTimeout = 15000
+        connection.instanceFollowRedirects = false
+        connection.requestMethod = "POST"
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.setRequestProperty("User-Agent", USER_AGENT)
+        try {
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            check(connection.responseCode == 200) { "Modrinth request failed (${connection.responseCode})." }
+            connection.inputStream.use { stream ->
+                val bytes = stream.readNBytes(MAX_METADATA + 1)
+                check(bytes.size <= MAX_METADATA) { "Modrinth response is too large." }
+                return String(bytes, Charsets.UTF_8)
+            }
+        } finally { connection.disconnect() }
     }
 
     internal fun versionsUrl(id: String, loader: String, gameVersion: String) =

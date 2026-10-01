@@ -42,7 +42,11 @@ class ModImportActivity : Activity() {
                     if (filename.endsWith(".mrpack", true)) {
                         LauncherOperations.importModpack(this, it) { step -> runOnUiThread { status.text = step } }
                     } else {
-                        LauncherOperations.importMod(instance, filename, it)
+                        val added = LauncherOperations.importMod(instance, filename, it)
+                        if (!added.startsWith("Added ")) added else {
+                            runOnUiThread { status.text = "Checking what this mod needs…" }
+                            added + LauncherOperations.installMissingDependencies(instance)
+                        }
                     }
                 } ?: "Could not open that file."
             }.getOrDefault("Could not import the file. Check the file and free space.")

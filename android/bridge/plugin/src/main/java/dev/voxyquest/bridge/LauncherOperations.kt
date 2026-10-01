@@ -387,6 +387,28 @@ object LauncherOperations {
         }
     }
 
+    /** After a mod is added by hand: downloads the mods it requires that are missing. */
+    fun installMissingDependencies(name: String): String {
+        synchronized(this) {
+            if (isBusy() || MinecraftGameActivity.isRunning) return ""
+            state = "installing_mod"
+        }
+        try {
+            val instance = VoxyQuestInstaller.readRegistry().toArray().firstOrNull { it.instanceName == name } ?: return ""
+            val gameDir = File(instance.gameDir ?: return "")
+            val report = ModDoctor.check(gameDir, instance.loaderId())
+            if (report.missing.isEmpty()) return ""
+            val installed = ModDoctor.fixMissing(instance, report)
+            val still = ModDoctor.check(gameDir, instance.loaderId()).missing
+            return (if (installed.isEmpty()) "" else " Also installed the mods it needs: ${installed.joinToString(", ")}.") +
+                (if (still.isEmpty()) "" else " Still missing, find these on Modrinth: ${ModDoctor.describe(still)}.")
+        } catch (_: Exception) {
+            return ""
+        } finally {
+            state = "idle"
+        }
+    }
+
     /** Installs a picked .mrpack as a new instance. Runs on the caller's worker thread. */
     fun importModpack(activity: Activity, input: java.io.InputStream, progress: (String) -> Unit): String {
         synchronized(this) {
